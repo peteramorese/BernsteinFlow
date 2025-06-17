@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-def sample_modal_gaussian(n_samples: int, means, covariances, weights=None, seed=None):
+def sample_modal_gaussian(n_samples : int, means, covariances, weights=None, seed=None):
     if seed is not None:
         np.random.seed(seed)
 
