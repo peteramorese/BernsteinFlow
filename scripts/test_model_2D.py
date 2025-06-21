@@ -1,5 +1,5 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
-from bernstein_flow.Model import BernsteinFlowModel, train
+from bernstein_flow.Model import BernsteinFlowModel, optimize
 
 from .TestDataSets import sample_modal_gaussian, plot_data
 from .Visualization import create_interactive_transformer_plot
@@ -155,7 +155,7 @@ if __name__ == "__main__":
 
     # Train
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    train(model, dataloader, optimizer, epochs=n_epochs)
+    optimize(model, dataloader, optimizer, epochs=n_epochs)
 
     # Plot the density estimate
     bounds = axes[0, 0].get_xlim() + axes[0, 0].get_ylim()

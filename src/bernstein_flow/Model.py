@@ -137,30 +137,30 @@ class BernsteinFlowModel(torch.nn.Module):
 
         tf_val = torch.sum(torch.mul(tf_coeffs, tf_basis_vals), 1) 
         return tf_val
-    
-def nll_loss(model, x_data):
-    density = model(x_data)
-    log_density = torch.log(density + 1e-10)
-    loss = -log_density.mean()
-    return loss
 
-def train_step(model, x_data, optimizer):
-    model.train()
-    optimizer.zero_grad()
-    loss = nll_loss(model, x_data)
-    loss.backward()
-    optimizer.step()
-    return loss.item()
-
-def train(model : BernsteinFlowModel, data_loader : DataLoader, optimizer, epochs=100):
-    for epoch in range(epochs):
-        total_loss = 0.0
-        for x_batch in data_loader:
-            x_batch = x_batch[0].to(next(model.parameters()).device)
-            loss = train_step(model, x_batch, optimizer)
-            total_loss += loss
-        avg_loss = total_loss / len(data_loader)
-        print(f"Epoch {epoch+1}: Avg Loss = {avg_loss:.6f}")
+#    def __nll_loss(self, x_data):
+#        density = self(x_data)
+#        log_density = torch.log(density + 1e-10)
+#        loss = -log_density.mean()
+#        return loss
+#
+#    def __train_step(self, x_data, optimizer):
+#        self.train()
+#        optimizer.zero_grad()
+#        loss = self.__nll_loss(x_data)
+#        loss.backward()
+#        optimizer.step()
+#        return loss.item()
+#
+#    def optimize(self, data_loader : DataLoader, optimizer, epochs=100):
+#        for epoch in range(epochs):
+#            total_loss = 0.0
+#            for x_batch in data_loader:
+#                x_batch = x_batch[0].to(next(self.parameters()).device)
+#                loss = self.__train_step(x_batch, optimizer)
+#                total_loss += loss
+#            avg_loss = total_loss / len(data_loader)
+#            print(f"Epoch {epoch+1}: Avg Loss = {avg_loss:.6f}")
 
 
 
@@ -212,3 +212,27 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
     def transformer(self, x : torch.Tensor, y : torch.Tensor, i : int):
         conditoner_aug_x = torch.cat([x, y])
         return BernsteinFlowModel.transformer(conditoner_aug_x)
+
+def nll_loss(model, data):
+    density = model(data)
+    log_density = torch.log(density + 1e-10)
+    loss = -log_density.mean()
+    return loss
+
+def train_step(model, x_data, optimizer):
+    model.train()
+    optimizer.zero_grad()
+    loss = nll_loss(model, x_data)
+    loss.backward()
+    optimizer.step()
+    return loss.item()
+
+def optimize(model, data_loader : DataLoader, optimizer, epochs=100):
+    for epoch in range(epochs):
+        total_loss = 0.0
+        for x_batch in data_loader:
+            x_batch = x_batch[0].to(next(model.parameters()).device)
+            loss = train_step(model, x_batch, optimizer)
+            total_loss += loss
+        avg_loss = total_loss / len(data_loader)
+        print(f"Epoch {epoch+1}: Avg Loss = {avg_loss:.6f}")
