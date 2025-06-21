@@ -64,6 +64,7 @@ class BernsteinFlowModel(torch.nn.Module):
         self.tf_basis_funcs = [bernstein_basis_functions(1, transformer_degrees[i]) for i in range(dim)]
         self.tf_deriv_basis_funcs = [bernstein_basis_functions(1, transformer_degrees[i] - 1, scale=transformer_degrees[i]) for i in range(dim)]
         self.cond_basis_funcs = [bernstein_basis_functions(i, conditioner_degrees[i]) for i in range(dim)]
+        self.cond_input_dims = list(range(dim))
     
     def n_parameters(self):
         n_params = 0
@@ -94,12 +95,14 @@ class BernsteinFlowModel(torch.nn.Module):
         return c_alpha_matrix
     
     def transformer_deriv(self, x : torch.Tensor, i : int):
+        assert i < self.dim, "Number of transformers is the dimension of the random variable"
+
         # Evaluate the basis functions for each term in the transformer
         #print("number of tf basis funcs", len(self.tf_deriv_basis_funcs[i]))
         tf_deriv_basis_vals = torch.stack([phi_j(x[:, i]) for phi_j in self.tf_deriv_basis_funcs[i]], dim=1)
 
         # Evaluate the basis functions for each term in the conditioner
-        cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(i)]) for phi_k in self.cond_basis_funcs[i]], dim=1) if i > 0 else torch.ones(x.shape[0], 1, device=x.device)
+        cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(self.cond_input_dims[i])]) for phi_k in self.cond_basis_funcs[i]], dim=1) if self.cond_input_dims[i] > 0 else torch.ones(x.shape[0], 1, device=x.device)
         
         c_alpha_matrix = self.get_constrained_parameters(i)
 
@@ -115,10 +118,12 @@ class BernsteinFlowModel(torch.nn.Module):
         return tf_val
     
     def transformer(self, x : torch.Tensor, i : int):
+        assert i < self.dim, "Number of transformers is the dimension of the random variable"
+
         tf_basis_vals = torch.stack([phi_j(x[:, i]) for phi_j in self.tf_basis_funcs[i]], dim=1)
 
         # Evaluate the basis functions for each term in the conditioner
-        cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(i)]) for phi_k in self.cond_basis_funcs[i]], dim=1) if i > 0 else torch.ones(x.shape[0], 1, device=x.device)
+        cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(self.cond_input_dims[i])]) for phi_k in self.cond_basis_funcs[i]], dim=1) if self.cond_input_dims[i] > 0 else torch.ones(x.shape[0], 1, device=x.device)
         
         c_alpha_matrix = self.get_constrained_parameters(i)
 
@@ -132,7 +137,7 @@ class BernsteinFlowModel(torch.nn.Module):
 
         tf_val = torch.sum(torch.mul(tf_coeffs, tf_basis_vals), 1) 
         return tf_val
-
+    
 def nll_loss(model, x_data):
     density = model(x_data)
     log_density = torch.log(density + 1e-10)
@@ -159,3 +164,51 @@ def train(model : BernsteinFlowModel, data_loader : DataLoader, optimizer, epoch
 
 
 
+
+class ConditionalBernsteinFlowModel(BernsteinFlowModel):
+    def __init__(self, dim : int, conditional_dim : int, transformer_degrees : int, conditioner_degrees : int):
+        torch.nn.Module.__init__(self)
+
+        self.dim = dim
+
+        self.tf_degs = transformer_degrees
+        self.cond_degs = conditioner_degrees
+
+        # Parameters
+        self.A = torch.nn.ParameterList()
+        for i in range(dim):
+            # Number of coefficients in each conditioner polynomial (flattened tensor)
+            # For conditional model, the dimension of each condition effectively increase by the conditional dim
+            alpha_j_size = (conditioner_degrees[i] + 1)**(i + conditional_dim)
+
+            # Initialize the coefficients of each Bernstein conditioner except the first and last one (which are always 0 and 1)
+            # Rows correspond to basis polynomials, columns correspond to which TF coefficient the conditioner outputs
+            alpha_matrix = torch.nn.Parameter(torch.rand(alpha_j_size, transformer_degrees[i] - 1))
+        
+            self.A.append(alpha_matrix)
+        
+        # Basis functions
+        self.tf_basis_funcs = [bernstein_basis_functions(1, transformer_degrees[i]) for i in range(dim)]
+        self.tf_deriv_basis_funcs = [bernstein_basis_functions(1, transformer_degrees[i] - 1, scale=transformer_degrees[i]) for i in range(dim)]
+        self.cond_basis_funcs = [bernstein_basis_functions(i + conditional_dim, conditioner_degrees[i]) for i in range(dim)]
+        self.cond_input_dims = list(range(conditional_dim, conditional_dim + dim))
+
+    def forward(self, x : torch.Tensor, y : torch.Tensor):
+        """
+        Args:
+            x (torch.Tensor): random variable(s)
+            y (torch.Tensor): conditional variable(s)
+        """
+        density = torch.ones(x.shape[0], device=x.device)
+        for i in range(self.dim):
+            tf_val = self.transformer_deriv(x, i)
+            density *= tf_val
+        return density
+
+    def transformer_deriv(self, x : torch.Tensor, y : torch.Tensor, i : int):
+        conditoner_aug_x = torch.cat([x, y])
+        return BernsteinFlowModel.transformer_deriv(conditoner_aug_x)
+
+    def transformer(self, x : torch.Tensor, y : torch.Tensor, i : int):
+        conditoner_aug_x = torch.cat([x, y])
+        return BernsteinFlowModel.transformer(conditoner_aug_x)

@@ -105,16 +105,16 @@ if __name__ == "__main__":
     n_data = 5000
 
     # Number of training epochs
-    n_epochs = 1000
+    n_epochs = 300
 
-    #gdt = GaussianDistTransform(mean=dim*[0.5], variances=[1.0, 0.5])
-    gdt = GaussianDistTransform(mean=[0.5, 0.25], variances=[1.0, 0.5])
+    gdt = GaussianDistTransform(mean=dim*[0.0], variances=[3.0, 3.0])
+    #gdt = GaussianDistTransform(mean=[0.5, 0.25], variances=[1.0, 0.5])
 
     means = [[-1.5, -1.5], [1.5, 1.5]]
     covariances = [torch.eye(dim)*1.5, torch.eye(dim)*0.5]
     X_data = sample_modal_gaussian(n_data, means=means, covariances=covariances, weights=[.3, .7])
 
-    X_data, _ = make_moons(n_data, noise=0.05)
+    #X_data, _ = make_moons(n_data, noise=0.05)
     #X_data, _ = make_circles(n_data, noise=0.1, factor=0.4)
 
 
@@ -147,8 +147,8 @@ if __name__ == "__main__":
     dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
 
     # Create model
-    transformer_degrees = [100, 50]
-    conditioner_degrees = [20, 70]
+    transformer_degrees = [30, 20]
+    conditioner_degrees = [20, 30]
     model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees)
 
     print("Number of parameters in model: ", model.n_parameters())
