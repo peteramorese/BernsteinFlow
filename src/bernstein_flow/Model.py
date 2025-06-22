@@ -193,25 +193,25 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
         self.cond_basis_funcs = [bernstein_basis_functions(i + conditional_dim, conditioner_degrees[i]) for i in range(dim)]
         self.cond_input_dims = list(range(conditional_dim, conditional_dim + dim))
 
-    def forward(self, x : torch.Tensor, y : torch.Tensor):
-        """
-        Args:
-            x (torch.Tensor): random variable(s)
-            y (torch.Tensor): conditional variable(s)
-        """
-        density = torch.ones(x.shape[0], device=x.device)
-        for i in range(self.dim):
-            tf_val = self.transformer_deriv(x, i)
-            density *= tf_val
-        return density
+    #def forward(self, x : torch.Tensor, y : torch.Tensor):
+    #    """
+    #    Args:
+    #        x (torch.Tensor): random variable(s)
+    #        y (torch.Tensor): conditional variable(s)
+    #    """
+    #    density = torch.ones(x.shape[0], device=x.device)
+    #    for i in range(self.dim):
+    #        tf_val = self.transformer_deriv(x, i)
+    #        density *= tf_val
+    #    return density
 
-    def transformer_deriv(self, x : torch.Tensor, y : torch.Tensor, i : int):
-        conditoner_aug_x = torch.cat([x, y])
-        return BernsteinFlowModel.transformer_deriv(conditoner_aug_x)
+    #def transformer_deriv(self, x : torch.Tensor, y : torch.Tensor, i : int):
+    #    conditoner_aug_x = torch.cat([x, y])
+    #    return BernsteinFlowModel.transformer_deriv(conditoner_aug_x)
 
-    def transformer(self, x : torch.Tensor, y : torch.Tensor, i : int):
-        conditoner_aug_x = torch.cat([x, y])
-        return BernsteinFlowModel.transformer(conditoner_aug_x)
+    #def transformer(self, x : torch.Tensor, y : torch.Tensor, i : int):
+    #    conditoner_aug_x = torch.cat([x, y])
+    #    return BernsteinFlowModel.transformer(conditoner_aug_x)
 
 def nll_loss(model, data):
     density = model(data)

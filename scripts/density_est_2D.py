@@ -2,7 +2,7 @@ from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, optimize
 
 from .TestDataSets import sample_modal_gaussian, plot_data
-from .Visualization import create_interactive_transformer_plot
+from .Visualization import create_interactive_transformer_plot, evaluate_u_density_on_grid, evaluate_x_density_on_grid, plot_density, plot_density_surface
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,89 +11,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from sklearn.datasets import make_moons, make_circles
-
-def evaluate_u_density_on_grid(model, resolution=100, device=None):
-    """
-    Evaluate a trained model on a 2D grid over [0, 1]^2.
-
-    Args:
-        model: A trained PyTorch model that maps 2D inputs to scalar densities.
-        resolution: Number of points along each axis (default: 100).
-        device: Device to run the model on. If None, uses model's device.
-
-    Returns:
-        U0, U1`: Meshgrid coordinates (numpy arrays)
-        Z: Density values on the grid (numpy array of shape [resolution, resolution])
-    """
-    if device is None:
-        device = next(model.parameters()).device
-
-    # Create 2D grid over [0, 1] x [0, 1]
-    u0 = np.linspace(0, 1, resolution)
-    u1 = np.linspace(0, 1, resolution)
-    U0, U1 = np.meshgrid(u0, u1)
-
-    # Flatten grid and convert to tensor
-    grid_points = np.stack([U0.ravel(), U1.ravel()], axis=-1)  # shape: (resolution^2, 2)
-    grid_tensor = torch.tensor(grid_points, dtype=torch.float32, device=device)
-
-    # Evaluate model
-    with torch.no_grad():
-        model.eval()
-        densities = model(grid_tensor).cpu().numpy()  # shape: (resolution^2,)
-
-    Z = densities.reshape(resolution, resolution)
-    return U0, U1, Z
-
-def evaluate_x_density_on_grid(model, gdt: GaussianDistTransform, bounds : list, resolution=100, device=None):
-    """
-    Evaluate a trained model on a 2D grid over R^n
-
-    Args:
-        model: A trained PyTorch model that maps 2D inputs to scalar densities.
-        resolution: Number of points along each axis (default: 100).
-        device: Device to run the model on. If None, uses model's device.
-
-    Returns:
-        X0, X1: Meshgrid coordinates (numpy arrays)
-        Z: Density values on the grid (numpy array of shape [resolution, resolution])
-    """
-    if device is None:
-        device = next(model.parameters()).device
-
-    # Create 2D grid over [0, 1] x [0, 1]
-    x0 = np.linspace(bounds[0], bounds[1], resolution)
-    x1 = np.linspace(bounds[2], bounds[3], resolution)
-    X0, X1 = np.meshgrid(x0, x1)
-
-    # Flatten grid and convert to tensor
-    x_grid_points = np.stack([X0.ravel(), X1.ravel()], axis=-1)  # shape: (resolution^2, 2)
-    x_grid_tensor = torch.tensor(x_grid_points, dtype=torch.float32, device=device)
-
-    x_grid_tensor.dtype
-
-    # Evaluate model
-    def u_density(u : np.ndarray):
-        u = torch.from_numpy(u)
-        u = u.to(dtype=x_grid_tensor.dtype)
-        with torch.no_grad():
-            model.eval()
-            densities = model(u).cpu().numpy()  # shape: (resolution^2,)
-            return densities
-        
-    x_densities = gdt.x_density(x_grid_tensor, u_density)
-
-    Z = x_densities.reshape(resolution, resolution)
-    return X0, X1, Z
-
-def plot_density_surface(ax, X0, X1, Z):
-    # Create surface plot
-    surf = ax.plot_surface(X0, X1, Z, cmap='viridis', linewidth=0, antialiased=True)
-    return ax
-
-def plot_density(ax : plt.Axes, X0, X1, Z):
-    ax.contourf(X0, X1, Z, levels=50, cmap='viridis')
+#from sklearn.datasets import make_moons, make_circles
 
 
 if __name__ == "__main__":
