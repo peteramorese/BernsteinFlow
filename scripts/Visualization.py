@@ -110,6 +110,62 @@ def create_interactive_transformer_plot(model, dim):
     
     return fig, axes, sliders
 
+def create_interactive_traj_data_plot(trajectory_data):
+    """
+    Plots an interactive scatter plot of 2D state distributions across time steps.
+
+    Parameters:
+    -----------
+    trajectory_data : list of np.ndarray
+        A list of length k, where each element is a (p x 2) array.
+        Each array contains p samples from the 2D state distribution at a specific time step.
+    """
+    k = len(trajectory_data)
+    if k == 0:
+        raise ValueError("trajectory_data must be a non-empty list")
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=(8, 6))
+    plt.subplots_adjust(bottom=0.25)
+
+    # Set global axis limits
+    all_data = np.vstack(trajectory_data)
+    x_min, x_max = np.min(all_data[:, 0]), np.max(all_data[:, 0])
+    y_min, y_max = np.min(all_data[:, 1]), np.max(all_data[:, 1])
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
+    ax.set_xlabel("State dimension 1")
+    ax.set_ylabel("State dimension 2")
+    ax.set_title("State Distribution at Timestep 0")
+
+    # Initial scatter
+    scatter = ax.scatter(trajectory_data[0][:, 0], trajectory_data[0][:, 1], alpha=0.6)
+
+    # Slider axis and widget
+    slider_ax = plt.axes([0.15, 0.1, 0.7, 0.05])  # [left, bottom, width, height]
+    timestep_slider = widgets.Slider(
+        ax=slider_ax,
+        label='Timestep',
+        valmin=0,
+        valmax=k - 1,
+        valinit=0,
+        valstep=1,
+        color='steelblue'
+    )
+
+    # Update function
+    def update(val):
+        t = int(timestep_slider.val)
+        scatter.set_offsets(trajectory_data[t])
+        ax.set_title(f"p(x{t})")
+        fig.canvas.draw_idle()
+
+    timestep_slider.on_changed(update)
+
+    plt.show()
+
+    return fig, ax
+
 def evaluate_u_density_on_grid(model, resolution=100, device=None):
     """
     Evaluate a trained model on a 2D grid over [0, 1]^2.

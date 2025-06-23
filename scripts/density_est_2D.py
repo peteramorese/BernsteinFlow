@@ -25,7 +25,6 @@ if __name__ == "__main__":
     # Number of training epochs
     n_epochs = 300
 
-    gdt = GaussianDistTransform(mean=dim*[0.0], variances=[3.0, 3.0])
     #gdt = GaussianDistTransform(mean=[0.5, 0.25], variances=[1.0, 0.5])
 
     means = [[-1.5, -1.5], [1.5, 1.5]]
@@ -35,6 +34,7 @@ if __name__ == "__main__":
     #X_data, _ = make_moons(n_data, noise=0.05)
     #X_data, _ = make_circles(n_data, noise=0.1, factor=0.4)
 
+    gdt = GaussianDistTransform.moment_match_data(X_data)
 
     fig, axes = plt.subplots(2, 2)
     fig.set_figheight(9)

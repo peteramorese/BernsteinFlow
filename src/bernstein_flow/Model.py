@@ -30,7 +30,7 @@ def bernstein_basis_functions(dim : int, degree : int, coefficients : torch.Tens
             #B *= binomial(degree, alpha[i]) * x_syms[i]**alpha[i] * (1 - x_syms[i])**(degree - alpha[i])
         
         # Incorporate scale/coefficients
-        print("B: ", B)
+        #print("B: ", B)
         B *= scale
         if coefficients is not None:
             B *= coefficients[flat_idx]
@@ -118,7 +118,7 @@ class BernsteinFlowModel(torch.nn.Module):
         return tf_val
     
     def transformer(self, x : torch.Tensor, i : int):
-        assert i < self.dim, "Number of transformers is the dimension of the random variable"
+        assert i < self.dim, "Index of transformer is greater than the dimension of the random variable"
 
         tf_basis_vals = torch.stack([phi_j(x[:, i]) for phi_j in self.tf_basis_funcs[i]], dim=1)
 
@@ -170,6 +170,7 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
         torch.nn.Module.__init__(self)
 
         self.dim = dim
+        self.joint_dim = dim + conditional_dim
 
         self.tf_degs = transformer_degrees
         self.cond_degs = conditioner_degrees
