@@ -10,11 +10,42 @@ from scipy.fft import next_fast_len
 
 Polynomial = torch.Tensor
 
+def eval(p : Polynomial, x : torch.Tensor):
+    """
+    Evaluate a multivariate polynomial at a point x ∈ R^d.
+    
+    Args:
+        coeffs: A d-dimensional torch.Tensor of shape (n₁, n₂, ..., n_d), 
+                where coeffs[i₁, i₂, ..., i_d] is the coefficient of 
+                x₁^i₁ * x₂^i₂ * ... * x_d^i_d.
+        x: A torch.Tensor of shape (m, d) representing m points in R^d.
+        
+    Returns:
+        A scalar torch.Tensor containing the polynomial value at x.
+    """
+    assert x.ndim == 2, "x must be a 2D tensor of shape (m, d)"
+    d = p.ndim
+    m = x.shape[0]
+    assert x.shape[1] == d, f"Each point must have dimension {d}"
+
+    # Generate all exponent combinations (m, d)
+    exponents = torch.cartesian_prod(*[torch.arange(n, device=p.device) for n in p.shape])  # (m, d)
+
+    # Evaluate monomials at all x: x^exponents using broadcasting
+    # x shape: (p, d), exponents shape: (m, d)
+    x_powers = x.unsqueeze(1) ** exponents.unsqueeze(0)  # shape: (p, m, d)
+    monomials = torch.prod(x_powers, dim=2)  # shape: (p, m)
+
+    # Dot each row of monomials with the flattened coeffs
+    coeffs_flat = p.flatten()  # shape: (m,)
+    result = monomials @ coeffs_flat  # shape: (p,)
+
+    return result
+
 def binomial(n, k):
     return math.comb(n, k)
 
-
-def combinations(n, k, dtype=torch.double, device='cpu'):
+def binomial_tensor(n, k, dtype=torch.double, device='cpu'):
     n = torch.as_tensor(n, dtype=dtype, device=device)
     k = torch.as_tensor(k, dtype=dtype, device=device)
     
@@ -26,7 +57,7 @@ def combinations(n, k, dtype=torch.double, device='cpu'):
     
     # Use the mask to handle invalid k values, which should product in 0
     # exp(log_comb) for valid cases, 0 otherwise
-    # We round to handle potential floating point inaccuracies since combinations should be integers
+    # We round to handle potential floating point inaccuracies since binomial_tensor should be integers
     return torch.where(valid_mask, torch.exp(log_comb).round(), torch.zeros_like(log_comb))
 
 def bernstein_to_monomial(bernstein_coeffs: torch.Tensor) -> torch.Tensor:
@@ -52,8 +83,8 @@ def bernstein_to_monomial(bernstein_coeffs: torch.Tensor) -> torch.Tensor:
         
         mask = (j_ <= k_).float()
         
-        comb_nk = combinations(n, k_, dtype=dtype, device=device)
-        comb_kj = combinations(k_, j_, dtype=dtype, device=device)
+        comb_nk = binomial_tensor(n, k_, dtype=dtype, device=device)
+        comb_kj = binomial_tensor(k_, j_, dtype=dtype, device=device)
         
         signs = torch.pow(-1.0, k_ - j_)
         
@@ -100,8 +131,8 @@ def monomial_to_bernstein(monomial_coeffs: torch.Tensor) -> torch.Tensor:
 
         mask = (k_ <= j_).float()
         
-        comb_jk = combinations(j_, k_, dtype=dtype, device=device)
-        comb_nk = combinations(n, k_, dtype=dtype, device=device)
+        comb_jk = binomial_tensor(j_, k_, dtype=dtype, device=device)
+        comb_nk = binomial_tensor(n, k_, dtype=dtype, device=device)
         
         # Add a small epsilon to denominator to prevent division by zero
         # This is a safeguard; C(n, k) should be non-zero for k <= n.
@@ -124,10 +155,6 @@ def monomial_to_bernstein(monomial_coeffs: torch.Tensor) -> torch.Tensor:
 
     return bernstein_coeffs
 
-
-
-
-
 def create_d_separable_tensor(index_fcn, shape):
     # Compute g values for each dimension
     g_vectors = [torch.tensor([index_fcn(d, i) for i in range(shape[d])], dtype=torch.float32) for d in range(len(shape))]
@@ -140,8 +167,6 @@ def create_d_separable_tensor(index_fcn, shape):
         product *= g_vec.reshape(broadcast_shape)
     
     return product
-
-
 
 def fft_convolve_nd(a, b):
     """
