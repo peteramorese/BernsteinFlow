@@ -186,12 +186,13 @@ def fft_convolve_nd(a, b):
     slices = tuple(slice(0, s) for s in size)
     return c[slices]
 
-def triangular_poly_product(p_list : list[Polynomial], bernstein_basis = False):
+def poly_product(p_list : list[Polynomial], bernstein_basis = False):
     """
     Computes the product of a list of multivariate polynomials using FFT-based convolution.
     
     Each polynomial in p_list is a torch.Tensor of coefficients of increasing dimension:
-    p_list = [p(x1), p(x1,x2), ..., p(x1,...,xd)]
+    e.g. p_list = [p(x1), p(x1,x2), ..., p(x1,...,xd)]. The product is most efficient
+    when this order is given, but it is not necessary
     
     Returns:
         product: torch.Tensor of coefficients of the product polynomial.
@@ -292,7 +293,6 @@ def monomial_marginal(p : Polynomial, dims : list[int]):
         result = torch.sum(result, dim=dim, keepdim=False)
     
     return result
-
 
 
 if __name__ == "__main__":

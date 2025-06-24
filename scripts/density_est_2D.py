@@ -1,8 +1,9 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, optimize
+from bernstein_flow.Tools import grid_eval, model_u_eval_fcn, model_x_eval_fcn
 
 from .TestDataSets import sample_modal_gaussian, plot_data
-from .Visualization import create_interactive_transformer_plot, evaluate_u_density_on_grid, evaluate_x_density_on_grid, plot_density, plot_density_surface
+from .Visualization import create_interactive_transformer_plot, plot_density, plot_density_surface
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -23,7 +24,7 @@ if __name__ == "__main__":
     n_data = 5000
 
     # Number of training epochs
-    n_epochs = 300
+    n_epochs = 50
 
     #gdt = GaussianDistTransform(mean=[0.5, 0.25], variances=[1.0, 0.5])
 
@@ -65,8 +66,8 @@ if __name__ == "__main__":
     dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
 
     # Create model
-    transformer_degrees = [30, 20]
-    conditioner_degrees = [20, 30]
+    transformer_degrees = [3, 2]
+    conditioner_degrees = [2, 3]
     model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees)
 
     print("Number of parameters in model: ", model.n_parameters())
@@ -76,14 +77,17 @@ if __name__ == "__main__":
     optimize(model, dataloader, optimizer, epochs=n_epochs)
 
     # Plot the density estimate
+    model_x_eval = model_x_eval_fcn(model, gdt)
+    model_u_eval = model_u_eval_fcn(model)
+
     bounds = axes[0, 0].get_xlim() + axes[0, 0].get_ylim()
-    X0, X1, Z_x = evaluate_x_density_on_grid(model, gdt, bounds, resolution=100)
+    X0, X1, Z_x = grid_eval(model_x_eval, bounds, resolution=100)
     plot_density(axes[1, 0], X0, X1, Z_x)
     axes[1, 0].set_xlabel("x0")
     axes[1, 0].set_ylabel("x1")
     axes[1, 0].set_title("Feature-space PDF")
 
-    U0, U1, Z_u = evaluate_u_density_on_grid(model, resolution=100)
+    U0, U1, Z_u = grid_eval(model_u_eval, resolution=100)
     plot_density(axes[1, 1], U0, U1, Z_u)
     axes[1, 1].set_xlabel("u0")
     axes[1, 1].set_ylabel("u1")

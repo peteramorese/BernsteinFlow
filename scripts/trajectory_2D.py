@@ -1,10 +1,11 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
 from bernstein_flow.Tools import create_transition_data_matrix
-from bernstein_flow.Polynomial import eval, bernstein_to_monomial, triangular_poly_product
+from bernstein_flow.Polynomial import eval, bernstein_to_monomial, poly_product
+from bernstein_flow.Propagate import propagate
 
 from .Systems import Pendulum, sample_trajectories
-from .Visualization import create_interactive_transformer_plot, create_interactive_traj_data_plot, evaluate_u_density_on_grid, evaluate_x_density_on_grid, plot_density, plot_density_surface
+from .Visualization import create_interactive_transformer_plot, interactive_state_distribution_plot, evaluate_u_density_on_grid, evaluate_x_density_on_grid, plot_density, plot_density_surface
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -30,10 +31,13 @@ if __name__ == "__main__":
     # Number of training epochs
     n_epochs = 300
 
+    # Time horizon
+    timesteps = 10
+
     def init_state_sampler():
         return multivariate_normal.rvs(mean=np.array([0.1, 0.1]), cov = 0.01 * np.eye(dim))
 
-    traj_data = sample_trajectories(system, init_state_sampler, 10, n_traj)
+    traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
     # Moment match the GDT to all of the data over the whole horizon
     gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data))
@@ -46,7 +50,6 @@ if __name__ == "__main__":
     U0_data = gdt.X_to_U(X0_data) # Initial state data
     Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data
 
-    #create_interactive_traj_data_plot(traj_data)
 
     #input("Continue to training...")
 
@@ -64,73 +67,56 @@ if __name__ == "__main__":
     conditioner_degrees = [0, 3]
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees)
 
-    transformer_degrees = [4, 1]
-    conditioner_degrees = [0, 1]
+    #transformer_degrees = [4, 1]
+    #conditioner_degrees = [0, 1]
     transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
     print(f"Created transition model with {transition_model.n_parameters()} parameters")
 
-    p_list = init_state_model.get_transformer_polynomials()
+    # Train the models
+    init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-3)
+    print("Training initial state model...")
+    optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs)
+    print("Done training initial state model \n")
 
-    p_prod = triangular_poly_product(p_list, bernstein_basis=True)
-    p_prod_pwr = bernstein_to_monomial(p_prod)
+    print("Training transition model...")
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs)
+    print("Done training transition model \n")
 
-    resolution = 10
-    u0 = np.linspace(0, 1, resolution)
-    u1 = np.linspace(0, 1, resolution)
-    U0, U1 = np.meshgrid(u0, u1)
+    # Compute the propagated polynomials
+    p_init = poly_product(init_state_model.get_transformer_polynomials())
+    p_transition = poly_product(transition_model.get_transformer_polynomials())
+    density_polynomials = [p_init]
+    for k in range(1, timesteps):
+        p_curr = propagate([density_polynomials[k-1]], [p_transition])
+        density_polynomials.append(p_curr)
+        print(f"Computed p(x{k})")
 
-    # Flatten grid and convert to tensor
+    # Make pdf plotter for interactive vis
+    resolution = 100
+    U0, U1, Z_init = evaluate_u_density_on_grid(init_state_model, resolution=resolution)
     grid_points = np.stack([U0.ravel(), U1.ravel()], axis=-1)  # shape: (resolution^2, 2)
     grid_tensor = torch.tensor(grid_points, dtype=torch.float32)
+    def pdf_plotter(k : int):
+        u0 = np.linspace(0, 1, resolution)
+        u1 = np.linspace(0, 1, resolution)
+        U0, U1 = np.meshgrid(u0, u1)
 
-    densities = eval(p_prod_pwr, grid_tensor)
-    Z_poly = densities.reshape(resolution, resolution)
-
-
-    fig = plt.figure()
-    ax1 = fig.add_subplot(121, projection='3d')
-    plot_density_surface(ax1, U0, U1, Z_poly)
-
-    ax2 = fig.add_subplot(122, projection='3d')
-    U0, U1, Z = evaluate_u_density_on_grid(init_state_model, resolution=resolution)
-    plot_density_surface(ax2, U0, U1, Z)
-
-    print(Z_poly / Z)
+        # Flatten grid and convert to tensor
+        grid_points = np.stack([U0.ravel(), U1.ravel()], axis=-1)  # shape: (resolution^2, 2)
+        grid_tensor = torch.tensor(grid_points, dtype=torch.float32)
+        if k == 0:
+            return U0, U1, Z_init
+        else:
+            Z_poly = density_polynomials[k]
 
 
+            
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    #print("init model A: ", init_state_model.A)
-    #print("init Model polys: ", init_state_model.get_transformer_polynomials())
-    #print("tran model A: ", transition_model.A)
-    #print("tran Model polys: ", transition_model.get_transformer_polynomials())
-
-    ## Train the models
-    #init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-3)
-    #optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs)
-    #print("Done training initial state model \n")
-
-    #trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
-    #optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs)
-    #print("Done training transition model \n")
+    u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
+    interactive_state_distribution_plot(u_traj_data)
 
     ## Plot the density estimate
     #bounds = axes[0, 0].get_xlim() + axes[0, 0].get_ylim()
