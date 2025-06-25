@@ -10,7 +10,7 @@ from scipy.fft import next_fast_len
 
 Polynomial = torch.Tensor
 
-def eval(p : Polynomial, x : torch.Tensor):
+def poly_eval(p : Polynomial, x : torch.Tensor):
     """
     Evaluate a multivariate polynomial at a point x ∈ R^d.
     
@@ -174,8 +174,6 @@ def fft_convolve_nd(a, b):
     """
     size = [a.shape[i] + b.shape[i] - 1 for i in range(a.ndim)]
     fft_size = [next_fast_len(s) for s in size]
-    print("size: ", size)
-    print("fft_size: ", fft_size)
 
     A = torch.fft.rfftn(a, s=fft_size)
     B = torch.fft.rfftn(b, s=fft_size)

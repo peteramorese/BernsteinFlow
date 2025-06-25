@@ -87,7 +87,8 @@ if __name__ == "__main__":
     axes[1, 0].set_ylabel("x1")
     axes[1, 0].set_title("Feature-space PDF")
 
-    U0, U1, Z_u = grid_eval(model_u_eval, resolution=100)
+    u_bounds = [0.0, 1.0, 0.0, 1.0]
+    U0, U1, Z_u = grid_eval(model_u_eval, u_bounds, resolution=100)
     plot_density(axes[1, 1], U0, U1, Z_u)
     axes[1, 1].set_xlabel("u0")
     axes[1, 1].set_ylabel("u1")

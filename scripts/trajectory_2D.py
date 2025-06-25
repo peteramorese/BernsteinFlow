@@ -1,11 +1,11 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
-from bernstein_flow.Tools import create_transition_data_matrix
-from bernstein_flow.Polynomial import eval, bernstein_to_monomial, poly_product
+from bernstein_flow.Tools import create_transition_data_matrix, grid_eval
+from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product
 from bernstein_flow.Propagate import propagate
 
 from .Systems import Pendulum, sample_trajectories
-from .Visualization import create_interactive_transformer_plot, interactive_state_distribution_plot, evaluate_u_density_on_grid, evaluate_x_density_on_grid, plot_density, plot_density_surface
+from .Visualization import create_interactive_transformer_plot, interactive_state_distribution_plot, plot_density, plot_density_surface
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -29,7 +29,7 @@ if __name__ == "__main__":
     n_traj = 500
 
     # Number of training epochs
-    n_epochs = 300
+    n_epochs = 100
 
     # Time horizon
     timesteps = 10
@@ -63,8 +63,8 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=128, shuffle=True)
 
     # Create initial state and transition models
-    transformer_degrees = [3, 2]
-    conditioner_degrees = [0, 3]
+    transformer_degrees = [4, 4]
+    conditioner_degrees = [4, 4]
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees)
 
     #transformer_degrees = [4, 1]
@@ -95,28 +95,13 @@ if __name__ == "__main__":
         print(f"Computed p(x{k})")
 
     # Make pdf plotter for interactive vis
-    resolution = 100
-    U0, U1, Z_init = evaluate_u_density_on_grid(init_state_model, resolution=resolution)
-    grid_points = np.stack([U0.ravel(), U1.ravel()], axis=-1)  # shape: (resolution^2, 2)
-    grid_tensor = torch.tensor(grid_points, dtype=torch.float32)
     def pdf_plotter(k : int):
-        u0 = np.linspace(0, 1, resolution)
-        u1 = np.linspace(0, 1, resolution)
-        U0, U1 = np.meshgrid(u0, u1)
+        u_bounds = [0.0, 1.0, 0.0, 1.0]
+        return grid_eval(lambda u : poly_eval(density_polynomials[k], u), u_bounds)
 
-        # Flatten grid and convert to tensor
-        grid_points = np.stack([U0.ravel(), U1.ravel()], axis=-1)  # shape: (resolution^2, 2)
-        grid_tensor = torch.tensor(grid_points, dtype=torch.float32)
-        if k == 0:
-            return U0, U1, Z_init
-        else:
-            Z_poly = density_polynomials[k]
-
-
-            
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
-    interactive_state_distribution_plot(u_traj_data)
+    interactive_state_distribution_plot(u_traj_data, pdf_plotter)
 
     ## Plot the density estimate
     #bounds = axes[0, 0].get_xlim() + axes[0, 0].get_ylim()

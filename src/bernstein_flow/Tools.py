@@ -58,7 +58,7 @@ def grid_eval(f, bounds : list, resolution=100, device=None):
         values = f(grid_tensor).cpu().numpy()
 
     Z = values.reshape([resolution] * d)
-    return meshgrids, Z
+    return *meshgrids, Z
 
 def model_u_eval_fcn(model):
     def f(x):
@@ -66,11 +66,19 @@ def model_u_eval_fcn(model):
         return model(x).squeeze(-1)
     return f
 
-def model_x_eval_fcn(model, dt):
+def model_x_eval_fcn(model, dt, device=None):
     """
     Wraps a u-space model for evaluating in x, given a distribution transform (dt)
     """
+    if device is None:
+        device = next(model.parameters()).device
+
     def f(x):
-        u_fn = model_u_eval_fcn(model)
-        return dt.x_density(x, lambda u: u_fn(u.to(dtype=x.dtype, device=x.device)).cpu().numpy())
+        def u_density(u):
+            u = torch.tensor(u, dtype=torch.float32, device=device)
+            return model(u).detach().cpu().numpy()
+
+        x_density_np = dt.x_density(x, u_density)
+        return torch.from_numpy(x_density_np).to(device=device)
+
     return f  

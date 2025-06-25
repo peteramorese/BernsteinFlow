@@ -123,6 +123,10 @@ class BernsteinFlowModel(torch.nn.Module):
         tf_deriv_basis_vals = torch.stack([phi_j(x[:, i]) for phi_j in self.tf_deriv_basis_funcs[i]], dim=1)
 
         # Evaluate the basis functions for each term in the conditioner
+        #print("range : ", self.cond_input_dims[i])
+        #print("input x: ", [x[:, j] for j in range(self.cond_input_dims[i])])
+        ##print("output: ", self.cond_basis_funcs[0](*[x[:, j] for j in range(self.cond_input_dims[i])]))
+        #print("cond basis func [0]: ", self.cond_basis_funcs[0])
         cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(self.cond_input_dims[i])]) for phi_k in self.cond_basis_funcs[i]], dim=1) if self.cond_input_dims[i] > 0 else torch.ones(x.shape[0], 1, device=x.device)
         
         c_alpha_matrix = self.get_constrained_parameters(i)
