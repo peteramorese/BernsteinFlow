@@ -110,63 +110,7 @@ def create_interactive_transformer_plot(model, dim):
     
     return fig, axes, sliders
 
-#def create_interactive_traj_data_plot(trajectory_data):
-#    """
-#    Plots an interactive scatter plot of 2D state distributions across time steps.
-#
-#    Parameters:
-#    -----------
-#    trajectory_data : list of np.ndarray
-#        A list of length k, where each element is a (p x 2) array.
-#        Each array contains p samples from the 2D state distribution at a specific time step.
-#    """
-#    k = len(trajectory_data)
-#    if k == 0:
-#        raise ValueError("trajectory_data must be a non-empty list")
-#    
-#    # Create figure
-#    fig, ax = plt.subplots(figsize=(8, 6))
-#    plt.subplots_adjust(bottom=0.25)
-#
-#    # Set global axis limits
-#    all_data = np.vstack(trajectory_data)
-#    x_min, x_max = np.min(all_data[:, 0]), np.max(all_data[:, 0])
-#    y_min, y_max = np.min(all_data[:, 1]), np.max(all_data[:, 1])
-#    ax.set_xlim(x_min, x_max)
-#    ax.set_ylim(y_min, y_max)
-#    ax.set_xlabel("State dimension 1")
-#    ax.set_ylabel("State dimension 2")
-#    ax.set_title("State Distribution at Timestep 0")
-#
-#    # Initial scatter
-#    scatter = ax.scatter(trajectory_data[0][:, 0], trajectory_data[0][:, 1], alpha=0.6)
-#
-#    # Slider axis and widget
-#    slider_ax = plt.axes([0.15, 0.1, 0.7, 0.05])  # [left, bottom, width, height]
-#    timestep_slider = widgets.Slider(
-#        ax=slider_ax,
-#        label='Timestep',
-#        valmin=0,
-#        valmax=k - 1,
-#        valinit=0,
-#        valstep=1,
-#        color='steelblue'
-#    )
-#
-#    # Update function
-#    def update(val):
-#        t = int(timestep_slider.val)
-#        scatter.set_offsets(trajectory_data[t])
-#        ax.set_title(f"p(x{t})")
-#        fig.canvas.draw_idle()
-#
-#    timestep_slider.on_changed(update)
-#
-#    plt.show()
-#
-#    return fig, ax
-
-def interactive_state_distribution_plot(trajectory_data, pdf_func=None):
+def interactive_state_distribution_plot_2D(trajectory_data, pdf_func=None):
     """
     Plots an interactive scatter plot of 2D state distributions across time steps.
     
@@ -248,13 +192,121 @@ def interactive_state_distribution_plot(trajectory_data, pdf_func=None):
         fig.canvas.draw_idle()
 
     timestep_slider.on_changed(update)
-
     plt.show()
 
-def plot_density_surface(ax, X0, X1, Z):
+def interactive_state_distribution_plot_1D(trajectory_data, pdf_func=None, bins=30):
+    """
+    Plots an interactive histogram of 1D state distributions across time steps.
+    
+    If pdf_func is provided, adds a second subplot to visualize the 1D density.
+
+    Parameters:
+    -----------
+    trajectory_data : list of np.ndarray
+        A list of length k, where each element is a (p,) or (p,1) array of 1D samples.
+
+    pdf_func : Optional[Callable[[int], Tuple[np.ndarray, np.ndarray]]]
+        A function that takes a timestep index `k` and returns (X, Y),
+        where X is a 1D array of positions and Y is the corresponding PDF values.
+
+    bins : int
+        Number of histogram bins.
+    """
+    k = len(trajectory_data)
+    if k == 0:
+        raise ValueError("trajectory_data must be a non-empty list")
+
+    # Ensure all data is flat 1D
+    trajectory_data = [x.flatten() for x in trajectory_data]
+
+    # Set up figure and subplots
+    if pdf_func is not None:
+        fig, (ax_hist, ax_pdf) = plt.subplots(1, 2, figsize=(12, 5))
+    else:
+        fig, ax_hist = plt.subplots(figsize=(6, 5))
+        ax_pdf = None
+
+    plt.subplots_adjust(bottom=0.25)
+
+    # Global x-axis limits
+    all_data = np.concatenate(trajectory_data)
+    x_min, x_max = np.min(all_data), np.max(all_data)
+
+    # Initial histogram
+    hist_vals, bins_, patches = ax_hist.hist(
+        trajectory_data[0], bins=bins, range=(x_min, x_max), alpha=0.7, edgecolor='black'
+    )
+    ax_hist.set_xlim(x_min, x_max)
+    ax_hist.set_title("State Histogram at Timestep 0")
+    ax_hist.set_xlabel("State value")
+    ax_hist.set_ylabel("Frequency")
+
+    # Initial PDF line plot
+    if pdf_func is not None:
+        X, Y = pdf_func(0)
+        pdf_line, = ax_pdf.plot(X, Y, color='steelblue', lw=2)
+        ax_pdf.set_xlim(x_min, x_max)
+        ax_pdf.set_ylim(0, max(Y) * 1.1)
+        ax_pdf.set_title("PDF at Timestep 0")
+        ax_pdf.set_xlabel("x")
+        ax_pdf.set_ylabel("Density")
+
+    # Slider
+    slider_ax = plt.axes([0.15, 0.1, 0.7, 0.05])
+    timestep_slider = widgets.Slider(
+        ax=slider_ax,
+        label='Timestep',
+        valmin=0,
+        valmax=k - 1,
+        valinit=0,
+        valstep=1,
+        color='steelblue'
+    )
+
+    def update(val):
+        t = int(timestep_slider.val)
+
+        # Update histogram
+        ax_hist.cla()
+        ax_hist.hist(trajectory_data[t], bins=bins, range=(x_min, x_max),
+                     alpha=0.7, edgecolor='black', density=True)
+        ax_hist.set_xlim(x_min, x_max)
+        ax_hist.set_title(f"State Histogram at Timestep {t}")
+        ax_hist.set_xlabel("State value")
+        ax_hist.set_ylabel("Frequency")
+
+        # Update PDF
+        if pdf_func is not None:
+            X, Y = pdf_func(t)
+            pdf_line.set_data(X, Y)
+            ax_pdf.set_ylim(0, max(Y) * 1.1)
+            ax_pdf.set_title(f"PDF at Timestep {t}")
+            ax_pdf.relim()
+            ax_pdf.autoscale_view()
+
+        fig.canvas.draw_idle()
+
+    timestep_slider.on_changed(update)
+    plt.show()
+
+
+def plot_density_2D_surface(ax, X0, X1, Z):
     # Create surface plot
     surf = ax.plot_surface(X0, X1, Z, cmap='viridis', linewidth=0, antialiased=True)
     return ax
 
-def plot_density(ax : plt.Axes, X0, X1, Z):
+def plot_density_1D(ax : plt.Axes, X, Z):
+    ax.plot(X, Z, color='purple')
+    ax.fill_between(X, Z, alpha=0.3, color='purple')
+
+def plot_density_2D(ax : plt.Axes, X0, X1, Z):
     ax.contourf(X0, X1, Z, levels=50, cmap='viridis')
+
+def plot_data_1D(ax : plt.Axes, data : np.ndarray, bins=10):
+    assert data.shape[1] == 1
+    ax.hist(data, bins=bins, density=True)
+    ax.scatter(data[:, 0], data[:, 1], alpha=0.5, s=1)
+
+def plot_data_2D(ax : plt.Axes, data : np.ndarray):
+    assert data.shape[1] == 2
+    ax.scatter(data[:, 0], data[:, 1], alpha=0.5, s=1)

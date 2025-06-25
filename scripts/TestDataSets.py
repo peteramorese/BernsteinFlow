@@ -22,6 +22,3 @@ def sample_modal_gaussian(n_samples : int, means, covariances, weights=None, see
     ])
 
     return samples
-
-def plot_data(ax : plt.Axes, data : np.ndarray):
-    ax.scatter(data[:, 0], data[:, 1], alpha=0.5, s=1)

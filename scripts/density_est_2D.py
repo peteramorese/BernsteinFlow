@@ -2,8 +2,8 @@ from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, optimize
 from bernstein_flow.Tools import grid_eval, model_u_eval_fcn, model_x_eval_fcn
 
-from .TestDataSets import sample_modal_gaussian, plot_data
-from .Visualization import create_interactive_transformer_plot, plot_density, plot_density_surface
+from .TestDataSets import sample_modal_gaussian
+from .Visualization import create_interactive_transformer_plot, plot_density, plot_density_surface, plot_data
 
 import numpy as np
 import matplotlib.pyplot as plt

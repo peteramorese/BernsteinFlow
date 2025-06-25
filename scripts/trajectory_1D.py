@@ -4,8 +4,8 @@ from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model
 from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product
 from bernstein_flow.Propagate import propagate
 
-from .Systems import Pendulum, sample_trajectories
-from .Visualization import create_interactive_transformer_plot, interactive_state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
+from .Systems import CubicMap, sample_trajectories
+from .Visualization import create_interactive_transformer_plot, interactive_state_distribution_plot_1D, plot_density_1D, plot_data_1D
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,14 +13,14 @@ import matplotlib.widgets as widgets
 from mpl_toolkits.mplot3d import Axes3D
 import torch
 from torch.utils.data import DataLoader, TensorDataset
-from scipy.stats import multivariate_normal
+from scipy.stats import norm
 
 
 
 if __name__ == "__main__":
 
     # System model
-    system = Pendulum(dt=0.1, length=1.0, damp=0.1, covariance=0.005 * np.eye(2))
+    system = CubicMap(dt=0.1, alpha=1.0, variance=0.1)
 
     # Dimension
     dim = system.dim()
@@ -29,18 +29,18 @@ if __name__ == "__main__":
     n_traj = 2000
 
     # Number of training epochs
-    n_epochs_init = 1000
+    n_epochs_init = 500
     n_epochs_tran = 100
 
     # Time horizon
     timesteps = 10
 
     def init_state_sampler():
-        return multivariate_normal.rvs(mean=np.array([0.1, 0.1]), cov = np.diag([0.10, 0.10]))
+        return norm.rvs(loc=np.array([1.0]), scale = 0.1)
 
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
-    interactive_state_distribution_plot_2D(traj_data)
+    interactive_state_distribution_plot_1D(traj_data)
 
     # Moment match the GDT to all of the data over the whole horizon
     gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data))
@@ -66,8 +66,8 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=64, shuffle=True)
 
     # Create initial state and transition models
-    transformer_degrees = [14, 7]
-    conditioner_degrees = [14, 7]
+    transformer_degrees = [14]
+    conditioner_degrees = [14]
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees)
 
     #transformer_degrees = [4, 1]
@@ -129,7 +129,6 @@ if __name__ == "__main__":
 
 
     # Compute the propagated polynomials
-    u_bounds = [0.0, 1.0, 0.0, 1.0]
     p_init = poly_product(init_state_model.get_transformer_polynomials(), bernstein_basis=True)
     p_transition = poly_product(transition_model.get_transformer_polynomials(), bernstein_basis=True)
     density_polynomials = [p_init]
@@ -141,12 +140,17 @@ if __name__ == "__main__":
         print(f"Computed p(x{k})")
 
     # Make pdf plotter for interactive vis
+    u_bounds = [0.0, 1.0, 0.0, 1.0]
     def pdf_plotter(k : int):
-        return grid_eval(lambda u : poly_eval(density_polynomials_monomial[k], u), u_bounds)
+        U = torch.linspace(0.0, 1.0, 100)
+        U = U.unsqueeze(1)
+        print("U: ", U)
+        Z = poly_eval(density_polynomials_monomial[k], U)
+        return U, Z
 
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
-    interactive_state_distribution_plot_2D(u_traj_data, pdf_plotter)
+    interactive_state_distribution_plot_1D(u_traj_data, pdf_plotter)
 
     
 

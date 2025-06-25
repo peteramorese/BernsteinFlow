@@ -57,6 +57,20 @@ def sample_trajectories(system : DiscreteTimeStochasticSystem, initial_state_sam
 
     return traj_data
 
+class CubicMap(DiscreteTimeStochasticSystem):
+    def __init__(self, dt : float, alpha : float = 1.0, variance = 0.1):
+        def additive_gaussian():
+            return stats.norm(loc=0.0, scale=0.1).rvs()
+        
+        super().__init__(dim=1, v_dist=additive_gaussian)
+
+        self.dt = dt
+        self.alpha = alpha
+
+    def next_state(self, x : np.ndarray, v : np.ndarray):
+        x_next = x - self.dt * x**3
+        return x_next + v
+
 class Pendulum(DiscreteTimeStochasticSystem):
     def __init__(self, dt : float, length : float = 1.0, damp : float = 0.1, covariance : np.ndarray = np.eye(2)):
         """

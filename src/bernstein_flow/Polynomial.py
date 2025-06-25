@@ -26,6 +26,7 @@ def poly_eval(p : Polynomial, x : torch.Tensor):
     assert x.ndim == 2, "x must be a 2D tensor of shape (m, d)"
     d = p.ndim
     m = x.shape[0]
+    print("tensor dim: ", d, " x.shape[1]: ", x.shape[1])
     assert x.shape[1] == d, f"Each point must have dimension {d}"
 
     # Generate all exponent combinations (m, d)
@@ -295,36 +296,37 @@ def monomial_marginal(p : Polynomial, dims : list[int]):
 
 if __name__ == "__main__":
 
-    ## Bernstein
-    #p_list = [
-    #    torch.Tensor([1, 2, 3]),
-    #    torch.Tensor([2, 3, 8, 6]),
-    #    #torch.Tensor([[1, 2, 3], [4, 5, 6], [7, 5, 3]]),
-    #]
+    # Bernstein
+    p_list = [
+        torch.Tensor([[1, 2, 3], [2, 3, 4], [4, 5, 6]]),
+        torch.Tensor([[7, 6, 5], [5, 4, 3], [3, 2, 1]]),
+        #torch.Tensor([2, 3, 8, 6]),
+        #torch.Tensor([[1, 2, 3], [4, 5, 6], [7, 5, 3]]),
+    ]
 
-    #prod = triangular_poly_product(p_list, bernstein_basis=True)
-    #print("Bernstein prod: ", prod, "\n")
+    prod = poly_product(p_list, bernstein_basis=True)
+    print("Bernstein prod: ", prod, "\n")
 
-    ## Power
-    #p_list = [bernstein_to_monomial(p) for p in p_list]
+    # Power
+    p_list = [bernstein_to_monomial(p) for p in p_list]
 
-    #print("pwr basis polys: ", p_list)
-    #prod = triangular_poly_product(p_list)
-    #print("pwr prod: ", prod)
-    #prod_bern = monomial_to_bernstein(prod)
-    #print("Power prod in bern: ", prod_bern)
+    print("pwr basis polys: ", p_list)
+    prod = poly_product(p_list)
+    print("pwr prod: ", prod.round().int())
+    prod_bern = monomial_to_bernstein(prod)
+    print("Power prod in bern: ", prod_bern)
 
 
-    dims = [1, 3]
-    p_bern = torch.tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dtype=torch.float32)
-    p_bern = torch.rand(3, 3, 3, 3)
-    p_bern_marg = bernstein_marginal(p_bern, dims)
-    print("Bern marg: ", p_bern_marg)
+    #dims = [1, 3]
+    #p_bern = torch.tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dtype=torch.float32)
+    #p_bern = torch.rand(3, 3, 3, 3)
+    #p_bern_marg = bernstein_marginal(p_bern, dims)
+    #print("Bern marg: ", p_bern_marg)
 
-    p_pwr = bernstein_to_monomial(p_bern)
-    p_pwr_marg = monomial_marginal(p_pwr, dims)
-    p_pwr_marg_bern = monomial_to_bernstein(p_pwr_marg)
-    print("Pwr marg in bern: ", p_pwr_marg_bern)
+    #p_pwr = bernstein_to_monomial(p_bern)
+    #p_pwr_marg = monomial_marginal(p_pwr, dims)
+    #p_pwr_marg_bern = monomial_to_bernstein(p_pwr_marg)
+    #print("Pwr marg in bern: ", p_pwr_marg_bern)
 
 
 
