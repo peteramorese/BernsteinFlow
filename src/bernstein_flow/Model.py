@@ -97,7 +97,7 @@ class BernsteinFlowModel(torch.nn.Module):
     def transformer(self, x : torch.Tensor, i : int):
         assert i < self.dim, "Index of transformer is greater than the dimension of the random variable"
 
-        tf_basis_vals = torch.stack([phi_j(x[:, i]) for phi_j in self.tf_basis_funcs[i]], dim=1)
+        tf_basis_vals = torch.stack([phi_j(x[:, self.cond_input_dims[i]]) for phi_j in self.tf_basis_funcs[i]], dim=1)
 
         # Evaluate the basis functions for each term in the conditioner
         cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(self.cond_input_dims[i])]) for phi_k in self.cond_basis_funcs[i]], dim=1) if self.cond_input_dims[i] > 0 else torch.ones(x.shape[0], 1, device=x.device)
@@ -120,7 +120,7 @@ class BernsteinFlowModel(torch.nn.Module):
 
         # Evaluate the basis functions for each term in the transformer
         #print("number of tf basis funcs", len(self.tf_deriv_basis_funcs[i]))
-        tf_deriv_basis_vals = torch.stack([phi_j(x[:, i]) for phi_j in self.tf_deriv_basis_funcs[i]], dim=1)
+        tf_deriv_basis_vals = torch.stack([phi_j(x[:, self.cond_input_dims[i]]) for phi_j in self.tf_deriv_basis_funcs[i]], dim=1)
 
         # Evaluate the basis functions for each term in the conditioner
         #print("range : ", self.cond_input_dims[i])
@@ -162,6 +162,9 @@ class BernsteinFlowModel(torch.nn.Module):
 
 class ConditionalBernsteinFlowModel(BernsteinFlowModel):
     def __init__(self, dim : int, conditional_dim : int, transformer_degrees : int, conditioner_degrees : int):
+        """
+        Conditional flow model for p(x | y). The data must be supplied IN THE FORM [y, x] to evaluation/training
+        """
         torch.nn.Module.__init__(self)
 
         self.dim = dim
@@ -188,6 +191,7 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
         self.tf_deriv_basis_funcs = [bernstein_basis_functions(1, transformer_degrees[i] - 1, scale=transformer_degrees[i]) for i in range(dim)]
         self.cond_basis_funcs = [bernstein_basis_functions(i + conditional_dim, conditioner_degrees[i]) for i in range(dim)]
         self.cond_input_dims = list(range(conditional_dim, conditional_dim + dim))
+        print("INIT cond input dims: ", self.cond_input_dims)
 
 
 def nll_loss(model, data):

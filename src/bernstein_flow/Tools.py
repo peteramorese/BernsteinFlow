@@ -14,7 +14,7 @@ def create_transition_data_matrix(trajectory_data):
     Returns:
     --------
     data_matrix : np.ndarray
-        A ((k-1) * p) x (2n) array where each row is a pair (x_{k+1}, x_k).
+        A ((k-1) * p) x (2n) array where each row is a pair (x_k, x_{k+1}).
     """
     k = len(trajectory_data)
     if k < 2:
@@ -27,7 +27,7 @@ def create_transition_data_matrix(trajectory_data):
     for i in range(k - 1):
         x_k = trajectory_data[i]      # shape: (p, n)
         x_kp1 = trajectory_data[i+1]  # shape: (p, n)
-        data_matrix[i * p : (i + 1) * p, :] = np.hstack((x_kp1, x_k))
+        data_matrix[i * p : (i + 1) * p, :] = np.hstack((x_k, x_kp1))
 
     return data_matrix 
 

@@ -26,14 +26,18 @@ def poly_eval(p : Polynomial, x : torch.Tensor):
     assert x.ndim == 2, "x must be a 2D tensor of shape (m, d)"
     d = p.ndim
     m = x.shape[0]
-    print("tensor dim: ", d, " x.shape[1]: ", x.shape[1])
     assert x.shape[1] == d, f"Each point must have dimension {d}"
+
+    # Handle 1D case separately to prevent dimension mismatch
+    if d == 1:
+        n = p.shape[0]
+        monomials = x ** torch.arange(n, device=x.device, dtype=x.dtype)
+        return monomials @ p
 
     # Generate all exponent combinations (m, d)
     exponents = torch.cartesian_prod(*[torch.arange(n, device=p.device) for n in p.shape])  # (m, d)
 
     # Evaluate monomials at all x: x^exponents using broadcasting
-    # x shape: (p, d), exponents shape: (m, d)
     x_powers = x.unsqueeze(1) ** exponents.unsqueeze(0)  # shape: (p, m, d)
     monomials = torch.prod(x_powers, dim=2)  # shape: (p, m)
 

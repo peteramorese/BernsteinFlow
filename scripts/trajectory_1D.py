@@ -5,7 +5,7 @@ from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_pro
 from bernstein_flow.Propagate import propagate
 
 from .Systems import CubicMap, sample_trajectories
-from .Visualization import create_interactive_transformer_plot, interactive_state_distribution_plot_1D, plot_density_1D, plot_data_1D
+from .Visualization import interactive_transformer_plot, interactive_state_distribution_plot_1D, plot_density_1D, plot_data_1D, plot_density_2D_surface
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,6 +14,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from scipy.stats import norm
+from scipy.integrate import quad
 
 
 
@@ -29,8 +30,8 @@ if __name__ == "__main__":
     n_traj = 2000
 
     # Number of training epochs
-    n_epochs_init = 500
-    n_epochs_tran = 100
+    n_epochs_init = 300
+    n_epochs_tran = 30
 
     # Time horizon
     timesteps = 10
@@ -40,7 +41,7 @@ if __name__ == "__main__":
 
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
-    interactive_state_distribution_plot_1D(traj_data)
+    #interactive_state_distribution_plot_1D(traj_data)
 
     # Moment match the GDT to all of the data over the whole horizon
     gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data))
@@ -51,7 +52,7 @@ if __name__ == "__main__":
 
     # Convert the data to the U space for training
     U0_data = gdt.X_to_U(X0_data) # Initial state data
-    Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data
+    Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data 
 
 
     #input("Continue to training...")
@@ -87,6 +88,53 @@ if __name__ == "__main__":
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
     optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran)
     print("Done training transition model \n")
+
+
+    #cond_u_fcn = model_u_eval_fcn(transition_model)
+    #U0, U1, Z = grid_eval(cond_u_fcn, [0.0, 1.0, 0.0, 1.0])
+    #fig2 = plt.figure()
+    #ax3d_u = fig2.add_subplot(121, projection='3d')
+    #plot_density_2D_surface(ax3d_u, U0, U1, Z)
+    #ax3d_u.set_xlabel("u0")
+    #ax3d_u.set_ylabel("u1")
+    #ax3d_u.set_zlabel("p(u)")
+    #ax3d_u.set_title("Erf-space PDF")
+    #plt.show()
+
+    parameters_np = transition_model.get_constrained_parameters(0).detach().numpy()
+    with np.printoptions(precision=2, suppress=True):
+        print("trans model params: \n", parameters_np)
+
+    interactive_transformer_plot(transition_model, dim, cond_dim=dim)    
+    #input("...")
+
+    x_slices = torch.linspace(0.0, 1.0, 7)
+    fig, axes = plt.subplots(1, 7)
+    for x_slice, ax in zip(x_slices, axes):
+        def trans_slice(xp):
+            transition_model.eval()
+            xp = xp.view(-1, 1)
+            x_cat = torch.hstack([x_slice * torch.ones(xp.shape), xp])
+            return transition_model(x_cat).squeeze(-1).detach()
+
+        def trans_slice_single_pt(xp_pt):
+            transition_model.eval()
+            x_cat = torch.tensor([[xp_pt, x_slice]])
+            return transition_model(x_cat).squeeze(-1).detach()
+
+
+        #auc, error = quad(trans_slice_single_pt, 0.0, 1.0)
+        #print(f"x = {x_slice} AUC: ", auc)
+        xp_samples = torch.rand(1000, 1)
+        pdf_samples = trans_slice(xp_samples)
+        print(f"x = {x_slice} mc AUC: ", torch.mean(pdf_samples))
+
+
+        Y = torch.linspace(0.0, 1.0, 100, requires_grad=False)
+        Z = trans_slice(Y)
+        plot_density_1D(ax, Y, Z)
+        ax.set_title(f"p(x' | x={x_slice})")
+    plt.show()
 
 
     #fig, axes = plt.subplots(2, 2)
@@ -144,7 +192,6 @@ if __name__ == "__main__":
     def pdf_plotter(k : int):
         U = torch.linspace(0.0, 1.0, 100)
         U = U.unsqueeze(1)
-        print("U: ", U)
         Z = poly_eval(density_polynomials_monomial[k], U)
         return U, Z
 

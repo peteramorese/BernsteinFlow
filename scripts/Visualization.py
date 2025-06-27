@@ -6,22 +6,25 @@ import matplotlib.widgets as widgets
 import numpy as np
 import torch
 
-def create_interactive_transformer_plot(model, dim):
+def interactive_transformer_plot(model, dim, cond_dim = 0):
     """
     Create an interactive plot of transformer functions and their derivatives.
     
     Args:
-        model: Your model with transformer() and transformer_deriv() methods
+        model: Model with transformer() and transformer_deriv() methods
         dim: Number of dimensions
+        cond_dim: Number of conditional dimensions
     """
     
+    n_sliders = dim + cond_dim
+    
     # Create figure and subplots
-    fig, axes = plt.subplots(dim, 2, figsize=(12, 3*dim))
+    fig, axes = plt.subplots(dim, 2, figsize=(12, 3*(dim)))
     if dim == 1:
         axes = axes.reshape(1, -1)  # Ensure 2D array for consistency
     
     # Adjust layout to make room for sliders
-    plt.subplots_adjust(bottom=0.3, right=0.95)
+    plt.subplots_adjust(bottom=0.1 * n_sliders, right=0.95)
     
     # Create slider axes - one slider for each dimension
     slider_height = 0.03
@@ -29,8 +32,22 @@ def create_interactive_transformer_plot(model, dim):
     slider_axes = []
     sliders = []
     
+    for i in range(cond_dim):
+        ax_slider = plt.axes([0.1, 0.02 + (n_sliders-1-i) * slider_spacing, 0.8, slider_height])
+        #ax_slider = plt.axes([0.1, 0.05 + i * slider_spacing, 0.8, slider_height])
+        slider = widgets.Slider(
+            ax_slider, 
+            f'Cond. Dim {i}', 
+            0.0, 1.0, 
+            valinit=0.5,
+            valfmt='%.3f'
+        )
+        slider_axes.append(ax_slider)
+        sliders.append(slider)
+    
     for i in range(dim):
-        ax_slider = plt.axes([0.1, 0.05 + i * slider_spacing, 0.8, slider_height])
+        ax_slider = plt.axes([0.1, 0.02 + (dim-1-i) * slider_spacing, 0.8, slider_height])
+        #ax_slider = plt.axes([0.1, 0.05 + i * slider_spacing, 0.8, slider_height])
         slider = widgets.Slider(
             ax_slider, 
             f'Dim {i}', 
@@ -40,9 +57,12 @@ def create_interactive_transformer_plot(model, dim):
         )
         slider_axes.append(ax_slider)
         sliders.append(slider)
-    
+
+    print("number of sliders: ", len(slider_axes), len(sliders))
+
     # Store initial values
-    xi_vals = torch.linspace(0, 1, 100, requires_grad=False)
+    n_xi_vals = 100
+    xi_vals = torch.linspace(0, 1, n_xi_vals, requires_grad=False)
     lines_tf = []
     lines_deriv = []
     
@@ -68,12 +88,12 @@ def create_interactive_transformer_plot(model, dim):
         
         for i in range(dim):
             # Create x_vals with current slider values
-            x_vals = torch.ones(100, dim, requires_grad=False)
-            for j in range(dim):
+            x_vals = torch.ones(n_xi_vals, cond_dim + dim, requires_grad=False)
+            for j in range(cond_dim + dim):
                 x_vals[:, j] = slider_values[j]
             
             # Set the varying dimension
-            x_vals[:, i] = xi_vals
+            x_vals[:, cond_dim + i] = xi_vals
             
             # Calculate transformer values and derivatives
             tf_vals = model.transformer(x_vals, i)
