@@ -17,11 +17,12 @@ from scipy.stats import norm
 from scipy.integrate import quad
 
 
+DTYPE = torch.float64
 
 if __name__ == "__main__":
 
     # System model
-    system = CubicMap(dt=0.1, alpha=1.0, variance=0.1)
+    system = CubicMap(dt=0.01, alpha=0.5, variance=0.2)
 
     # Dimension
     dim = system.dim()
@@ -30,14 +31,16 @@ if __name__ == "__main__":
     n_traj = 2000
 
     # Number of training epochs
-    n_epochs_init = 300
-    n_epochs_tran = 30
+    n_epochs_init = 1000
+    n_epochs_tran = 100
 
     # Time horizon
-    timesteps = 10
+    training_timesteps = 40
+    timesteps = 40
 
     def init_state_sampler():
-        return norm.rvs(loc=np.array([1.0]), scale = 0.1)
+        mode = np.random.randint(0, 2)
+        return float(mode) * norm.rvs(loc=np.array([1.0]), scale = 0.2) + (1.0 - float(mode)) * norm.rvs(loc=np.array([-1.0]), scale = 0.2)
 
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
@@ -48,7 +51,7 @@ if __name__ == "__main__":
 
     # Create the data matrices for training
     X0_data = traj_data[0]
-    Xp_data = create_transition_data_matrix(traj_data)
+    Xp_data = create_transition_data_matrix(traj_data[:training_timesteps])
 
     # Convert the data to the U space for training
     U0_data = gdt.X_to_U(X0_data) # Initial state data
@@ -58,22 +61,22 @@ if __name__ == "__main__":
     #input("Continue to training...")
 
     # Create data loader
-    U0_data_torch = torch.tensor(U0_data, dtype=torch.float32)
+    U0_data_torch = torch.tensor(U0_data, dtype=DTYPE)
     U0_dataset = TensorDataset(U0_data_torch)
     U0_dataloader = DataLoader(U0_dataset, batch_size=128, shuffle=True)
 
-    Up_data_torch = torch.tensor(Up_data, dtype=torch.float32)
+    Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
     Up_dataloader = DataLoader(Up_dataset, batch_size=64, shuffle=True)
 
     # Create initial state and transition models
-    transformer_degrees = [14]
-    conditioner_degrees = [14]
-    init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees)
+    transformer_degrees = [20]
+    conditioner_degrees = [20]
+    init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE)
 
     #transformer_degrees = [4, 1]
     #conditioner_degrees = [0, 1]
-    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees)
+    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
     print(f"Created transition model with {transition_model.n_parameters()} parameters")
@@ -102,39 +105,41 @@ if __name__ == "__main__":
     #plt.show()
 
     parameters_np = transition_model.get_constrained_parameters(0).detach().numpy()
-    with np.printoptions(precision=2, suppress=True):
-        print("trans model params: \n", parameters_np)
 
-    interactive_transformer_plot(transition_model, dim, cond_dim=dim)    
+    def print_tensor(msg, tensor):
+        with np.printoptions(precision=2, suppress=True):
+            print(msg, tensor.detach().numpy())
+
+    interactive_transformer_plot(transition_model, dim, cond_dim=dim, dtype=DTYPE)    
     #input("...")
 
-    x_slices = torch.linspace(0.0, 1.0, 7)
-    fig, axes = plt.subplots(1, 7)
-    for x_slice, ax in zip(x_slices, axes):
-        def trans_slice(xp):
-            transition_model.eval()
-            xp = xp.view(-1, 1)
-            x_cat = torch.hstack([x_slice * torch.ones(xp.shape), xp])
-            return transition_model(x_cat).squeeze(-1).detach()
+    #x_slices = torch.linspace(0.0, 1.0, 7, dtype=DTYPE)
+    #fig, axes = plt.subplots(1, 7)
+    #for x_slice, ax in zip(x_slices, axes):
+    #    def trans_slice(xp):
+    #        transition_model.eval()
+    #        xp = xp.view(-1, 1)
+    #        x_cat = torch.hstack([x_slice * torch.ones(xp.shape), xp])
+    #        return transition_model(x_cat).squeeze(-1).detach()
 
-        def trans_slice_single_pt(xp_pt):
-            transition_model.eval()
-            x_cat = torch.tensor([[xp_pt, x_slice]])
-            return transition_model(x_cat).squeeze(-1).detach()
-
-
-        #auc, error = quad(trans_slice_single_pt, 0.0, 1.0)
-        #print(f"x = {x_slice} AUC: ", auc)
-        xp_samples = torch.rand(1000, 1)
-        pdf_samples = trans_slice(xp_samples)
-        print(f"x = {x_slice} mc AUC: ", torch.mean(pdf_samples))
+    #    def trans_slice_single_pt(xp_pt):
+    #        transition_model.eval()
+    #        x_cat = torch.tensor([[xp_pt, x_slice]])
+    #        return transition_model(x_cat).squeeze(-1).detach()
 
 
-        Y = torch.linspace(0.0, 1.0, 100, requires_grad=False)
-        Z = trans_slice(Y)
-        plot_density_1D(ax, Y, Z)
-        ax.set_title(f"p(x' | x={x_slice})")
-    plt.show()
+    #    #auc, error = quad(trans_slice_single_pt, 0.0, 1.0)
+    #    #print(f"x = {x_slice} AUC: ", auc)
+    #    xp_samples = torch.rand(1000, 1, dtype=DTYPE)
+    #    pdf_samples = trans_slice(xp_samples)
+    #    print(f"x = {x_slice} mc AUC: ", torch.mean(pdf_samples))
+
+
+    #    Y = torch.linspace(0.0, 1.0, 100, requires_grad=False, dtype=DTYPE)
+    #    Z = trans_slice(Y)
+    #    plot_density_1D(ax, Y, Z)
+    #    ax.set_title(f"p(x' | x={x_slice})")
+    #plt.show()
 
 
     #fig, axes = plt.subplots(2, 2)
@@ -177,27 +182,25 @@ if __name__ == "__main__":
 
 
     # Compute the propagated polynomials
-    p_init = poly_product(init_state_model.get_transformer_polynomials(), bernstein_basis=True)
-    p_transition = poly_product(transition_model.get_transformer_polynomials(), bernstein_basis=True)
+    p_init = poly_product(init_state_model.get_transformer_polynomials())
+    p_transition = poly_product(transition_model.get_transformer_polynomials())
     density_polynomials = [p_init]
-    density_polynomials_monomial = [bernstein_to_monomial(p_init)]
     for k in range(1, timesteps):
         p_curr = propagate([density_polynomials[k-1]], [p_transition])
         density_polynomials.append(p_curr)
-        density_polynomials_monomial.append(bernstein_to_monomial(p_curr))
         print(f"Computed p(x{k})")
 
     # Make pdf plotter for interactive vis
     u_bounds = [0.0, 1.0, 0.0, 1.0]
     def pdf_plotter(k : int):
-        U = torch.linspace(0.0, 1.0, 100)
+        U = torch.linspace(0.0, 1.0, 100, dtype=DTYPE)
         U = U.unsqueeze(1)
-        Z = poly_eval(density_polynomials_monomial[k], U)
+        Z = density_polynomials[k](U)
         return U, Z
 
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
-    interactive_state_distribution_plot_1D(u_traj_data, pdf_plotter)
+    interactive_state_distribution_plot_1D(u_traj_data, pdf_plotter, bins=60)
 
     
 

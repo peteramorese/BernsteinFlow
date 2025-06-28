@@ -31,7 +31,7 @@ def create_transition_data_matrix(trajectory_data):
 
     return data_matrix 
 
-def grid_eval(f, bounds : list, resolution=100, device=None):
+def grid_eval(f, bounds : list, resolution=100, device=None, dtype=torch.float32):
     """
     Evaluate a function f: R^d -> R over a rectangular domain in R^d on a grid.
 
@@ -52,7 +52,7 @@ def grid_eval(f, bounds : list, resolution=100, device=None):
     meshgrids = np.meshgrid(*axes, indexing="ij")
 
     grid_points = np.stack([mg.ravel() for mg in meshgrids], axis=-1)
-    grid_tensor = torch.tensor(grid_points, dtype=torch.float32, device=device)
+    grid_tensor = torch.tensor(grid_points, dtype=dtype, device=device)
 
     with torch.no_grad():
         values = f(grid_tensor).cpu().numpy()
@@ -66,7 +66,7 @@ def model_u_eval_fcn(model):
         return model(x).squeeze(-1)
     return f
 
-def model_x_eval_fcn(model, dt, device=None):
+def model_x_eval_fcn(model, dt, device=None, dtype=torch.float32):
     """
     Wraps a u-space model for evaluating in x, given a distribution transform (dt)
     """
@@ -75,7 +75,7 @@ def model_x_eval_fcn(model, dt, device=None):
 
     def f(x):
         def u_density(u):
-            u = torch.tensor(u, dtype=torch.float32, device=device)
+            u = torch.tensor(u, dtype=dtype, device=device)
             return model(u).detach().cpu().numpy()
 
         x_density_np = dt.x_density(x, u_density)

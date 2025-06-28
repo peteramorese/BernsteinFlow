@@ -4,6 +4,8 @@ import math
 from torch.utils.data import DataLoader, TensorDataset
 from sympy import symbols, binomial, lambdify
 
+from .Polynomial import Polynomial, Basis
+
 def bernstein_basis_functions(dim : int, degree : int, coefficients : torch.Tensor = None, scale : float = 1.0):
     """
     Returns a list of lambdified multivariate Bernstein basis functions and their multi-indices.
@@ -40,13 +42,16 @@ def bernstein_basis_functions(dim : int, degree : int, coefficients : torch.Tens
     return basis_funcs
 
 class BernsteinFlowModel(torch.nn.Module):
-    def __init__(self, dim : int, transformer_degrees : int, conditioner_degrees : int):
+    def __init__(self, dim : int, transformer_degrees : int, conditioner_degrees : int, device = None, dtype = torch.float32):
         super().__init__()
 
         self.dim = dim
 
         self.tf_degs = transformer_degrees
         self.cond_degs = conditioner_degrees
+
+        self.device = device
+        self.dtype = dtype
 
         # Parameters
         self.A = torch.nn.ParameterList()
@@ -56,7 +61,7 @@ class BernsteinFlowModel(torch.nn.Module):
 
             # Initialize the coefficients of each Bernstein conditioner except the first and last one (which are always 0 and 1)
             # Rows correspond to basis polynomials, columns correspond to which TF coefficient the conditioner outputs
-            alpha_matrix = torch.nn.Parameter(torch.rand(alpha_j_size, transformer_degrees[i] - 1))
+            alpha_matrix = torch.nn.Parameter(torch.rand(alpha_j_size, transformer_degrees[i] - 1, dtype=self.dtype))
         
             self.A.append(alpha_matrix)
         
@@ -81,8 +86,8 @@ class BernsteinFlowModel(torch.nn.Module):
 
     def get_constrained_parameters(self, i : int):
         alpha_matrix = self.A[i]
-        c_alpha_matrix = torch.zeros_like(alpha_matrix) # Constrained alpha matrix
-        prev = torch.zeros_like(alpha_matrix[:, 0])
+        c_alpha_matrix = torch.zeros_like(alpha_matrix, device=self.device, dtype=self.dtype) # Constrained alpha matrix
+        prev = torch.zeros_like(alpha_matrix[:, 0], device=self.device, dtype=self.dtype)
         for j in range(alpha_matrix.shape[1]): # Iterate through the vectors of each conditioner component
             difference = torch.nn.functional.softplus(alpha_matrix[:, j])
             calpha_j = difference + prev
@@ -100,7 +105,7 @@ class BernsteinFlowModel(torch.nn.Module):
         tf_basis_vals = torch.stack([phi_j(x[:, self.cond_input_dims[i]]) for phi_j in self.tf_basis_funcs[i]], dim=1)
 
         # Evaluate the basis functions for each term in the conditioner
-        cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(self.cond_input_dims[i])]) for phi_k in self.cond_basis_funcs[i]], dim=1) if self.cond_input_dims[i] > 0 else torch.ones(x.shape[0], 1, device=x.device)
+        cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(self.cond_input_dims[i])]) for phi_k in self.cond_basis_funcs[i]], dim=1) if self.cond_input_dims[i] > 0 else torch.ones(x.shape[0], 1, device=x.device, dtype=self.dtype)
         
         c_alpha_matrix = self.get_constrained_parameters(i)
 
@@ -108,8 +113,8 @@ class BernsteinFlowModel(torch.nn.Module):
 
         # Augment the coefficient matrices with the first and last coefficients
         # First weight is 0, last weight is 1
-        coeff_ones = torch.ones(tf_coeffs.shape[0], 1, device=x.device)
-        coeff_zeros = torch.zeros(tf_coeffs.shape[0], 1, device=x.device)
+        coeff_ones = torch.ones(tf_coeffs.shape[0], 1, device=x.device, dtype=x.dtype)
+        coeff_zeros = torch.zeros(tf_coeffs.shape[0], 1, device=x.device, dtype=x.dtype)
         tf_coeffs = torch.cat([coeff_zeros, tf_coeffs, coeff_ones], dim=1)
 
         tf_val = torch.sum(torch.mul(tf_coeffs, tf_basis_vals), 1) 
@@ -127,7 +132,7 @@ class BernsteinFlowModel(torch.nn.Module):
         #print("input x: ", [x[:, j] for j in range(self.cond_input_dims[i])])
         ##print("output: ", self.cond_basis_funcs[0](*[x[:, j] for j in range(self.cond_input_dims[i])]))
         #print("cond basis func [0]: ", self.cond_basis_funcs[0])
-        cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(self.cond_input_dims[i])]) for phi_k in self.cond_basis_funcs[i]], dim=1) if self.cond_input_dims[i] > 0 else torch.ones(x.shape[0], 1, device=x.device)
+        cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(self.cond_input_dims[i])]) for phi_k in self.cond_basis_funcs[i]], dim=1) if self.cond_input_dims[i] > 0 else torch.ones(x.shape[0], 1, device=x.device, dtype=self.dtype)
         
         c_alpha_matrix = self.get_constrained_parameters(i)
 
@@ -135,8 +140,8 @@ class BernsteinFlowModel(torch.nn.Module):
 
         # Compute the difference coefficients used in the derivative of bernstein polynomial (c_{j+1} - c_j)
         # First weight is 0, last weight is 1
-        coeff_ones = torch.ones(tf_coeffs.shape[0], 1, device=x.device)
-        coeff_zeros = torch.zeros(tf_coeffs.shape[0], 1, device=x.device)
+        coeff_ones = torch.ones(tf_coeffs.shape[0], 1, device=x.device, dtype=x.dtype)
+        coeff_zeros = torch.zeros(tf_coeffs.shape[0], 1, device=x.device, dtype=x.dtype)
         tf_deriv_coeffs = torch.cat([tf_coeffs, coeff_ones], dim=1) - torch.cat([coeff_zeros, tf_coeffs], dim=1)
 
         tf_val = torch.sum(torch.mul(tf_deriv_coeffs, tf_deriv_basis_vals), 1) 
@@ -156,12 +161,12 @@ class BernsteinFlowModel(torch.nn.Module):
             cond_input_deg = self.cond_degs[i]
 
             tf_deriv_coeffs_shape = (cond_input_dim) * [cond_input_deg + 1] + [tf_deriv_coefficients.shape[1]]
-            p_list.append(tf_deriv_coefficients.view(tf_deriv_coeffs_shape))
+            p_list.append(Polynomial(tf_deriv_coefficients.view(tf_deriv_coeffs_shape), basis=Basis.BERN))
         return p_list
 
 
 class ConditionalBernsteinFlowModel(BernsteinFlowModel):
-    def __init__(self, dim : int, conditional_dim : int, transformer_degrees : int, conditioner_degrees : int):
+    def __init__(self, dim : int, conditional_dim : int, transformer_degrees : int, conditioner_degrees : int, device = None, dtype = torch.float32):
         """
         Conditional flow model for p(x | y). The data must be supplied IN THE FORM [y, x] to evaluation/training
         """
@@ -172,6 +177,9 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
 
         self.tf_degs = transformer_degrees
         self.cond_degs = conditioner_degrees
+
+        self.device = device
+        self.dtype = dtype
 
         # Parameters
         self.A = torch.nn.ParameterList()
@@ -191,7 +199,6 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
         self.tf_deriv_basis_funcs = [bernstein_basis_functions(1, transformer_degrees[i] - 1, scale=transformer_degrees[i]) for i in range(dim)]
         self.cond_basis_funcs = [bernstein_basis_functions(i + conditional_dim, conditioner_degrees[i]) for i in range(dim)]
         self.cond_input_dims = list(range(conditional_dim, conditional_dim + dim))
-        print("INIT cond input dims: ", self.cond_input_dims)
 
 
 def nll_loss(model, data):

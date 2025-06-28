@@ -6,7 +6,7 @@ import matplotlib.widgets as widgets
 import numpy as np
 import torch
 
-def interactive_transformer_plot(model, dim, cond_dim = 0):
+def interactive_transformer_plot(model, dim, cond_dim = 0, dtype = torch.float32):
     """
     Create an interactive plot of transformer functions and their derivatives.
     
@@ -62,7 +62,7 @@ def interactive_transformer_plot(model, dim, cond_dim = 0):
 
     # Store initial values
     n_xi_vals = 100
-    xi_vals = torch.linspace(0, 1, n_xi_vals, requires_grad=False)
+    xi_vals = torch.linspace(0, 1, n_xi_vals, requires_grad=False, dtype=dtype)
     lines_tf = []
     lines_deriv = []
     
@@ -88,7 +88,7 @@ def interactive_transformer_plot(model, dim, cond_dim = 0):
         
         for i in range(dim):
             # Create x_vals with current slider values
-            x_vals = torch.ones(n_xi_vals, cond_dim + dim, requires_grad=False)
+            x_vals = torch.ones(n_xi_vals, cond_dim + dim, requires_grad=False, dtype=dtype)
             for j in range(cond_dim + dim):
                 x_vals[:, j] = slider_values[j]
             
@@ -179,8 +179,8 @@ def interactive_state_distribution_plot_2D(trajectory_data, pdf_func=None):
         ax_pdf.set_xlim(x_min, x_max)
         ax_pdf.set_ylim(y_min, y_max)
         ax_pdf.set_title("PDF at Timestep 0")
-        ax_pdf.set_xlabel("x₁")
-        ax_pdf.set_ylabel("x₂")
+        ax_pdf.set_xlabel("x1")
+        ax_pdf.set_ylabel("x2")
 
     # Slider axis and widget
     slider_ax = plt.axes([0.15, 0.1, 0.7, 0.05])  # [left, bottom, width, height]

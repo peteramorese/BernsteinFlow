@@ -5,47 +5,148 @@ import torch.fft
 from functools import reduce
 import copy
 import numpy as np
+from enum import Enum
 
 from scipy.fft import next_fast_len
 
+class Basis(Enum):
+    MONO = 1 # monomial (power basis)
+    BERN = 2 # bernstein
+
 Polynomial = torch.Tensor
+class Polynomial:
+    def __init__(self, coeffs : torch.Tensor, basis = Basis.MONO):
+        if not isinstance(coeffs, torch.Tensor):
+            raise ValueError("Coeffs must be a torch.Tensor")
+        self.coeffs = coeffs
+        self._basis = basis
+    
+    def ten(self):
+        return self.coeffs
+
+    def basis(self):
+        return self._basis
+
+    def __call__(self, x : torch.Tensor):
+        """
+        Evaluate a multivariate polynomial at a point x in^d.
+        """
+        if self._basis == Basis.BERN:
+            return decasteljau(self, x)
+        elif self._basis == Basis.MONO: 
+            return poly_eval(self, x)
+        else:
+            raise ValueError("Unrecognized basis type")
+    
+    def dim(self):
+        return self.coeffs.ndim
 
 def poly_eval(p : Polynomial, x : torch.Tensor):
     """
-    Evaluate a multivariate polynomial at a point x ∈ R^d.
+    Evaluate a multivariate polynomial at a point x in^d.
     
     Args:
-        coeffs: A d-dimensional torch.Tensor of shape (n₁, n₂, ..., n_d), 
-                where coeffs[i₁, i₂, ..., i_d] is the coefficient of 
-                x₁^i₁ * x₂^i₂ * ... * x_d^i_d.
-        x: A torch.Tensor of shape (m, d) representing m points in R^d.
+        p: polynomial to evaluate
+        x: a torch.Tensor of shape (m, d) representing m points in R^d.
         
     Returns:
-        A scalar torch.Tensor containing the polynomial value at x.
+        a scalar torch.Tensor containing the polynomial value at x.
     """
+    assert p.basis() == Basis.MONO, "polynomial must be monomial basis"
     assert x.ndim == 2, "x must be a 2D tensor of shape (m, d)"
-    d = p.ndim
+    p_ten = p.ten()
+    d = p_ten.ndim
     m = x.shape[0]
     assert x.shape[1] == d, f"Each point must have dimension {d}"
 
     # Handle 1D case separately to prevent dimension mismatch
     if d == 1:
-        n = p.shape[0]
+        n = p_ten.shape[0]
         monomials = x ** torch.arange(n, device=x.device, dtype=x.dtype)
-        return monomials @ p
+        return monomials @ p_ten
 
     # Generate all exponent combinations (m, d)
-    exponents = torch.cartesian_prod(*[torch.arange(n, device=p.device) for n in p.shape])  # (m, d)
+    exponents = torch.cartesian_prod(*[torch.arange(n, device=p_ten.device) for n in p_ten.shape])  # (m, d)
 
     # Evaluate monomials at all x: x^exponents using broadcasting
     x_powers = x.unsqueeze(1) ** exponents.unsqueeze(0)  # shape: (p, m, d)
     monomials = torch.prod(x_powers, dim=2)  # shape: (p, m)
 
     # Dot each row of monomials with the flattened coeffs
-    coeffs_flat = p.flatten()  # shape: (m,)
+    coeffs_flat = p_ten.flatten()  # shape: (m,)
     result = monomials @ coeffs_flat  # shape: (p,)
 
     return result
+
+def decasteljau(p : Polynomial, x : torch.Tensor):
+    """
+    Evaluates a multivariate Bernstein polynomial for a batch of input vectors
+    using the De Casteljau algorithm.
+
+    Args:
+        p: polynomial in Bernstein basis
+        x: a torch.Tensor of shape (m, d) representing m points in R^d.
+
+    Returns:
+        a scalar torch.Tensor containing the polynomial value at x.
+
+    Raises:
+        ValueError: If the dimensionality of x (x.shape[1]) does not match the
+                    number of dimensions of the coefficient tensor (p.coeffs.dim()).
+    """
+    assert p.basis() == Basis.BERN, "polynomial must be Bernstein basis"
+    coeffs = p.coeffs
+    
+    # Validate input shapes
+    if x.dim() != 2:
+        raise ValueError(f"Input tensor x must be 2-dimensional (batch_size, d), but got {x.dim()} dimensions.")
+        
+    batch_size, d = x.shape
+
+    if d != coeffs.dim():
+        raise ValueError(
+            f"Dimensionality of x ({d}) must match the dimensionality of the "
+            f"polynomial's coefficient tensor ({coeffs.dim()})."
+        )
+
+    # Store the degrees of the polynomial in each dimension.
+    # The degree in a dimension is one less than the size of the tensor in that dimension.
+    degrees = [s - 1 for s in coeffs.shape]
+
+    # Start with the original coefficients. We add a batch dimension to handle all
+    # 'batch_size' evaluations simultaneously using broadcasting.
+    # Shape changes from (n1+1, ..., nd+1) to (batch_size, n1+1, ..., nd+1).
+    current_coeffs = coeffs.unsqueeze(0).repeat(batch_size, *([1] * d))
+
+    # Iterate over each of the 'd' dimensions to apply De Casteljau's algorithm.
+    for i in range(d):
+        # Get the evaluation points for the current dimension for all vectors in the batch.
+        t = x[:, i]
+
+        # Reshape t to allow broadcasting with the coefficient tensor.
+        # For dimension i, the coefficient tensor has d-i polynomial dimensions remaining.
+        # Shape of t changes from (batch_size,) to (batch_size, 1, 1, ...).
+        view_shape = [batch_size] + [1] * (d - i)
+        t = t.view(*view_shape)
+
+        # The degree for the current dimension being processed.
+        degree = degrees[i]
+
+        # Apply the De Casteljau recurrence 'degree' times.
+        for _ in range(degree):
+            current_coeffs = (
+                (1 - t) * current_coeffs[:, :-1, ...] +
+                t * current_coeffs[:, 1:, ...]
+            )
+
+        # After reducing a dimension, its size becomes 1. We squeeze it out
+        # before processing the next dimension, unless it's the last one.
+        if i < d - 1:
+            current_coeffs = current_coeffs.squeeze(1)
+
+    # After the loop, current_coeffs has shape (batch_size, 1, 1, ..., 1).
+    # Squeeze all singleton dimensions to get the final (batch_size,) result.
+    return current_coeffs.squeeze()
 
 def binomial(n, k):
     return math.comb(n, k)
@@ -65,9 +166,11 @@ def binomial_tensor(n, k, dtype=torch.double, device='cpu'):
     # We round to handle potential floating point inaccuracies since binomial_tensor should be integers
     return torch.where(valid_mask, torch.exp(log_comb).round(), torch.zeros_like(log_comb))
 
-def bernstein_to_monomial(bernstein_coeffs: torch.Tensor) -> torch.Tensor:
-    if not isinstance(bernstein_coeffs, torch.Tensor):
-        raise TypeError("Input must be a torch.Tensor.")
+def bernstein_to_monomial(p: Polynomial) -> Polynomial:
+    if p.basis() != Basis.BERN:
+        raise TypeError("Input must be a Polynomial in Bernstein basis.")
+
+    bernstein_coeffs = p.ten()
 
     d = bernstein_coeffs.ndim
     monomial_coeffs = bernstein_coeffs.clone()
@@ -111,12 +214,13 @@ def bernstein_to_monomial(bernstein_coeffs: torch.Tensor) -> torch.Tensor:
         
         monomial_coeffs = torch.einsum(einsum_str, monomial_coeffs, M)
         
-    return monomial_coeffs
+    return Polynomial(monomial_coeffs, basis=Basis.MONO)
 
-def monomial_to_bernstein(monomial_coeffs: torch.Tensor) -> torch.Tensor:
-    if not isinstance(monomial_coeffs, torch.Tensor):
-        raise TypeError("Input must be a torch.Tensor.")
+def monomial_to_bernstein(p : Polynomial) -> Polynomial:
+    if p.basis() != Basis.MONO:
+        raise TypeError("Input must be a Polynomial in monomial basis.")
 
+    monomial_coeffs = p.ten()
     d = monomial_coeffs.ndim
     bernstein_coeffs = monomial_coeffs.clone()
     dtype = monomial_coeffs.dtype
@@ -158,7 +262,7 @@ def monomial_to_bernstein(monomial_coeffs: torch.Tensor) -> torch.Tensor:
         
         bernstein_coeffs = torch.einsum(einsum_str, bernstein_coeffs, N)
 
-    return bernstein_coeffs
+    return Polynomial(bernstein_coeffs, basis=Basis.BERN)
 
 def create_d_separable_tensor(index_fcn, shape):
     # Compute g values for each dimension
@@ -189,7 +293,7 @@ def fft_convolve_nd(a, b):
     slices = tuple(slice(0, s) for s in size)
     return c[slices]
 
-def poly_product(p_list : list[Polynomial], bernstein_basis = False):
+def poly_product(p_list : list[Polynomial]):
     """
     Computes the product of a list of multivariate polynomials using FFT-based convolution.
     
@@ -201,28 +305,31 @@ def poly_product(p_list : list[Polynomial], bernstein_basis = False):
         product: torch.Tensor of coefficients of the product polynomial.
     """
     assert len(p_list) >= 1, "p_list must contain at least one polynomial"
+    p_basis = p_list[0].basis()
+    for p in p_list[1:]:
+        assert p.basis() == p_basis, "All polynomials must be in the same basis"
     
     p_list_lcl = copy.deepcopy(p_list)
 
-    if bernstein_basis:
+    if p_basis == Basis.BERN:
         # Pre-weight each polynomial before convolution
         for l in range(len(p_list_lcl)):
-            p = p_list_lcl[l]
-            pre_weight = create_d_separable_tensor(lambda dim, i : binomial(p.shape[dim] - 1, i), p.shape)
-            p_list_lcl[l] = p * pre_weight
+            p_ten = p_list_lcl[l].ten()
+            pre_weight = create_d_separable_tensor(lambda dim, i : binomial(p_ten.shape[dim] - 1, i), p_ten.shape)
+            p_list_lcl[l] = Polynomial(p_ten * pre_weight, basis=Basis.BERN)
     
-    product = p_list_lcl[0]
+    product_ten = p_list_lcl[0].ten()
     for i in range(1, len(p_list_lcl)):
-        p = p_list_lcl[i]
+        p_ten = p_list_lcl[i].ten()
 
         # Pad product to match p's dimensionality
-        if product.ndim < p.ndim:
-            pad_dims = p.ndim - product.ndim
-            product = product[(...,) + (None,) * pad_dims]
+        if product_ten.ndim < p_ten.ndim:
+            pad_dims = p_ten.ndim - product_ten.ndim
+            product_ten = product_ten[(...,) + (None,) * pad_dims]
 
         # Broadcast shapes to match for convolution
-        product_shape = product.shape
-        p_shape = p.shape
+        product_shape = product_ten.shape
+        p_shape = p_ten.shape
         max_shape = [max(r, s) for r, s in zip(product_shape, p_shape)]
 
         # Pad each tensor to the appropriate shape
@@ -234,108 +341,70 @@ def poly_product(p_list : list[Polynomial], bernstein_basis = False):
             p_pad.append(1)
 
         # Compute FFT-based convolution
-        product = fft_convolve_nd(product, p)
+        product_ten = fft_convolve_nd(product_ten, p_ten)
     
-    if bernstein_basis:
+    if p_basis == Basis.BERN:
         # Post-weight the convoluted polynomial
-        post_weight = create_d_separable_tensor(lambda dim, s : 1.0 / binomial(product.shape[dim] - 1, s), product.shape)
-        product *= post_weight
+        post_weight = create_d_separable_tensor(lambda dim, s : 1.0 / binomial(product_ten.shape[dim] - 1, s), product_ten.shape)
+        product_ten *= post_weight
 
-    return product
+    return Polynomial(product_ten, basis=p_basis)
 
-def bernstein_marginal(p : Polynomial, dims : list[int]):
-    """
-    Integrate a bernstein polynomial over the specified dims from x_l = 0 to x_l = 1
-
-    Args:
-        p : coefficient tensor in the bernstein basis
-        dims : list of integers describing which dimensions to integrate over
-    """
-    weight = 1.0
-    for d in dims:
-        weight /= p.shape[d]
-    
-    # Sum along the desired dimensions (integrate) then weight by the area of the basis polynomials
-    return weight * torch.sum(p, dim=dims)
-
-def monomial_marginal(p : Polynomial, dims : list[int]):
+def marginal(p : Polynomial, dims : list[int]):
     """
     Integrate a polynomial over the specified dims from x_l = 0 to x_l = 1
 
     Args:
-        p : coefficient tensor in the monomial basis
+        p : polynomial
         dims : list of integers describing which dimensions to integrate over
     """
-    result = p.clone()
-    
-    # Sort dimensions in descending order to avoid index shifting issues
-    dim_list_sorted = sorted(dims, reverse=True)
-    
-    for dim in dim_list_sorted:
-        assert dim < p.ndim
+    if p.basis() == Basis.BERN:
+        weight = 1.0
+        p_ten = p.ten()
+        for d in dims:
+            weight /= p_ten.shape[d]
+        
+        # Sum along the desired dimensions (integrate) then weight by the area of the basis polynomials
+        return Polynomial(weight * torch.sum(p_ten, dim=dims), basis=Basis.BERN)
+    else:
+        result = p.ten().clone()
+        
+        # Sort dimensions in descending order to avoid index shifting issues
+        dim_list_sorted = sorted(dims, reverse=True)
+        
+        for dim in dim_list_sorted:
+            assert dim < p.ten().ndim
 
-        # Get the size of this dimension (max degree + 1)
-        degree_plus_one = result.shape[dim]
+            # Get the size of this dimension (max degree + 1)
+            degree_plus_one = result.shape[dim]
+            
+            # Create integration weights: 1/(k+1) for degree k
+            # Shape: [1, 1, ..., degree_plus_one, 1, 1, ...]
+            weights_shape = [1] * result.ndim
+            weights_shape[dim] = degree_plus_one
+            
+            weights = torch.zeros(weights_shape, dtype=result.dtype, device=result.device)
+            for k in range(degree_plus_one):
+                # For term x^k, integral from 0 to 1 is 1/(k+1)
+                weights_index = [slice(None)] * result.ndim
+                weights_index[dim] = k
+                weights[tuple(weights_index)] = 1.0 / (k + 1)
+            
+            # Apply integration weights
+            result = result * weights
+            
+            # Sum along this dimension (integrate)
+            result = torch.sum(result, dim=dim, keepdim=False)
         
-        # Create integration weights: 1/(k+1) for degree k
-        # Shape: [1, 1, ..., degree_plus_one, 1, 1, ...]
-        weights_shape = [1] * result.ndim
-        weights_shape[dim] = degree_plus_one
-        
-        weights = torch.zeros(weights_shape, dtype=result.dtype, device=result.device)
-        for k in range(degree_plus_one):
-            # For term x^k, integral from 0 to 1 is 1/(k+1)
-            weights_index = [slice(None)] * result.ndim
-            weights_index[dim] = k
-            weights[tuple(weights_index)] = 1.0 / (k + 1)
-        
-        # Apply integration weights
-        result = result * weights
-        
-        # Sum along this dimension (integrate)
-        result = torch.sum(result, dim=dim, keepdim=False)
-    
-    return result
-
+        return Polynomial(result, basis=Basis.MONO)
 
 if __name__ == "__main__":
 
-    # Bernstein
-    p_list = [
-        torch.Tensor([[1, 2, 3], [2, 3, 4], [4, 5, 6]]),
-        torch.Tensor([[7, 6, 5], [5, 4, 3], [3, 2, 1]]),
-        #torch.Tensor([2, 3, 8, 6]),
-        #torch.Tensor([[1, 2, 3], [4, 5, 6], [7, 5, 3]]),
-    ]
+    p_bern = Polynomial(torch.randn(4,3,4,5), basis=Basis.BERN)
+    p_mono = bernstein_to_monomial(p_bern)
 
-    prod = poly_product(p_list, bernstein_basis=True)
-    print("Bernstein prod: ", prod, "\n")
-
-    # Power
-    p_list = [bernstein_to_monomial(p) for p in p_list]
-
-    print("pwr basis polys: ", p_list)
-    prod = poly_product(p_list)
-    print("pwr prod: ", prod.round().int())
-    prod_bern = monomial_to_bernstein(prod)
-    print("Power prod in bern: ", prod_bern)
-
-
-    #dims = [1, 3]
-    #p_bern = torch.tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dtype=torch.float32)
-    #p_bern = torch.rand(3, 3, 3, 3)
-    #p_bern_marg = bernstein_marginal(p_bern, dims)
-    #print("Bern marg: ", p_bern_marg)
-
-    #p_pwr = bernstein_to_monomial(p_bern)
-    #p_pwr_marg = monomial_marginal(p_pwr, dims)
-    #p_pwr_marg_bern = monomial_to_bernstein(p_pwr_marg)
-    #print("Pwr marg in bern: ", p_pwr_marg_bern)
-
-
-
-    #p_pwr = torch.tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dtype=torch.float32)
-    #p_bern = monomial_to_bernstein(p_pwr)
-    #print("Power: ", p_pwr)
-    #print("Bernstein: ", p_bern)
-    #print("Power: ", bernstein_to_monomial(p_bern))
+    x = torch.rand(10, 4)
+    p_bern_eval = p_bern(x)
+    p_mono_eval = p_mono(x)
+    print("Bernstein eval: \n", p_bern_eval)
+    print("Monomial eval: \n", p_mono_eval)
