@@ -264,7 +264,7 @@ def interactive_state_distribution_plot_1D(trajectory_data, pdf_func=None, bins=
     # Initial PDF line plot
     if pdf_func is not None:
         X, Y = pdf_func(0)
-        pdf_line, = ax_pdf.plot(X, Y, color='steelblue', lw=2)
+        pdf_line, = ax_pdf.plot(X, Y, color='purple', lw=2, zorder=2)
         ax_pdf.set_xlim(x_min, x_max)
         ax_pdf.set_ylim(0, max(Y) * 1.1)
         ax_pdf.set_title("PDF at Timestep 0")
@@ -292,7 +292,7 @@ def interactive_state_distribution_plot_1D(trajectory_data, pdf_func=None, bins=
                      alpha=0.7, edgecolor='black', density=True)
         ax_hist.set_xlim(x_min, x_max)
         ax_hist.set_title(f"State Histogram at Timestep {t}")
-        ax_hist.set_xlabel("State value")
+        ax_hist.set_xlabel("x")
         ax_hist.set_ylabel("Frequency")
 
         # Update PDF
@@ -315,9 +315,9 @@ def plot_density_2D_surface(ax, X0, X1, Z):
     surf = ax.plot_surface(X0, X1, Z, cmap='viridis', linewidth=0, antialiased=True)
     return ax
 
-def plot_density_1D(ax : plt.Axes, X, Z):
+def plot_density_1D(ax : plt.Axes, X, Z, alpha = 0.2):
     ax.plot(X, Z, color='purple')
-    ax.fill_between(X, Z, alpha=0.3, color='purple')
+    ax.fill_between(X, Z, alpha=alpha, color='purple')
 
 def plot_density_2D(ax : plt.Axes, X0, X1, Z):
     ax.contourf(X0, X1, Z, levels=50, cmap='viridis')

@@ -21,7 +21,7 @@ DTYPE = torch.float64
 if __name__ == "__main__":
 
     # System model
-    system = Pendulum(dt=0.1, length=1.0, damp=0.1, covariance=0.005 * np.eye(2))
+    system = Pendulum(dt=0.05, length=1.0, damp=1.1, covariance=0.005 * np.eye(2))
 
     # Dimension
     dim = system.dim()
@@ -34,20 +34,20 @@ if __name__ == "__main__":
     n_epochs_tran = 50
 
     # Time horizon
-    training_timesteps = 10
-    timesteps = 10
+    training_timesteps = 20
+    timesteps = 20
 
     def init_state_sampler():
-        return multivariate_normal.rvs(mean=np.array([0.1, 0.1]), cov = np.diag([0.10, 0.10]))
+        return multivariate_normal.rvs(mean=np.array([0.1, 0.1]), cov = np.diag([0.10, 0.01]))
 
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
     # Moment match the GDT to all of the data over the whole horizon
-    gdt = GaussianDistTransform(means=np.array([0.0, 0.0]), variances=[1.0, 4.0])
-    #gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data))
+    #gdt = GaussianDistTransform(means=np.array([0.0, 0.0]), variances=[0.3, 1.0])
+    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[0.2, 0.0])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
-    interactive_state_distribution_plot_2D(traj_data)
+    #interactive_state_distribution_plot_2D(traj_data)
     interactive_state_distribution_plot_2D(u_traj_data)
 
     # Create the data matrices for training
@@ -71,8 +71,8 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=64, shuffle=True)
 
     # Create initial state and transition models
-    transformer_degrees = [6, 5]
-    conditioner_degrees = [6, 5]
+    transformer_degrees = [10, 7]
+    conditioner_degrees = [7, 7]
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE)
 
     #transformer_degrees = [4, 1]
@@ -148,10 +148,10 @@ if __name__ == "__main__":
     def pdf_plotter(k : int):
         return grid_eval(lambda u : density_polynomials[k](u), u_bounds, dtype=DTYPE)
 
-    fig2 = plt.figure()
-    ax3d_x = fig2.add_subplot(111, projection='3d')
-    U0, U1, Z = pdf_plotter(2)
-    plot_density_2D_surface(ax3d_x, U0, U1, Z)
+    #fig2 = plt.figure()
+    #ax3d_x = fig2.add_subplot(111, projection='3d')
+    #U0, U1, Z = pdf_plotter(2)
+    #plot_density_2D_surface(ax3d_x, U0, U1, Z)
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
     interactive_state_distribution_plot_2D(u_traj_data, pdf_plotter)

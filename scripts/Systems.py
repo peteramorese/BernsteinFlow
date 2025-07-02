@@ -57,19 +57,38 @@ def sample_trajectories(system : DiscreteTimeStochasticSystem, initial_state_sam
 
     return traj_data
 
+def sample_io_pairs(system : DiscreteTimeStochasticSystem, n_pairs : int, region_lowers : list[float], region_uppers : list[float]):
+    """
+    Sample input (x', x) pairs from a system model, where the starting state x is sampled uniformly from a specified region
+    """
+    x_data = np.random.uniform(low=region_lowers, high=region_uppers, size=(n_pairs, system.dim()))
+    xp_data = np.zeros_like(x_data)
+    for i in range(n_pairs):
+        xp_data[i, :] = system(x_data[i, :])
+    
+    return np.hstack((xp_data, x_data))
+
+
+
 class CubicMap(DiscreteTimeStochasticSystem):
     def __init__(self, dt : float, alpha : float = 1.0, variance = 0.1):
         def additive_gaussian():
-            return stats.norm(loc=0.0, scale=0.1).rvs()
+            return stats.norm(loc=0.0, scale=variance).rvs()
         
         super().__init__(dim=1, v_dist=additive_gaussian)
 
         self.dt = dt
         self.alpha = alpha
+        self.variance  = variance
 
     def next_state(self, x : np.ndarray, v : np.ndarray):
-        x_next = x - self.dt * x**3
+        x_next = x - self.dt * self.alpha * x**3
         return x_next + v
+    
+    def transition_likelihood(self, x : np.ndarray, x_next : np.ndarray):
+        mean = self.next_state(x, np.zeros_like(x))
+        likelihood = stats.norm.pdf(x_next, loc=mean, scale=self.variance)
+        return likelihood
 
 class Pendulum(DiscreteTimeStochasticSystem):
     def __init__(self, dt : float, length : float = 1.0, damp : float = 0.1, covariance : np.ndarray = np.eye(2)):
