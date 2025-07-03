@@ -364,6 +364,7 @@ def poly_product(p_list : list[Polynomial]):
             p_list_lcl[l] = Polynomial(p_ten * pre_weight, basis=Basis.BERN)
     
     product_ten = p_list_lcl[0].ten()
+
     for i in range(1, len(p_list_lcl)):
         p_ten = p_list_lcl[i].ten()
 
@@ -394,6 +395,30 @@ def poly_product(p_list : list[Polynomial]):
         product_ten *= post_weight
 
     return Polynomial(product_ten, basis=p_basis)
+
+#def poly_product(p_list : list[Polynomial]):
+#    """
+#    Compute the product of a list of polynomials.
+#    """
+#    assert len(p_list) >= 1, "p_list must contain at least one polynomial"
+#    p_basis = p_list[0].basis()
+#    for p in p_list[1:]:
+#        assert p.basis() == p_basis, "All polynomials must be in the same basis"
+#    
+#    is_np = isinstance(p_list[0].ten(), np.ndarray)
+#    
+#    tensors = [p.ten() for p in p_list]
+#
+#    if p_basis == Basis.BERN:
+#        # Pre-weight each polynomial before convolution
+#        for l in range(len(tensors)):
+#            p_ten = tensors[l]
+#            pre_weight = create_d_separable_tensor(lambda dim, i : comb(p_ten.shape[dim] - 1, i), p_ten.shape, tensor_type=type(p_ten), dtype=p_ten.dtype)
+#            tensors[l] = p_ten * pre_weight
+#    
+#    final_shape = tensors[0].shape
+#    for t in tensors[1:]:
+#        final_shape += 
 
 def stable_split_factors(p_list : list[Polynomial], mag_range : float = 6.0):
     """
