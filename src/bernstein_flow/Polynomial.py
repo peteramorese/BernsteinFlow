@@ -17,9 +17,13 @@ class Basis(Enum):
 Polynomial = torch.Tensor
 class Polynomial:
     def __init__(self, coeffs, basis = Basis.MONO):
-        if not (isinstance(coeffs, torch.Tensor) or isinstance(coeffs, np.ndarray)):
+        if isinstance(coeffs, torch.Tensor):
+            self.coeffs = coeffs.detach().cpu().numpy()
+        elif isinstance(coeffs, np.ndarray):
+            self.coeffs = coeffs
+        else:
             raise ValueError("Coeffs supported as torch.Tensor or np.ndarray")
-        self.coeffs = coeffs
+
         self._basis = basis
     
     def ten(self):
@@ -42,17 +46,7 @@ class Polynomial:
     def dim(self):
         return self.coeffs.ndim
     
-    def to_numpy(self, dtype=np.float64):
-        assert isinstance(self.coeffs, torch.Tensor), "Coefficients must be a torch.Tensor"
-        c = self.coeffs.detach().cpu().numpy()
-        return Polynomial(c.astype(dtype), basis=self._basis)
-    
-    def to_torch(self, dtype=torch.float64):
-        assert isinstance(self.coeffs, np.ndarray), "Coefficients must be a np.ndarray"
-        c = torch.from_numpy(self.coeffs, dtype=dtype)
-        return Polynomial(c, basis=self._basis)
-
-def poly_eval(p : Polynomial, x):
+def poly_eval(p : Polynomial, x : np.ndarray):
     """
     Evaluate a multivariate polynomial in the monomial basis at points x.
 
@@ -61,75 +55,52 @@ def poly_eval(p : Polynomial, x):
         x: a 2D array of shape (m, d), where m is the number of points and d is the dimension.
 
     Returns:
-        A 1D array (torch or numpy) of shape (m,) with the polynomial evaluated at each point.
+        An array of shape (m,) with the polynomial evaluated at each point.
     """
     assert p.basis() == Basis.MONO, "Polynomial must be in monomial basis"
     p_ten = p.ten()
     d = p_ten.ndim
 
-    is_np = isinstance(p_ten, np.ndarray)
-    if is_np:
-        assert isinstance(x, np.ndarray), "Input x must be a numpy array"
-    else:
-        assert isinstance(x, torch.Tensor), "Input x must be a numpy array"
-
-    xp = np if is_np else torch
     assert x.ndim == 2, "Input x must be a 2D array (m, d)"
     assert x.shape[1] == d, f"Each point must have dimension {d}"
 
     # Handle univariate case
     if d == 1:
         n = p_ten.shape[0]
-        exponents = xp.arange(n, dtype=x.dtype if is_np else p_ten.dtype, device=None if is_np else p_ten.device)
+        exponents = np.arange(n, dtype=p_ten.dtype)
         monomials = x ** exponents  # shape: (m, n)
-        return monomials @ (p_ten if is_np else p_ten.to(x.dtype))
+        return monomials @ p_ten
 
     # Multivariate case
     # Generate all combinations of exponents
     shapes = [range(n) for n in p_ten.shape]
-    if is_np:
-        grids = np.meshgrid(*shapes, indexing='ij')
-        exponents = np.stack([g.flatten() for g in grids], axis=1)  # shape: (num_terms, d)
-        x_powers = x[:, None, :] ** exponents[None, :, :]  # shape: (m, num_terms, d)
-        monomials = np.prod(x_powers, axis=2)  # shape: (m, num_terms)
-        result = monomials @ p_ten.flatten()
-    else:
-        grids = torch.meshgrid(*[torch.arange(n, device=p_ten.device) for n in p_ten.shape], indexing='ij')
-        exponents = torch.stack([g.flatten() for g in grids], dim=1)  # shape: (num_terms, d)
-        x_powers = x[:, None, :] ** exponents[None, :, :]  # shape: (m, num_terms, d)
-        monomials = torch.prod(x_powers, dim=2)  # shape: (m, num_terms)
-        result = monomials @ p_ten.flatten()
+    grids = np.meshgrid(*shapes, indexing='ij')
+    exponents = np.stack([g.flatten() for g in grids], axis=1)  # shape: (num_terms, d)
+    x_powers = x[:, None, :] ** exponents[None, :, :]  # shape: (m, num_terms, d)
+    monomials = np.prod(x_powers, axis=2)  # shape: (m, num_terms)
+    result = monomials @ p_ten.flatten()
 
     return result
 
-def decasteljau(p : Polynomial, x):
+def decasteljau(p : Polynomial, x : np.ndarray):
     """
     Evaluates a multivariate Bernstein polynomial for a batch of input vectors
     using the De Casteljau algorithm.
 
     Args:
         p: polynomial in Bernstein basis
-        x: a torch.Tensor or np.ndarray of shape (m, d) representing m points in R^d.
+        x: a np.ndarray of shape (m, d) representing m points in R^d.
 
     Returns:
-        a scalar torch.Tensor containing the polynomial value at x.
+        An array of shape (m,) with the polynomial evaluated at each point.
 
-    Raises:
-        ValueError: If the dimensionality of x (x.shape[1]) does not match the
-                    number of dimensions of the coefficient tensor (p.coeffs.dim()).
     """
     assert p.basis() == Basis.BERN, "polynomial must be Bernstein basis"
     coeffs = p.coeffs
 
-    is_np = isinstance(coeffs, np.ndarray)
-    if is_np:
-        assert isinstance(x, np.ndarray), "Input x must be a numpy array"
-    else:
-        assert isinstance(x, torch.Tensor), "Input x must be a numpy array"
-    
     # Validate input shapes
     if x.ndim != 2:
-        raise ValueError(f"Input tensor x must be 2-dimensional (batch_size, d), but got {x.dim()} dimensions.")
+        raise ValueError(f"Input tensor x must be 2-dimensional (batch_size, d), but got {x.ndim} dimensions.")
         
     batch_size, d = x.shape
 
@@ -147,7 +118,7 @@ def decasteljau(p : Polynomial, x):
     # 'batch_size' evaluations simultaneously using broadcasting.
     # Shape changes from (n1+1, ..., nd+1) to (batch_size, n1+1, ..., nd+1).
     expand_shape = (batch_size,) + coeffs.shape
-    current_coeffs = np.broadcast_to(coeffs, expand_shape) if is_np else coeffs.unsqueeze(0).expand(*expand_shape)
+    current_coeffs = np.broadcast_to(coeffs, expand_shape) 
 
     # Iterate over each of the 'd' dimensions to apply De Casteljau's algorithm.
     for i in range(d):
@@ -158,7 +129,7 @@ def decasteljau(p : Polynomial, x):
         # For dimension i, the coefficient tensor has d-i polynomial dimensions remaining.
         # Shape of t changes from (batch_size,) to (batch_size, 1, 1, ...).
         view_shape = [batch_size] + [1] * (d - i)
-        t = t.reshape(*view_shape) if is_np else t.view(*view_shape)
+        t = t.reshape(*view_shape) 
 
         # The degree for the current dimension being processed.
         degree = degrees[i]
@@ -173,48 +144,25 @@ def decasteljau(p : Polynomial, x):
         # After reducing a dimension, its size becomes 1. We squeeze it out
         # before processing the next dimension, unless it's the last one.
         if i < d - 1:
-            current_coeffs = np.squeeze(current_coeffs, axis=1) if is_np else current_coeffs.squeeze(1)
+            current_coeffs = np.squeeze(current_coeffs, axis=1)
 
     # After the loop, current_coeffs has shape (batch_size, 1, 1, ..., 1).
     # Squeeze all singleton dimensions to get the final (batch_size,) result.
-    return np.squeeze(current_coeffs) if is_np else current_coeffs.squeeze()
+    return np.squeeze(current_coeffs)
 
-def binomial_torch(n, k, dtype=torch.double, device='cpu'):
-    n = torch.as_tensor(n, dtype=dtype, device=device)
-    k = torch.as_tensor(k, dtype=dtype, device=device)
-    
-    # Create a mask for valid k values (0 <= k <= n)
-    valid_mask = (k >= 0) & (k <= n)
-    
-    # lgamma(n+1) - lgamma(k+1) - lgamma(n-k+1)
-    log_comb = torch.lgamma(n + 1) - torch.lgamma(k + 1) - torch.lgamma(n - k + 1)
-    
-    # Use the mask to handle invalid k values, which should product in 0
-    # exp(log_comb) for valid cases, 0 otherwise
-    # We round to handle potential floating point inaccuracies since binomial_tensor should be integers
-    return torch.where(valid_mask, torch.exp(log_comb).round(), torch.zeros_like(log_comb))
-
-def binomial(n, k, dtype=None, device=None):
-    #assert type(n) == type(k), f"Type of n and k must match but got {type(n)} and {type(k)}"
-    if isinstance(n, np.ndarray) or isinstance(k, np.ndarray):
-        n = np.asarray(n, dtype=dtype)
-        k = np.asarray(k, dtype=dtype)
-        return np.round(comb(n, k, exact=False)).astype(dtype if dtype else float)
-    elif isinstance(n, torch.Tensor) or isinstance(k, torch.Tensor):
-        return binomial_torch(n, k, dtype=dtype, device=device)
-    else:
-        raise TypeError("Unsupported input type for binomial: expected torch.Tensor or np.ndarray")
+def binomial(n, k, dtype=None):
+    n = np.asarray(n, dtype=dtype)
+    k = np.asarray(k, dtype=dtype)
+    return np.round(comb(n, k, exact=False)).astype(dtype if dtype else float)
 
 def bernstein_to_monomial(p: Polynomial) -> Polynomial:
     if p.basis() != Basis.BERN:
         raise TypeError("Input must be a Polynomial in Bernstein basis.")
 
     bernstein_coeffs = p.ten()
-    is_np = isinstance(bernstein_coeffs, np.ndarray)
-    xp = np if is_np else torch
 
     d = bernstein_coeffs.ndim
-    monomial_coeffs = bernstein_coeffs.copy() if is_np else bernstein_coeffs.clone()
+    monomial_coeffs = bernstein_coeffs.copy()
 
     alphabet = 'abcdefghijklmnopqrstuvwxyz'
 
@@ -224,18 +172,18 @@ def bernstein_to_monomial(p: Polynomial) -> Polynomial:
             continue
 
         # Construct conversion matrix M
-        k_ = xp.arange(n + 1).reshape(-1, 1)  # (n+1, 1)
-        j_ = xp.arange(n + 1).reshape(1, -1)  # (1, n+1)
+        k_ = np.arange(n + 1).reshape(-1, 1)  # (n+1, 1)
+        j_ = np.arange(n + 1).reshape(1, -1)  # (1, n+1)
 
-        mask = (j_ <= k_).astype(float) if is_np else (j_ <= k_).float()
+        mask = (j_ <= k_).astype(float)
 
-        comb_nk = binomial(n, k_)
-        comb_kj = binomial(k_, j_)
+        comb_nk = binomial(n, k_, dtype=bernstein_coeffs.dtype)
+        comb_kj = binomial(k_, j_, dtype=bernstein_coeffs.dtype)
 
         signs = (-1.0) ** (k_ - j_)
 
         M = comb_nk * comb_kj * signs * mask
-        M = M.astype(bernstein_coeffs.dtype) if is_np else M.to(dtype=bernstein_coeffs.dtype)
+        M = M.astype(bernstein_coeffs.dtype)
 
         # Build einsum string for contraction
         subscripts = list(alphabet[:d])
@@ -247,7 +195,7 @@ def bernstein_to_monomial(p: Polynomial) -> Polynomial:
         product_subscripts[i] = new_idx
         einsum_str = f"{''.join(subscripts)},{mat_subscripts}->{''.join(product_subscripts)}"
 
-        monomial_coeffs = xp.einsum(einsum_str, monomial_coeffs, M)
+        monomial_coeffs = np.einsum(einsum_str, monomial_coeffs, M)
 
     return Polynomial(monomial_coeffs, basis=Basis.MONO)
 
@@ -256,12 +204,10 @@ def monomial_to_bernstein(p: Polynomial) -> Polynomial:
         raise TypeError("Input must be a Polynomial in monomial basis.")
 
     monomial_coeffs = p.ten()
-    is_np = isinstance(monomial_coeffs, np.ndarray)
-    xp = np if is_np else torch
 
     d = monomial_coeffs.ndim
-    bernstein_coeffs = monomial_coeffs.copy() if is_np else monomial_coeffs.clone()
-    dtype = monomial_coeffs.dtype if not is_np else monomial_coeffs.dtype
+    bernstein_coeffs = monomial_coeffs.copy()
+    dtype = monomial_coeffs.dtype
 
     alphabet = 'abcdefghijklmnopqrstuvwxyz'
 
@@ -271,15 +217,15 @@ def monomial_to_bernstein(p: Polynomial) -> Polynomial:
             continue
 
         # Build the Monomial-to-Bernstein conversion matrix N
-        j_ = xp.arange(n + 1).reshape(-1, 1)  # (n+1, 1)
-        k_ = xp.arange(n + 1).reshape(1, -1)  # (1, n+1)
+        j_ = np.arange(n + 1).reshape(-1, 1)  # (n+1, 1)
+        k_ = np.arange(n + 1).reshape(1, -1)  # (1, n+1)
 
-        mask = (k_ <= j_).astype(float) if is_np else (k_ <= j_).float()
+        mask = (k_ <= j_).astype(float)
         comb_jk = binomial(j_, k_, dtype=dtype)
         comb_nk = binomial(n, k_, dtype=dtype)
 
         N = (comb_jk / (comb_nk + 1e-12)) * mask
-        N = N.astype(dtype) if is_np else N.to(dtype)
+        N = N.astype(dtype)
 
         # Apply the transformation using einsum
         subscripts = list(alphabet[:d])
@@ -291,20 +237,13 @@ def monomial_to_bernstein(p: Polynomial) -> Polynomial:
         product_subscripts[i] = new_idx
 
         einsum_str = f"{''.join(subscripts)},{mat_subscripts}->{''.join(product_subscripts)}"
-        bernstein_coeffs = xp.einsum(einsum_str, bernstein_coeffs, N)
+        bernstein_coeffs = np.einsum(einsum_str, bernstein_coeffs, N)
 
     return Polynomial(bernstein_coeffs, basis=Basis.BERN)
 
-def create_d_separable_tensor(index_fcn, shape, tensor_type=torch.Tensor, dtype=torch.float64):
-    if tensor_type == torch.Tensor:
-        # Compute g values for each dimension
-        g_vectors = [torch.tensor([index_fcn(d, i) for i in range(shape[d])], dtype=dtype) for d in range(len(shape))]
-
-        # Broadcasting multiplication (outer product)
-        product = torch.ones(shape, dtype=dtype)
-    else:
-        g_vectors = [np.array([index_fcn(d, i) for i in range(shape[d])], dtype=dtype) for d in range(len(shape))]
-        product = np.ones(shape, dtype=dtype)
+def create_d_separable_tensor(index_fcn, shape, dtype=np.float64):
+    g_vectors = [np.array([index_fcn(d, i) for i in range(shape[d])], dtype=dtype) for d in range(len(shape))]
+    product = np.ones(shape, dtype=dtype)
 
     for dim, g_vec in enumerate(g_vectors):
         broadcast_shape = [1] * len(shape)
@@ -360,7 +299,7 @@ def poly_product(p_list : list[Polynomial]):
         # Pre-weight each polynomial before convolution
         for l in range(len(p_list_lcl)):
             p_ten = p_list_lcl[l].ten()
-            pre_weight = create_d_separable_tensor(lambda dim, i : comb(p_ten.shape[dim] - 1, i), p_ten.shape, tensor_type=type(p_ten), dtype=p_ten.dtype)
+            pre_weight = create_d_separable_tensor(lambda dim, i : comb(p_ten.shape[dim] - 1, i), p_ten.shape, dtype=p_ten.dtype)
             p_list_lcl[l] = Polynomial(p_ten * pre_weight, basis=Basis.BERN)
     
     product_ten = p_list_lcl[0].ten()
@@ -391,34 +330,57 @@ def poly_product(p_list : list[Polynomial]):
     
     if p_basis == Basis.BERN:
         # Post-weight the convoluted polynomial
-        post_weight = create_d_separable_tensor(lambda dim, s : 1.0 / comb(product_ten.shape[dim] - 1, s), product_ten.shape, tensor_type=type(p_ten), dtype=p_ten.dtype)
+        post_weight = create_d_separable_tensor(lambda dim, s : 1.0 / comb(product_ten.shape[dim] - 1, s), product_ten.shape, dtype=p_ten.dtype)
         product_ten *= post_weight
 
     return Polynomial(product_ten, basis=p_basis)
 
-#def poly_product(p_list : list[Polynomial]):
-#    """
-#    Compute the product of a list of polynomials.
-#    """
-#    assert len(p_list) >= 1, "p_list must contain at least one polynomial"
-#    p_basis = p_list[0].basis()
-#    for p in p_list[1:]:
-#        assert p.basis() == p_basis, "All polynomials must be in the same basis"
-#    
-#    is_np = isinstance(p_list[0].ten(), np.ndarray)
-#    
-#    tensors = [p.ten() for p in p_list]
-#
-#    if p_basis == Basis.BERN:
-#        # Pre-weight each polynomial before convolution
-#        for l in range(len(tensors)):
-#            p_ten = tensors[l]
-#            pre_weight = create_d_separable_tensor(lambda dim, i : comb(p_ten.shape[dim] - 1, i), p_ten.shape, tensor_type=type(p_ten), dtype=p_ten.dtype)
-#            tensors[l] = p_ten * pre_weight
-#    
-#    final_shape = tensors[0].shape
-#    for t in tensors[1:]:
-#        final_shape += 
+def poly_product_new(p_list : list[Polynomial]):
+    """
+    Compute the product of a list of polynomials.
+    """
+    assert len(p_list) >= 1, "p_list must contain at least one polynomial"
+    p_basis = p_list[0].basis()
+    for p in p_list[1:]:
+        assert p.basis() == p_basis, "All polynomials must be in the same basis"
+    
+    tensors = [p.ten() for p in p_list]
+
+    if p_basis == Basis.BERN:
+        # Pre-weight each polynomial before convolution
+        for l in range(len(tensors)):
+            p_ten = tensors[l]
+            pre_weight = create_d_separable_tensor(lambda dim, i : comb(p_ten.shape[dim] - 1, i), p_ten.shape, dtype=p_ten.dtype)
+            tensors[l] = p_ten * pre_weight
+    
+    # Expand all tensors to be the same dimensionality
+    max_dim = max(t.ndim for t in tensors)
+    for i in range(len(tensors)):
+        t = tensors[i]
+        if t.ndim < max_dim:
+            tensors[i] = t.reshape(t.shape + (1,) * (max_dim - t.ndim))
+    
+    # Compute the shape of the final product
+    final_shape = np.array(tensors[0].shape, dtype=np.int32)
+    for t in tensors[1:]:
+        final_shape += np.array(t.shape, dtype=np.int32) - 1
+    
+    # FFT all tensors
+    fft_size = [scifft.next_fast_len(s) for s in final_shape]
+    freq_tensors = [scifft.rfftn(t, s=fft_size) for t in tensors]
+    freq_product = np.multiply.reduce(freq_tensors)
+    product = scifft.irfftn(freq_product, s=fft_size)
+
+
+    slices = tuple(slice(0, s) for s in final_shape)
+    product = product[slices]
+
+    if p_basis == Basis.BERN:
+        # Post-weight the convoluted polynomial
+        post_weight = create_d_separable_tensor(lambda dim, s : 1.0 / comb(product.shape[dim] - 1, s), product.shape, dtype=p_ten.dtype)
+        product *= post_weight
+
+    return Polynomial(product, basis=p_basis)
 
 def stable_split_factors(p_list : list[Polynomial], mag_range : float = 6.0):
     """
@@ -435,8 +397,8 @@ def stable_split_factors(p_list : list[Polynomial], mag_range : float = 6.0):
     #is_np = isinstance(p_list[0].ten(), np.ndarray)
     for p in p_list:
         p_ten = p.ten()
-        p_ten_abs = torch.abs(p_ten) if isinstance(p_ten, torch.Tensor) else np.abs(p_ten)
-        mag_min, mag_max = p_ten_abs.min().numpy(), p_ten_abs.max().numpy()
+        p_ten_abs = np.abs(p_ten)
+        mag_min, mag_max = p_ten_abs.min(), p_ten_abs.max()
         #print("mag min: ", mag_min, " mag max: ", mag_max)
         #print("log min: " , np.log10(mag_min), " log max: ", np.log10(mag_max), " mag range: " , mag_range)
         n_splits = int(np.ceil((np.log10(mag_max) - np.log10(mag_min)) / mag_range))
@@ -444,7 +406,7 @@ def stable_split_factors(p_list : list[Polynomial], mag_range : float = 6.0):
         #print("n_splits: ", n_splits)
         #input("...")
         summands = []
-        mask = torch.zeros_like(p_ten).bool() # initially no elements are masked out
+        mask = np.zeros_like(p_ten).astype(bool) # initially no elements are masked out
         for i in range(n_splits + 1):
             threshold_i = 10.0 ** (np.log10(mag_min) + i * mag_range)
             #print("i : ", i, " threshold_i: ", threshold_i)
@@ -478,14 +440,10 @@ def marginal(p : Polynomial, dims : list[int]):
             weight /= p_ten.shape[d]
         
         # Sum along the desired dimensions (integrate) then weight by the area of the basis polynomials
-        summed_tensor = p.ten()
-        if isinstance(summed_tensor, torch.Tensor):
-            summed_tensor = torch.sum(p_ten, dim=dims)
-        else:
-            summed_tensor = np.sum(summed_tensor, axis=tuple(dims))
+        summed_tensor = np.sum(p.ten(), axis=tuple(dims))
         return Polynomial(weight * summed_tensor, basis=Basis.BERN)
     else:
-        result = p.ten().clone()
+        result = p.ten().copy()
         
         # Sort dimensions in descending order to avoid index shifting issues
         dim_list_sorted = sorted(dims, reverse=True)
@@ -501,10 +459,7 @@ def marginal(p : Polynomial, dims : list[int]):
             weights_shape = [1] * result.ndim
             weights_shape[dim] = degree_plus_one
             
-            if isinstance(result, torch.Tensor):
-                weights = torch.zeros(weights_shape, dtype=result.dtype, device=result.device)
-            else:
-                weights = np.zeros(weights_shape, dtype=result.dtype)
+            weights = np.zeros(weights_shape, dtype=result.dtype)
             for k in range(degree_plus_one):
                 # For term x^k, integral from 0 to 1 is 1/(k+1)
                 weights_index = [slice(None)] * result.ndim
@@ -515,10 +470,7 @@ def marginal(p : Polynomial, dims : list[int]):
             result = result * weights
             
             # Sum along this dimension (integrate)
-            if isinstance(result, torch.Tensor):
-                summed_tensor = torch.sum(result, dim=dim, keepdim=False)
-            else:
-                result = np.sum(result, axis=dim, keepdims=False)
+            result = np.sum(result, axis=dim, keepdims=False)
         
         return Polynomial(result, basis=Basis.MONO)
 
@@ -533,10 +485,15 @@ if __name__ == "__main__":
     #print("Bernstein eval: \n", p_bern_eval)
     #print("Monomial eval: \n", p_mono_eval)
 
-    #p_bern_1_tch = Polynomial(torch.randn(4,3,4,5), basis=Basis.BERN)
-    #p_bern_2_tch = Polynomial(torch.randn(4,3,4,5), basis=Basis.BERN)
-    #p_bern_1_np = Polynomial(p_bern_1_tch.ten().numpy(), basis=Basis.BERN)
-    #p_bern_2_np = Polynomial(p_bern_2_tch.ten().numpy(), basis=Basis.BERN)
+    p_bern_1 = Polynomial(np.random.randn(4,3,4,5), basis=Basis.BERN)
+    p_bern_2 = Polynomial(np.random.randn(4,3,4,5), basis=Basis.BERN)
+
+    p_prod = poly_product([p_bern_1, p_bern_2]) 
+    p_prod_new = poly_product_new([p_bern_1, p_bern_2]) 
+
+    x = np.random.rand(5, 4)
+    print("old prod: ", p_prod(x))
+    print("new prod: ", p_prod_new(x))
 
     #tch_prod = poly_product([p_bern_1_tch, p_bern_2_tch])
     #np_prod = poly_product([p_bern_1_np, p_bern_2_np])
@@ -564,18 +521,18 @@ if __name__ == "__main__":
     #print("tch: ", p_bern_tch_a(x))
     #print("np:  ", p_bern_np_a(x.numpy()))
 
-    p = Polynomial(torch.exp(torch.randint(1, 10, (4, 4))).float(), basis=Basis.MONO)
-    q = Polynomial(torch.exp(torch.randint(1, 10, (4, 4))).float(), basis=Basis.MONO)
-    print("p : \n", p.ten().int())
-    print("q : \n", q.ten().int())
-    print("")
-    factors = stable_split_factors([p, q], mag_range=2.0)
-    for f in factors[0]:
-        print("p term: \n", f.ten().int())
-    print("")
-    print("Sum of p terms: \n", sum([f.ten() for f in factors[0]]).int())
-    print("")
-    for f in factors[1]:
-        print("q term: \n", f.ten().int())
-    print("")
-    print("Sum of q terms: \n", sum([f.ten() for f in factors[1]]).int())
+    #p = Polynomial(np.exp(np.random.randint(1, 10, (4, 4))), basis=Basis.MONO)
+    #q = Polynomial(np.exp(np.random.randint(1, 10, (4, 4))), basis=Basis.MONO)
+    #print("p : \n", p.ten())
+    #print("q : \n", q.ten())
+    #print("")
+    #factors = stable_split_factors([p, q], mag_range=2.0)
+    #for f in factors[0]:
+    #    print("p term: \n", f.ten().astype(int))
+    #print("")
+    #print("Sum of p terms: \n", sum([f.ten() for f in factors[0]]).astype(int))
+    #print("")
+    #for f in factors[1]:
+    #    print("q term: \n", f.ten().astype(int))
+    #print("")
+    #print("Sum of q terms: \n", sum([f.ten() for f in factors[1]]).astype(int))
