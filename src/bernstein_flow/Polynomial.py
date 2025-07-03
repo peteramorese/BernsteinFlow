@@ -252,90 +252,7 @@ def create_d_separable_tensor(index_fcn, shape, dtype=np.float64):
     
     return product
 
-def fft_convolve_nd(a, b):
-    """
-    Computes the convolution of two tensors using FFT, matching the broadcasted shape. Accepts numpy or torch tensors.
-    """
-    assert type(a) == type(b), "Both inputs must be same type"
-    is_np = isinstance(a, np.ndarray)
-
-    size = [a.shape[i] + b.shape[i] - 1 for i in range(a.ndim)]
-    fft_size = [scifft.next_fast_len(s) for s in size]
-
-    if is_np: 
-        A = scifft.rfftn(a, s=fft_size)
-        B = scifft.rfftn(b, s=fft_size)
-        C = A * B
-        c = scifft.irfftn(C, s=fft_size)
-    else:
-        A = torch.fft.rfftn(a, s=fft_size)
-        B = torch.fft.rfftn(b, s=fft_size)
-        C = A * B
-        c = torch.fft.irfftn(C, s=fft_size)
-
-    # Truncate to actual convolution size
-    slices = tuple(slice(0, s) for s in size)
-    return c[slices]
-
 def poly_product(p_list : list[Polynomial]):
-    """
-    Computes the product of a list of multivariate polynomials using FFT-based convolution.
-    
-    Each polynomial in p_list is a torch.Tensor of coefficients of increasing dimension:
-    e.g. p_list = [p(x1), p(x1,x2), ..., p(x1,...,xd)]. The product is most efficient
-    when this order is given, but it is not necessary
-    
-    Returns:
-        product: torch.Tensor of coefficients of the product polynomial.
-    """
-    assert len(p_list) >= 1, "p_list must contain at least one polynomial"
-    p_basis = p_list[0].basis()
-    for p in p_list[1:]:
-        assert p.basis() == p_basis, "All polynomials must be in the same basis"
-    
-    p_list_lcl = copy.deepcopy(p_list)
-
-    if p_basis == Basis.BERN:
-        # Pre-weight each polynomial before convolution
-        for l in range(len(p_list_lcl)):
-            p_ten = p_list_lcl[l].ten()
-            pre_weight = create_d_separable_tensor(lambda dim, i : comb(p_ten.shape[dim] - 1, i), p_ten.shape, dtype=p_ten.dtype)
-            p_list_lcl[l] = Polynomial(p_ten * pre_weight, basis=Basis.BERN)
-    
-    product_ten = p_list_lcl[0].ten()
-
-    for i in range(1, len(p_list_lcl)):
-        p_ten = p_list_lcl[i].ten()
-
-        # Pad product to match p's dimensionality
-        if product_ten.ndim < p_ten.ndim:
-            pad_dims = p_ten.ndim - product_ten.ndim
-            product_ten = product_ten[(...,) + (None,) * pad_dims]
-
-        # Broadcast shapes to match for convolution
-        product_shape = product_ten.shape
-        p_shape = p_ten.shape
-        max_shape = [max(r, s) for r, s in zip(product_shape, p_shape)]
-
-        # Pad each tensor to the appropriate shape
-        product_pad = list(product_shape)
-        p_pad = list(p_shape)
-        while len(product_pad) < len(max_shape):
-            product_pad.append(1)
-        while len(p_pad) < len(max_shape):
-            p_pad.append(1)
-
-        # Compute FFT-based convolution
-        product_ten = fft_convolve_nd(product_ten, p_ten)
-    
-    if p_basis == Basis.BERN:
-        # Post-weight the convoluted polynomial
-        post_weight = create_d_separable_tensor(lambda dim, s : 1.0 / comb(product_ten.shape[dim] - 1, s), product_ten.shape, dtype=p_ten.dtype)
-        product_ten *= post_weight
-
-    return Polynomial(product_ten, basis=p_basis)
-
-def poly_product_new(p_list : list[Polynomial]):
     """
     Compute the product of a list of polynomials.
     """
@@ -489,11 +406,9 @@ if __name__ == "__main__":
     p_bern_2 = Polynomial(np.random.randn(4,3,4,5), basis=Basis.BERN)
 
     p_prod = poly_product([p_bern_1, p_bern_2]) 
-    p_prod_new = poly_product_new([p_bern_1, p_bern_2]) 
 
     x = np.random.rand(5, 4)
-    print("old prod: ", p_prod(x))
-    print("new prod: ", p_prod_new(x))
+    print("prod: ", p_prod(x))
 
     #tch_prod = poly_product([p_bern_1_tch, p_bern_2_tch])
     #np_prod = poly_product([p_bern_1_np, p_bern_2_np])
