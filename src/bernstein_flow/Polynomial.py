@@ -1,9 +1,8 @@
-from itertools import product
+import itertools as it
 import torch
-import torch.fft
+import math
 
 from functools import reduce
-import copy
 import numpy as np
 from enum import Enum
 
@@ -22,7 +21,7 @@ class Polynomial:
         elif isinstance(coeffs, np.ndarray):
             self.coeffs = coeffs
         else:
-            raise ValueError("Coeffs supported as torch.Tensor or np.ndarray")
+            raise ValueError("Input coeffs tensor supported as torch.Tensor or np.ndarray")
 
         self._basis = basis
     
@@ -96,7 +95,7 @@ def decasteljau(p : Polynomial, x : np.ndarray):
 
     """
     assert p.basis() == Basis.BERN, "polynomial must be Bernstein basis"
-    coeffs = p.coeffs
+    p_ten = p.ten()
 
     # Validate input shapes
     if x.ndim != 2:
@@ -104,34 +103,24 @@ def decasteljau(p : Polynomial, x : np.ndarray):
         
     batch_size, d = x.shape
 
-    if d != coeffs.ndim:
+    if d != p_ten.ndim:
         raise ValueError(
             f"Dimensionality of x ({d}) must match the dimensionality of the "
-            f"polynomial's coefficient tensor ({coeffs.dim()})."
+            f"polynomial's coefficient tensor ({p_ten.ndim})."
         )
 
-    # Store the degrees of the polynomial in each dimension.
-    # The degree in a dimension is one less than the size of the tensor in that dimension.
-    degrees = [s - 1 for s in coeffs.shape]
+    degrees = [s - 1 for s in p_ten.shape]
 
-    # Start with the original coefficients. We add a batch dimension to handle all
-    # 'batch_size' evaluations simultaneously using broadcasting.
-    # Shape changes from (n1+1, ..., nd+1) to (batch_size, n1+1, ..., nd+1).
-    expand_shape = (batch_size,) + coeffs.shape
-    current_coeffs = np.broadcast_to(coeffs, expand_shape) 
+    expand_shape = (batch_size,) + p_ten.shape
+    current_coeffs = np.broadcast_to(p_ten, expand_shape) 
 
     # Iterate over each of the 'd' dimensions to apply De Casteljau's algorithm.
     for i in range(d):
-        # Get the evaluation points for the current dimension for all vectors in the batch.
         t = x[:, i]
 
-        # Reshape t to allow broadcasting with the coefficient tensor.
-        # For dimension i, the coefficient tensor has d-i polynomial dimensions remaining.
-        # Shape of t changes from (batch_size,) to (batch_size, 1, 1, ...).
         view_shape = [batch_size] + [1] * (d - i)
         t = t.reshape(*view_shape) 
 
-        # The degree for the current dimension being processed.
         degree = degrees[i]
 
         # Apply the De Casteljau recurrence 'degree' times.
@@ -146,8 +135,6 @@ def decasteljau(p : Polynomial, x : np.ndarray):
         if i < d - 1:
             current_coeffs = np.squeeze(current_coeffs, axis=1)
 
-    # After the loop, current_coeffs has shape (batch_size, 1, 1, ..., 1).
-    # Squeeze all singleton dimensions to get the final (batch_size,) result.
     return np.squeeze(current_coeffs)
 
 def binomial(n, k, dtype=None):
@@ -252,6 +239,36 @@ def create_d_separable_tensor(index_fcn, shape, dtype=np.float64):
     
     return product
 
+def poly_sum(p_list : list[Polynomial], stable : bool = False):
+    tensors = [p.ten() for p in p_list]
+
+    # Compute the max size of each tensor
+    max_size = np.zeros_like(tensors[0].shape, dtype=np.int32)
+    for t in tensors:
+        max_size = np.maximum(max_size, t.shape)
+
+    # Pad all lower-degree tensors to the max size 
+    for i in range(len(tensors)):
+        pad_size = max_size - np.array(tensors[i].shape)
+        pad = [(0, s) for s in pad_size]
+        tensors[i] = np.pad(tensors[i], pad)
+
+    if not stable:
+        return Polynomial(np.add.reduce(tensors), basis=p_list[0].basis())
+    else:
+        # Kahan summation
+        total = np.zeros(max_size, dtype=tensors[0].dtype)
+        c = np.zeros(max_size, dtype=tensors[0].dtype)
+
+        for t in tensors:
+            y = t - c
+            t_sum = total + y
+            c = (t_sum - total) - y
+            total = t_sum
+
+        return Polynomial(total, basis=p_list[0].basis())
+
+
 def poly_product(p_list : list[Polynomial]):
     """
     Compute the product of a list of polynomials.
@@ -299,6 +316,124 @@ def poly_product(p_list : list[Polynomial]):
 
     return Polynomial(product, basis=p_basis)
 
+def stable_sum_reduction(a : np.ndarray, axis=None, keepdims=False):
+    """
+    Substitute for np.sum with better numerical stability (at the cost of performance)
+    """
+    arr = np.asanyarray(a)
+    # Global sum
+    if axis is None:
+        # fsum over the flattened data
+        total = math.fsum(arr.ravel().tolist())
+        if keepdims:
+            # return as an array of shape (1,1,...,1)
+            shape = tuple(1 for _ in range(arr.ndim))
+            return np.full(shape, total)
+        else:
+            return total
+
+    # Normalize axis to a tuple of positive ints
+    if isinstance(axis, int):
+        axes = (axis % arr.ndim, )
+    else:
+        axes = tuple(ax % arr.ndim for ax in axis)
+    axes = sorted(axes)
+
+    # Determine the shape of the result
+    out_shape = []
+    for i, dim in enumerate(arr.shape):
+        if i not in axes:
+            out_shape.append(dim)
+        elif keepdims:
+            out_shape.append(1)
+
+    # Move the summation axes to the end, reshape so that
+    # we have shape (..., M), where M is the product of lengths over axes
+    perm = [i for i in range(arr.ndim) if i not in axes] + axes
+    arr_t = np.transpose(arr, perm)
+    outer_shape = arr_t.shape[:arr.ndim - len(axes)]
+    M = int(np.prod(arr_t.shape[arr.ndim - len(axes):]))
+    flat = arr_t.reshape(-1, M)
+
+    # Apply math.fsum to each row
+    summed = [math.fsum(row.tolist()) for row in flat]
+    result = np.array(summed, dtype=float).reshape(outer_shape)
+
+    # If keepdims, insert back the reduced axes as length-1 dims
+    if keepdims:
+        for ax in axes:
+            result = np.expand_dims(result, axis=ax)
+
+    return result
+
+def split_factor_poly_product(summands_list : list[list[Polynomial]], shrink_to_size : bool = False):
+    """
+    Compute the product of a list polynomial sums. Returns a list of polynomials whose sum is the product of the input polynomials.
+    """
+    assert len(summands_list) >= 1, "p_list must contain at least one polynomial"
+    p_basis = summands_list[0][0].basis()
+    for summands in summands_list[1:]:
+        for p in summands:
+            assert p.basis() == p_basis, "All polynomials must be in the same basis"
+    
+    summands_tensors = [[p.ten() for p in p_list] for p_list in summands_list]
+
+    if p_basis == Basis.BERN:
+        # Pre-weight each polynomial before convolution
+        for summands in summands_tensors:
+            for l in range(len(summands)):
+                p_ten = summands[l]
+                pre_weight = create_d_separable_tensor(lambda dim, i : comb(p_ten.shape[dim] - 1, i), p_ten.shape, dtype=p_ten.dtype)
+                summands[l] = p_ten * pre_weight
+    
+
+    # Expand all tensors to be the same dimensionality
+    max_dim = max(t.ndim for summands in summands_tensors for t in summands)
+    for summands in summands_tensors:
+        for i in range(len(summands)):
+            t = summands[i]
+            if t.ndim < max_dim:
+                summands[i] = t.reshape(t.shape + (1,) * (max_dim - t.ndim))
+    
+    # Compute the final shape and fft sizes of each product
+    final_shapes = []
+    max_fft_size = np.zeros_like(summands_tensors[0][0].shape, dtype=np.int32) # Track the largest fft_size, and use that for all products
+    for factor_tensor_list in it.product(*summands_tensors):
+        final_shape = np.array(factor_tensor_list[0].shape, dtype=np.int32)
+        for t in factor_tensor_list[1:]:
+            final_shape += np.array(t.shape, dtype=np.int32) - 1
+
+        for i in range(len(final_shape)):
+            nfl = scifft.next_fast_len(final_shape[i])
+            if nfl > max_fft_size[i]:
+                max_fft_size[i] = nfl
+
+        final_shapes.append(final_shape)
+
+    # FFT all tensors
+    test = summands_tensors[0][0]
+    scifft.rfftn(test, s=max_fft_size)
+    freq_summands_tensors = [[scifft.rfftn(t, s=max_fft_size) for t in summands] for summands in summands_tensors]
+    products = []
+    for factor_tensor_list in it.product(*freq_summands_tensors):
+        freq_product = np.multiply.reduce(factor_tensor_list)
+        prod = scifft.irfftn(freq_product, s=max_fft_size)
+        products.append(prod)
+
+
+    if shrink_to_size:
+        for prod, final_shape in zip(products, final_shapes):
+            slices = tuple(slice(0, s) for s in final_shape)
+            prod = prod[slices]
+
+    if p_basis == Basis.BERN:
+        for prod in products:
+            # Post-weight the convoluted polynomial
+            post_weight = create_d_separable_tensor(lambda dim, s : 1.0 / comb(prod.shape[dim] - 1, s), prod.shape, dtype=p_ten.dtype)
+            prod *= post_weight
+
+    return [Polynomial(product, basis=p_basis) for product in products]
+
 def stable_split_factors(p_list : list[Polynomial], mag_range : float = 6.0):
     """
     Splits each factor into multiple polynomials depending on the magnitudes of the coefficients to achieve better numerical stability. Returns a list of polynomials
@@ -341,8 +476,7 @@ def stable_split_factors(p_list : list[Polynomial], mag_range : float = 6.0):
     
     #return [Polynomial(term, basis=p_list[0].basis()) for term in product_terms]
     
-
-def marginal(p : Polynomial, dims : list[int]):
+def marginal(p : Polynomial, dims : list[int], stable : bool = False):
     """
     Integrate a polynomial over the specified dims from x_l = 0 to x_l = 1
 
@@ -357,7 +491,7 @@ def marginal(p : Polynomial, dims : list[int]):
             weight /= p_ten.shape[d]
         
         # Sum along the desired dimensions (integrate) then weight by the area of the basis polynomials
-        summed_tensor = np.sum(p.ten(), axis=tuple(dims))
+        summed_tensor = np.sum(p.ten(), axis=tuple(dims), keepdims=False) if not stable else stable_sum_reduction(p.ten(), axis=tuple(dims), keepdims=False)
         return Polynomial(weight * summed_tensor, basis=Basis.BERN)
     else:
         result = p.ten().copy()
@@ -387,7 +521,7 @@ def marginal(p : Polynomial, dims : list[int]):
             result = result * weights
             
             # Sum along this dimension (integrate)
-            result = np.sum(result, axis=dim, keepdims=False)
+            result = np.sum(result, axis=dim, keepdims=False) if not stable else stable_sum_reduction(result, axis=dim, keepdims=False)
         
         return Polynomial(result, basis=Basis.MONO)
 
@@ -402,13 +536,26 @@ if __name__ == "__main__":
     #print("Bernstein eval: \n", p_bern_eval)
     #print("Monomial eval: \n", p_mono_eval)
 
-    p_bern_1 = Polynomial(np.random.randn(4,3,4,5), basis=Basis.BERN)
-    p_bern_2 = Polynomial(np.random.randn(4,3,4,5), basis=Basis.BERN)
+    p = Polynomial(np.exp(np.random.uniform(low=-5, high=12, size=(4, 4))), basis=Basis.MONO)
+    q = Polynomial(np.exp(np.random.uniform(low=-5, high=12, size=(4, 4))), basis=Basis.MONO)
 
-    p_prod = poly_product([p_bern_1, p_bern_2]) 
+    split = stable_split_factors([p, q], mag_range=2.0)
 
-    x = np.random.rand(5, 4)
-    print("prod: ", p_prod(x))
+    prod = poly_product([p, q])
+    stable_prod = split_factor_poly_product(split)
+
+    x = np.random.rand(5, 2)
+    print("prod: ", prod(x))
+    print("prod sep: ", sum(sprod(x) for sprod in stable_prod))
+
+
+    p = Polynomial(np.array([[1, 2], [3, 4.5]]))
+    q = Polynomial(np.array([[6, 7], [2, 5.5]]))
+
+    print(poly_sum([p, q], stable=False).ten())
+    print(poly_sum([p, q], stable=True).ten())
+
+    #print("old prod: ", p_prod_old(x))
 
     #tch_prod = poly_product([p_bern_1_tch, p_bern_2_tch])
     #np_prod = poly_product([p_bern_1_np, p_bern_2_np])
