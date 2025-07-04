@@ -453,6 +453,7 @@ def stable_split_factors(p_list : list[Polynomial], mag_range : float = 6.0):
         mag_min, mag_max = p_ten_abs.min(), p_ten_abs.max()
         #print("mag min: ", mag_min, " mag max: ", mag_max)
         #print("log min: " , np.log10(mag_min), " log max: ", np.log10(mag_max), " mag range: " , mag_range)
+        print("log max: ", np.log10(mag_max), " log min: ", np.log10(mag_min), " mag_range: ", mag_range)
         n_splits = int(np.ceil((np.log10(mag_max) - np.log10(mag_min)) / mag_range))
         #n_splits = int(np.ceil((mag_max - mag_min) / threshold))
         #print("n_splits: ", n_splits)

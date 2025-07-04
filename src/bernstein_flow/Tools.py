@@ -82,5 +82,3 @@ def model_x_eval_fcn(model, dt, device=None, dtype=torch.float32):
         return torch.from_numpy(x_density_np).to(device=device)
 
     return f  
-
-def stable_sum()

@@ -35,7 +35,7 @@ if __name__ == "__main__":
     n_epochs_tran = 50
 
     # Time horizon
-    training_timesteps = 20
+    training_timesteps = 10
     timesteps = training_timesteps
 
     # Propagate using
@@ -228,35 +228,29 @@ if __name__ == "__main__":
     # Compute the propagated polynomials
     init_model_tfs = init_state_model.get_transformer_polynomials()
     trans_model_tfs = transition_model.get_transformer_polynomials()
-    if np_prop:
-        init_model_tfs = [tf.to_numpy(dtype=np.float128) for tf in init_model_tfs]
-        trans_model_tfs = [tf.to_numpy(dtype=np.float128) for tf in trans_model_tfs]
+
+    for i in range(len(init_model_tfs)):
+        init_model_tfs[i].coeffs = init_model_tfs[i].coeffs.astype(np.float128)
+        trans_model_tfs[i].coeffs = trans_model_tfs[i].coeffs.astype(np.float128)
+
     p_init = poly_product(init_model_tfs)
     p_transition = poly_product(trans_model_tfs)
     density_polynomials = [p_init]
     for k in range(1, timesteps):
-        p_curr = propagate([density_polynomials[k-1]], [p_transition])
+        p_curr = propagate([density_polynomials[k-1]], [p_transition], mag_range=3.0)
         density_polynomials.append(p_curr)
         print(f"Computed p(x{k})")
 
-        if np_prop:
-            u_samples = np.random.rand(1000, 1)
-            u_samples = u_samples.astype(np.float128)
-            pdf_samples = p_curr(u_samples)
-            print(f"p(x{k}) mc AUC: ", np.mean(pdf_samples))
-        else:
-            u_samples = torch.rand(1000, 1, dtype=DTYPE)
-            print(f"p(x{k}) mc AUC: ", torch.mean(pdf_samples))
+        u_samples = np.random.rand(10000, 1)
+        u_samples = u_samples.astype(np.float128)
+        pdf_samples = p_curr(u_samples)
+        print(f"p(x{k}) mc AUC: ", np.mean(pdf_samples))
 
     # Make pdf plotter for interactive vis
     u_bounds = [0.0, 1.0, 0.0, 1.0]
     def pdf_plotter(k : int):
-        if np_prop:
-            U = np.linspace(0.0, 1.0, 100, dtype=np.float128)
-            U = np.expand_dims(U, axis=1)
-        else:
-            U = torch.linspace(0.0, 1.0, 100, dtype=DTYPE)
-            U = U.unsqueeze(1)
+        U = np.linspace(0.0, 1.0, 100, dtype=np.float128)
+        U = np.expand_dims(U, axis=1)
         Z = density_polynomials[k](U)
         return U, Z
 
