@@ -44,6 +44,9 @@ class Polynomial:
     
     def dim(self):
         return self.coeffs.ndim
+
+    def shape(self):
+        return self.coeffs.shape
     
 def poly_eval(p : Polynomial, x : np.ndarray):
     """
