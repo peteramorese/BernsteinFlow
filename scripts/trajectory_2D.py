@@ -31,7 +31,7 @@ if __name__ == "__main__":
 
     # Number of training epochs
     n_epochs_init = 600
-    n_epochs_tran = 50
+    n_epochs_tran = 30
 
     # Time horizon
     training_timesteps = 20
@@ -71,13 +71,14 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=64, shuffle=True)
 
     # Create initial state and transition models
-    transformer_degrees = [10, 7]
-    conditioner_degrees = [7, 7]
-    init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE)
+    transformer_degrees = [8, 6]
+    conditioner_degrees = [7, 6]
+    cond_deg_incr = [0] * len(conditioner_degrees)
+    init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
     #transformer_degrees = [4, 1]
     #conditioner_degrees = [0, 1]
-    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE)
+    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
     print(f"Created transition model with {transition_model.n_parameters()} parameters")

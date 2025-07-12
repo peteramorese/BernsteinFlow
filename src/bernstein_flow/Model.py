@@ -3,8 +3,10 @@ import torch
 import math
 from torch.utils.data import DataLoader, TensorDataset
 from sympy import symbols, binomial, lambdify
+import numpy as np
 
 from .Polynomial import Polynomial, Basis
+from .HyperProjection import bernstein_raised_degree_tf
 
 def bernstein_basis_functions(dim : int, degree : int, coefficients : torch.Tensor = None, scale : float = 1.0):
     """
@@ -42,28 +44,49 @@ def bernstein_basis_functions(dim : int, degree : int, coefficients : torch.Tens
     return basis_funcs
 
 class BernsteinFlowModel(torch.nn.Module):
-    def __init__(self, dim : int, transformer_degrees : int, conditioner_degrees : int, device = None, dtype = torch.float32):
+    def __init__(self, dim : int, transformer_degrees : list[int], conditioner_degrees : list[int], conditioner_deg_incr : list[int] = None, device = None, dtype = torch.float32):
         super().__init__()
 
         self.dim = dim
 
         self.tf_degs = transformer_degrees
         self.cond_degs = conditioner_degrees
+        self.cond_degs = conditioner_degrees
+        
+        if conditioner_deg_incr is not None:
+            assert len(conditioner_degrees) == len(conditioner_deg_incr)
+        self.cond_deg_incr = conditioner_deg_incr
 
         self.device = device
         self.dtype = dtype
 
         # Parameters
         self.A = torch.nn.ParameterList()
+        self.deg_incr_matrices = list() # Transformation matrices to raise the conditioner degrees
+        self.mpsi = list() # Moore Penrose Psuedo Inverse for bernstein degree increase
         for i in range(dim):
             # Number of coefficients in each conditioner polynomial (flattened tensor)
             alpha_j_size = (conditioner_degrees[i] + 1)**(i)
 
             # Initialize the coefficients of each Bernstein conditioner except the first and last one (which are always 0 and 1)
             # Rows correspond to basis polynomials, columns correspond to which TF coefficient the conditioner outputs
-            alpha_matrix = torch.nn.Parameter(torch.rand(alpha_j_size, transformer_degrees[i] - 1, dtype=self.dtype))
+            alpha_matrix = torch.nn.Parameter(torch.rand(alpha_j_size, transformer_degrees[i] - 1, dtype=self.dtype, device=self.device))
         
             self.A.append(alpha_matrix)
+            
+            if self.cond_deg_incr is not None:
+                if i == 0:
+                    self.deg_incr_matrices.append(torch.eye(1, dtype=self.dtype, device=self.device))
+                    self.mpsi.append(torch.eye(1, dtype=self.dtype, device=self.device))
+                    continue
+
+                # Create the MPSI matrix based on the shape transformation of the bernstein polynomial
+                original_shape = (conditioner_degrees[i] + 1,) * (i)
+                deg_incr_shape = (conditioner_degrees[i] + conditioner_deg_incr[i] + 1,) * (i)
+                deg_incr_matrix_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape).A
+
+                self.deg_incr_matrices.append(torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
+                self.mpsi.append(torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)) # Left psuedo-inverse
         
         # Basis functions
         self.tf_basis_funcs = [bernstein_basis_functions(1, transformer_degrees[i]) for i in range(dim)]
@@ -85,7 +108,9 @@ class BernsteinFlowModel(torch.nn.Module):
         return density
 
     def get_constrained_parameters(self, i : int):
-        alpha_matrix = self.A[i]
+        alpha_matrix = self.A[i] if self.cond_deg_incr is None else self.deg_incr_matrices[i] @ self.A[i]
+        print(" ------ alpha matrix size: ", alpha_matrix.shape, " using deg raise? : ", self.cond_deg_incr is None)
+
         c_alpha_matrix = torch.zeros_like(alpha_matrix, device=self.device, dtype=self.dtype) # Constrained alpha matrix
         prev = torch.zeros_like(alpha_matrix[:, 0], device=self.device, dtype=self.dtype)
         for j in range(alpha_matrix.shape[1]): # Iterate through the vectors of each conditioner component
@@ -97,6 +122,13 @@ class BernsteinFlowModel(torch.nn.Module):
         # Normalize all coefficients to be between 0 and 1 (they are already ordered by design)
         # All coefficients are > 0 so the range of sigmoid is (0.5, 1.0); shift and rescale to make range (0.0, 1.0)
         c_alpha_matrix = 2.0 * (torch.sigmoid(c_alpha_matrix) - 0.5)
+
+        # If the degree was raised, project the coefficients back down to the space of actual coefficients using the MPSI
+        if self.cond_deg_incr is not None:
+            c_alpha_matrix = self.mpsi[i] @ c_alpha_matrix
+
+        if torch.any(c_alpha_matrix < 0.0):
+            print("Less than zero! min coeff: ", torch.min(c_alpha_matrix))
         return c_alpha_matrix
     
     def transformer(self, x : torch.Tensor, i : int):
@@ -166,7 +198,7 @@ class BernsteinFlowModel(torch.nn.Module):
 
 
 class ConditionalBernsteinFlowModel(BernsteinFlowModel):
-    def __init__(self, dim : int, conditional_dim : int, transformer_degrees : int, conditioner_degrees : int, device = None, dtype = torch.float32):
+    def __init__(self, dim : int, conditional_dim : int, transformer_degrees : int, conditioner_degrees : int, conditioner_deg_incr : list[int] = None, device = None, dtype = torch.float32):
         """
         Conditional flow model for p(x | y). The data must be supplied IN THE FORM [y, x] to evaluation/training
         """
@@ -178,11 +210,19 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
         self.tf_degs = transformer_degrees
         self.cond_degs = conditioner_degrees
 
+        print("cond deg incr: ", conditioner_deg_incr)
+        input("...")
+        if conditioner_deg_incr is not None:
+            assert len(conditioner_degrees) == len(conditioner_deg_incr)
+        self.cond_deg_incr = conditioner_deg_incr
+
         self.device = device
         self.dtype = dtype
 
         # Parameters
         self.A = torch.nn.ParameterList()
+        self.deg_incr_matrices = list() # Transformation matrices to raise the conditioner degrees
+        self.mpsi = list() # Moore Penrose Psuedo Inverse for bernstein degree increase
         for i in range(dim):
             # Number of coefficients in each conditioner polynomial (flattened tensor)
             # For conditional model, the dimension of each condition effectively increase by the conditional dim
@@ -190,9 +230,26 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
 
             # Initialize the coefficients of each Bernstein conditioner except the first and last one (which are always 0 and 1)
             # Rows correspond to basis polynomials, columns correspond to which TF coefficient the conditioner outputs
-            alpha_matrix = torch.nn.Parameter(torch.rand(alpha_j_size, transformer_degrees[i] - 1))
+            alpha_matrix = torch.nn.Parameter(torch.rand(alpha_j_size, transformer_degrees[i] - 1, dtype=self.dtype, device=self.device))
         
             self.A.append(alpha_matrix)
+
+            if self.cond_deg_incr is not None:
+                if i == 0:
+                    self.deg_incr_matrices.append(torch.eye(alpha_j_size, dtype=self.dtype, device=self.device))
+                    self.mpsi.append(torch.eye(alpha_j_size, dtype=self.dtype, device=self.device))
+                    continue
+
+                # Create the MPSI matrix based on the shape transformation of the bernstein polynomial
+                original_shape = (conditioner_degrees[i] + 1,) * (i + conditional_dim)
+                deg_incr_shape = (conditioner_degrees[i] + conditioner_deg_incr[i] + 1,) * (i + conditional_dim)
+                print("orig shape: ",original_shape)
+                print("incr shape: ",deg_incr_shape)
+                deg_incr_matrix_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape).A
+                print("mat shape: ",deg_incr_matrix_np)
+
+                self.deg_incr_matrices.append(torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
+                self.mpsi.append(torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)) # Left psuedo-inverse
         
         # Basis functions
         self.tf_basis_funcs = [bernstein_basis_functions(1, transformer_degrees[i]) for i in range(dim)]

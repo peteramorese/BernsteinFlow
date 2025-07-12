@@ -32,7 +32,7 @@ if __name__ == "__main__":
 
     # Number of training epochs
     n_epochs_init = 500
-    n_epochs_tran = 50
+    n_epochs_tran = 60
 
     # Time horizon
     training_timesteps = 10
@@ -47,7 +47,7 @@ if __name__ == "__main__":
         return float(mode) * norm.rvs(loc=np.array([1.5]), scale = 0.5) + (1.0 - float(mode)) * norm.rvs(loc=np.array([-1.5]), scale = 0.5)
 
 
-    io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-3.0], region_uppers=[3.0])
+    io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-10.0], region_uppers=[10.0])
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
     interactive_state_distribution_plot_1D(traj_data, bins=60)
@@ -85,13 +85,14 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=64, shuffle=True)
 
     # Create initial state and transition models
-    transformer_degrees = [25]
-    conditioner_degrees = [25]
-    init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE)
+    transformer_degrees = [22]
+    conditioner_degrees = [22]
+    cond_deg_incr = [100] * len(conditioner_degrees)
+    init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
     #transformer_degrees = [4, 1]
     #conditioner_degrees = [0, 1]
-    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE)
+    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
     print(f"Created transition model with {transition_model.n_parameters()} parameters")
@@ -107,6 +108,10 @@ if __name__ == "__main__":
     optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran)
     print("Done training transition model \n")
 
+    c_alphas = [transition_model.get_constrained_parameters(i) for i in range(dim)]
+    print("c alpha shapes: ", [alpha.shape for alpha in c_alphas])
+    c_alphas_min_max = [(torch.min(alpha).item(), torch.max(alpha).item()) for alpha in c_alphas]
+    print("trans model coeff min and max: ", c_alphas_min_max)
 
     #cond_u_fcn = model_u_eval_fcn(transition_model)
     #U0, U1, Z = grid_eval(cond_u_fcn, [0.0, 1.0, 0.0, 1.0])
