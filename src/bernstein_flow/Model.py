@@ -109,7 +109,9 @@ class BernsteinFlowModel(torch.nn.Module):
 
     def get_constrained_parameters(self, i : int):
         alpha_matrix = self.A[i] if self.cond_deg_incr is None else self.deg_incr_matrices[i] @ self.A[i]
-        print(" ------ alpha matrix size: ", alpha_matrix.shape, " using deg raise? : ", self.cond_deg_incr is None)
+        #print(" ------ cond deg incr: ", self.cond_deg_incr, " A size: ", self.A[i].shape, " deg incr size: ", self.deg_incr_matrices[i].shape)
+        #print(" ------ alpha matrix size: ", alpha_matrix.shape, " using deg raise? : ", self.cond_deg_incr is not None)
+        #input("...")
 
         c_alpha_matrix = torch.zeros_like(alpha_matrix, device=self.device, dtype=self.dtype) # Constrained alpha matrix
         prev = torch.zeros_like(alpha_matrix[:, 0], device=self.device, dtype=self.dtype)
@@ -127,8 +129,8 @@ class BernsteinFlowModel(torch.nn.Module):
         if self.cond_deg_incr is not None:
             c_alpha_matrix = self.mpsi[i] @ c_alpha_matrix
 
-        if torch.any(c_alpha_matrix < 0.0):
-            print("Less than zero! min coeff: ", torch.min(c_alpha_matrix))
+        #if torch.any(c_alpha_matrix < 0.0):
+        #    print("Less than zero! min coeff: ", torch.min(c_alpha_matrix))
         return c_alpha_matrix
     
     def transformer(self, x : torch.Tensor, i : int):
@@ -210,8 +212,6 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
         self.tf_degs = transformer_degrees
         self.cond_degs = conditioner_degrees
 
-        print("cond deg incr: ", conditioner_deg_incr)
-        input("...")
         if conditioner_deg_incr is not None:
             assert len(conditioner_degrees) == len(conditioner_deg_incr)
         self.cond_deg_incr = conditioner_deg_incr
@@ -235,18 +235,13 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
             self.A.append(alpha_matrix)
 
             if self.cond_deg_incr is not None:
-                if i == 0:
-                    self.deg_incr_matrices.append(torch.eye(alpha_j_size, dtype=self.dtype, device=self.device))
-                    self.mpsi.append(torch.eye(alpha_j_size, dtype=self.dtype, device=self.device))
-                    continue
-
                 # Create the MPSI matrix based on the shape transformation of the bernstein polynomial
                 original_shape = (conditioner_degrees[i] + 1,) * (i + conditional_dim)
                 deg_incr_shape = (conditioner_degrees[i] + conditioner_deg_incr[i] + 1,) * (i + conditional_dim)
                 print("orig shape: ",original_shape)
                 print("incr shape: ",deg_incr_shape)
                 deg_incr_matrix_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape).A
-                print("mat shape: ",deg_incr_matrix_np)
+                print("mat shape: ",deg_incr_matrix_np.shape)
 
                 self.deg_incr_matrices.append(torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
                 self.mpsi.append(torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)) # Left psuedo-inverse

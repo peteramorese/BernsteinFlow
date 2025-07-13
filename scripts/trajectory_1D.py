@@ -9,13 +9,10 @@ from .Visualization import interactive_transformer_plot, interactive_state_distr
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.widgets as widgets
 from mpl_toolkits.mplot3d import Axes3D
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from scipy.stats import norm
-from scipy.integrate import quad
-
 
 DTYPE = torch.float64
 
@@ -53,7 +50,7 @@ if __name__ == "__main__":
     interactive_state_distribution_plot_1D(traj_data, bins=60)
 
     # Moment match the GDT to all of the data over the whole horizon
-    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data))
+    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[0.2])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
     #interactive_state_distribution_plot_1D(u_traj_data)
@@ -69,8 +66,46 @@ if __name__ == "__main__":
     #Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data 
 
     fig = plt.figure()
-    plot_data_2D(fig.gca(), Up_io_data)
-    #plt.show()
+    #plot_data_2D(fig.gca(), Up_io_data)
+    plot_data_2D(fig.gca(), Up_data)
+
+    def plot_conditional_histograms(u_up_data : np.ndarray, n_intervals = 10, bins=30):
+        u = u_up_data[:, 0]
+        up = u_up_data[:, 1]
+
+        # Define bin edges for x intervals
+        x_edges = np.linspace(0.01, 0.99, n_intervals + 1)
+
+        fig, axes = plt.subplots(1, n_intervals, sharey=True)
+
+        if n_intervals == 1:
+            axes = [axes]  # ensure it's iterable
+
+        for i in range(n_intervals):
+            u_min, u_max = x_edges[i], x_edges[i+1]
+            mask = (u >= u_min) & (u < u_max) if i < n_intervals - 1 else (u >= u_min) & (u <= u_max)
+            up_subset = up[mask]
+
+            ax = axes[i]
+            ax.hist(up_subset, bins=bins, density=True, alpha=0.7, color='skyblue', edgecolor='black')
+            ax.set_title(f'{u_min:.2f} < u < {u_max:.2f}')
+            ax.set_xlabel('y') 
+
+            Up = np.linspace(0.01, 0.99, 100).reshape(-1, 1)
+            u_mid = (u_min + u_max) / 2
+            x_mid = gdt.u_to_x(u_mid)
+            def true_xp_density(xp):
+                return system.transition_likelihood(x_mid * np.ones_like(xp), xp)
+            Z_true = gdt.u_density(Up, true_xp_density)
+            ax.plot(Up, Z_true, color='green', linestyle='--')
+
+            if i == 0:
+                ax.set_ylabel('Density')
+
+        plt.tight_layout()
+        #plt.show()
+    plot_conditional_histograms(Up_io_data, 9)
+    plt.show()
 
     #input("Continue to training...")
 
@@ -79,14 +114,14 @@ if __name__ == "__main__":
     U0_dataset = TensorDataset(U0_data_torch)
     U0_dataloader = DataLoader(U0_dataset, batch_size=128, shuffle=True)
 
-    Up_data_torch = torch.tensor(Up_io_data, dtype=DTYPE)
-    #Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
+    #Up_data_torch = torch.tensor(Up_io_data, dtype=DTYPE)
+    Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
     Up_dataloader = DataLoader(Up_dataset, batch_size=64, shuffle=True)
 
     # Create initial state and transition models
-    transformer_degrees = [22]
-    conditioner_degrees = [22]
+    transformer_degrees = [20]
+    conditioner_degrees = [20]
     cond_deg_incr = [100] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
@@ -147,44 +182,45 @@ if __name__ == "__main__":
     p_init = poly_product(init_state_model.get_transformer_polynomials())
 
     n_slices = 9 
-    x_slices = torch.linspace(0.1, 0.9, 2 * n_slices, dtype=DTYPE)
+    u_slices = torch.linspace(0.1, 0.9, 2 * n_slices, dtype=DTYPE)
     fig, axes = plt.subplots(2, n_slices)
     axes = axes.flatten()
-    init_densities = p_init(x_slices.unsqueeze(-1))
-    for x_slice, ax, init_density in zip(x_slices, axes, init_densities):
-        def trans_slice(xp):
+    init_densities = p_init(u_slices.unsqueeze(-1))
+    for u_slice, ax, init_density in zip(u_slices, axes, init_densities):
+        def trans_slice(up):
             transition_model.eval()
-            xp = xp.view(-1, 1)
-            x_cat = torch.hstack([x_slice * torch.ones(xp.shape), xp])
-            return transition_model(x_cat).squeeze(-1).detach()
+            up = up.view(-1, 1)
+            u_cat = torch.hstack([u_slice * torch.ones(up.shape), up])
+            return transition_model(u_cat).squeeze(-1).detach()
 
-        def trans_slice_single_pt(xp_pt):
+        def trans_slice_single_pt(up_pt):
             transition_model.eval()
-            x_cat = torch.tensor([[xp_pt, x_slice]])
-            return transition_model(x_cat).squeeze(-1).detach()
+            u_cat = torch.tensor([[up_pt, u_slice]])
+            return transition_model(u_cat).squeeze(-1).detach()
 
 
         #auc, error = quad(trans_slice_single_pt, 0.0, 1.0)
         #print(f"x = {x_slice} AUC: ", auc)
         up_samples = torch.rand(1000, 1, dtype=DTYPE)
         pdf_samples = trans_slice(up_samples)
-        print(f"u = {x_slice} mc AUC: ", torch.mean(pdf_samples))
+        print(f"u = {u_slice} mc AUC: ", torch.mean(pdf_samples))
 
 
-        Y = torch.linspace(0.01, 0.99, 100, requires_grad=False, dtype=DTYPE)
-        Z = trans_slice(Y)
-        plot_density_1D(ax, Y, Z)
-        ax.set_title(f"p(u' | u={x_slice})")
+        Up = torch.linspace(0.01, 0.99, 100, requires_grad=False, dtype=DTYPE)
+        Z = trans_slice(Up)
+        plot_density_1D(ax, Up, Z)
+        ax.set_title(f"p(u' | u={u_slice})")
 
         
+        x_slice = gdt.u_to_x(u_slice.numpy())
         def true_xp_density(xp):
-            return system.transition_likelihood(x_slice.numpy() * np.ones_like(xp), xp)
-        Z_true = gdt.u_density(Y.numpy().reshape(-1, 1), true_xp_density)
-        ax.plot(Y, Z_true, color='green', linestyle='--')
+            return system.transition_likelihood(x_slice * np.ones_like(xp), xp)
+        Z_true = gdt.u_density(Up.numpy().reshape(-1, 1), true_xp_density)
+        ax.plot(Up, Z_true, color='green', linestyle='--')
 
         up_samples = np.random.rand(10000, 1)
         pdf_samples = gdt.u_density(up_samples, true_xp_density)
-        print(f"u = {x_slice} mc true AUC: ", np.mean(pdf_samples))
+        print(f"u = {u_slice} mc true AUC: ", np.mean(pdf_samples))
 
         #Z_true_weighted = init_density.numpy() * Z_true
         #ax.plot(Y, Z_true_weighted, color='blue', linestyle=':')

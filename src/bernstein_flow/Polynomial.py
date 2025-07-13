@@ -454,22 +454,13 @@ def stable_split_factors(p_list : list[Polynomial], mag_range : float = 6.0):
         p_ten = p.ten()
         p_ten_abs = np.abs(p_ten)
         mag_min, mag_max = p_ten_abs.min(), p_ten_abs.max()
-        #print("mag min: ", mag_min, " mag max: ", mag_max)
-        #print("log min: " , np.log10(mag_min), " log max: ", np.log10(mag_max), " mag range: " , mag_range)
-        print("log max: ", np.log10(mag_max), " log min: ", np.log10(mag_min), " mag_range: ", mag_range)
         n_splits = int(np.ceil((np.log10(mag_max) - np.log10(mag_min)) / mag_range))
-        #n_splits = int(np.ceil((mag_max - mag_min) / threshold))
-        #print("n_splits: ", n_splits)
-        #input("...")
         summands = []
         mask = np.zeros_like(p_ten).astype(bool) # initially no elements are masked out
         for i in range(n_splits + 1):
             threshold_i = 10.0 ** (np.log10(mag_min) + i * mag_range)
-            #print("i : ", i, " threshold_i: ", threshold_i)
             below_thresh = (p_ten_abs <= threshold_i) if i < n_splits else True
-            #print("  below thresh: \n", below_thresh)
             include = ~mask & below_thresh # Determine which elements to include in this summand: not elements already included (in the mask) and elements that are above the threshold
-            #print("  include mask: \n", include)
             summands.append(Polynomial(include * p_ten, basis=basis))
             mask = mask | below_thresh # Update the mask to reflect elements included in this summand
         factor_list.append(summands)

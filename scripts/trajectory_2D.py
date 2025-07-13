@@ -73,7 +73,7 @@ if __name__ == "__main__":
     # Create initial state and transition models
     transformer_degrees = [8, 6]
     conditioner_degrees = [7, 6]
-    cond_deg_incr = [0] * len(conditioner_degrees)
+    cond_deg_incr = [20] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
     #transformer_degrees = [4, 1]
@@ -95,6 +95,11 @@ if __name__ == "__main__":
     print("Done training transition model \n")
 
     interactive_transformer_plot(transition_model, dim, cond_dim=dim, dtype=DTYPE)    
+
+    c_alphas = [transition_model.get_constrained_parameters(i) for i in range(dim)]
+    print("c alpha shapes: ", [alpha.shape for alpha in c_alphas])
+    c_alphas_min_max = [(torch.min(alpha).item(), torch.max(alpha).item()) for alpha in c_alphas]
+    print("trans model coeff min and max: ", c_alphas_min_max)
 
     #fig, axes = plt.subplots(2, 2)
     #fig.set_figheight(9)
