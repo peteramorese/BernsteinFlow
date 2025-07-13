@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-def create_transition_data_matrix(trajectory_data):
+def create_transition_data_matrix(trajectory_data, separate=False):
     """
     Create a data matrix of (x_{k+1}, x_k) pairs from trajectory data.
 
@@ -10,11 +10,14 @@ def create_transition_data_matrix(trajectory_data):
     trajectory_data : list of np.ndarray
         A list of length k, where each element is a (p x n) array.
         Each array contains p samples from the n-dimensional state distribution at time step k.
+    separate : bool
+        Specify if the x' data should be separated as two separate return arguments x_k, x_{k+1}
 
     Returns:
     --------
     data_matrix : np.ndarray
-        A ((k-1) * p) x (2n) array where each row is a pair (x_k, x_{k+1}).
+        A ((k-1) * p) x (2n) array where each row is a pair (x_k, x_{k+1}) if separarate is True, 
+        else two ((k-1) * p) x (n) arrays for (x_k) and (x_{k+1}) respectively.
     """
     k = len(trajectory_data)
     if k < 2:
@@ -29,7 +32,11 @@ def create_transition_data_matrix(trajectory_data):
         x_kp1 = trajectory_data[i+1]  # shape: (p, n)
         data_matrix[i * p : (i + 1) * p, :] = np.hstack((x_k, x_kp1))
 
-    return data_matrix 
+    if separate:
+        return data_matrix[:, :n], data_matrix[:, n:] 
+    else:
+        return data_matrix 
+        
 
 def grid_eval(f, bounds : list, resolution=100, device=None, dtype=torch.float32):
     """

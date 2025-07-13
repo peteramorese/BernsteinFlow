@@ -12,8 +12,9 @@ from mpl_toolkits.mplot3d import Axes3D
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-#from sklearn.datasets import make_moons, make_circles
+from sklearn.datasets import make_moons, make_circles
 
+DTYPE = torch.float64
 
 if __name__ == "__main__":
 
@@ -24,18 +25,18 @@ if __name__ == "__main__":
     n_data = 5000
 
     # Number of training epochs
-    n_epochs = 50
+    n_epochs = 300
 
     #gdt = GaussianDistTransform(mean=[0.5, 0.25], variances=[1.0, 0.5])
 
     means = [[-1.5, -1.5], [1.5, 1.5]]
     covariances = [torch.eye(dim)*1.5, torch.eye(dim)*0.5]
-    X_data = sample_modal_gaussian(n_data, means=means, covariances=covariances, weights=[.3, .7])
+    #X_data = sample_modal_gaussian(n_data, means=means, covariances=covariances, weights=[.3, .7])
 
     #X_data, _ = make_moons(n_data, noise=0.05)
-    #X_data, _ = make_circles(n_data, noise=0.1, factor=0.4)
+    X_data, _ = make_circles(n_data, noise=0.1, factor=0.4)
 
-    gdt = GaussianDistTransform.moment_match_data(X_data)
+    gdt = GaussianDistTransform.moment_match_data(X_data, variance_pads=[0.5] * dim)
 
     fig, axes = plt.subplots(2, 2)
     fig.set_figheight(9)
@@ -61,14 +62,15 @@ if __name__ == "__main__":
     input("Continue to training...")
 
     # Create data loader
-    U_data_torch = torch.tensor(U_data, dtype=torch.float32)
+    U_data_torch = torch.tensor(U_data, dtype=DTYPE)
     dataset = TensorDataset(U_data_torch)
     dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
 
     # Create model
-    transformer_degrees = [3, 2]
-    conditioner_degrees = [2, 3]
-    model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees)
+    transformer_degrees = [14, 10]
+    conditioner_degrees = [14, 10]
+    cond_deg_incr = [0] * len(conditioner_degrees)
+    model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
     print("Number of parameters in model: ", model.n_parameters())
 
@@ -77,18 +79,18 @@ if __name__ == "__main__":
     optimize(model, dataloader, optimizer, epochs=n_epochs)
 
     # Plot the density estimate
-    model_x_eval = model_x_eval_fcn(model, gdt)
+    model_x_eval = model_x_eval_fcn(model, gdt, dtype=DTYPE)
     model_u_eval = model_u_eval_fcn(model)
 
     bounds = axes[0, 0].get_xlim() + axes[0, 0].get_ylim()
-    X0, X1, Z_x = grid_eval(model_x_eval, bounds, resolution=100)
+    X0, X1, Z_x = grid_eval(model_x_eval, bounds, resolution=100, dtype=DTYPE)
     plot_density_2D(axes[1, 0], X0, X1, Z_x)
     axes[1, 0].set_xlabel("x0")
     axes[1, 0].set_ylabel("x1")
     axes[1, 0].set_title("Feature-space PDF")
 
     u_bounds = [0.0, 1.0, 0.0, 1.0]
-    U0, U1, Z_u = grid_eval(model_u_eval, u_bounds, resolution=100)
+    U0, U1, Z_u = grid_eval(model_u_eval, u_bounds, resolution=100, dtype=DTYPE)
     plot_density_2D(axes[1, 1], U0, U1, Z_u)
     axes[1, 1].set_xlabel("u0")
     axes[1, 1].set_ylabel("u1")
@@ -111,7 +113,7 @@ if __name__ == "__main__":
     ax3d_u.set_title("Erf-space PDF")
 
     # Plot transformers
-    fig3, axes, sliders = interactive_transformer_plot(model, dim)
+    fig3, axes, sliders = interactive_transformer_plot(model, dim, dtype=DTYPE)
 
     #print("UNCONSTRAINED Model params:")
     #for i in range(dim):
