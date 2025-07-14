@@ -59,10 +59,8 @@ def grid_eval(f, bounds : list, resolution=100, device=None, dtype=torch.float32
     meshgrids = np.meshgrid(*axes, indexing="ij")
 
     grid_points = np.stack([mg.ravel() for mg in meshgrids], axis=-1)
-    grid_tensor = torch.tensor(grid_points, dtype=dtype, device=device)
 
-    with torch.no_grad():
-        values = f(grid_tensor).cpu().numpy()
+    values = f(grid_points)
 
     Z = values.reshape([resolution] * d)
     return *meshgrids, Z
@@ -89,3 +87,7 @@ def model_x_eval_fcn(model, dt, device=None, dtype=torch.float32):
         return torch.from_numpy(x_density_np).to(device=device)
 
     return f  
+
+def avg_log_likelihood(data : np.ndarray, density_fcn):
+    likelihoods = density_fcn(data)
+    return np.mean(np.log(likelihoods))

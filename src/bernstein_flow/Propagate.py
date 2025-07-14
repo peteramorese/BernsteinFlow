@@ -38,6 +38,7 @@ def propagate_gpgmm_ekf(belief : GMModel, transition_p : MultivariateGPModel):
     # Propagate each component of the belief GMM
     for mean, cov in zip(means, covs):
         # Propagate mean
+        mean = mean.reshape(1, -1)
         next_mean, pred_stds = transition_p.predict(mean)
         pred_cov = np.diag(pred_stds**2)
 
