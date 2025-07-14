@@ -22,7 +22,7 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 200
+    n_traj = 500
 
     # Time horizon
     training_timesteps = 10
@@ -43,7 +43,7 @@ if __name__ == "__main__":
     X_data, Xp_data = create_transition_data_matrix(traj_data[:training_timesteps], separate=True)
 
     print("Fitting gmm...")
-    init_state_model = fit_gmm(X0_data, n_components=3)
+    init_state_model = fit_gmm(X0_data, n_components=10)
     print("Fitting gp...")
     transition_model = fit_gp(X_data, Xp_data)
 
@@ -52,9 +52,9 @@ if __name__ == "__main__":
         ax.hist(X0_data, bins=30, density=True)
 
         X0 = np.linspace(-5, 5, 100).reshape(-1, 1)
-        logprob = init_state_model.score_samples(X0)
+        densities = init_state_model.density(X0)
         
-        ax.plot(X0, np.exp(logprob))
+        ax.plot(X0, densities)
     
     # Visualize the transition model
     def viz_transition_model(axes : list[plt.Axes]):
@@ -79,15 +79,15 @@ if __name__ == "__main__":
     viz_transition_model(axes)
 
     gmms = [init_state_model]
-    for k in range(timesteps):
+    for k in range(1, timesteps):
         next_gmm = propagate_gpgmm_ekf(gmms[k-1], transition_model)
         gmms.append(next_gmm)
 
     def pdf_plotter(k : int):
         X = np.linspace(-5, 5, 100)
 
-        logprob = gmms[k].score_samples(X.reshape(-1, 1))
-        return X, np.exp(logprob)
+        densities = gmms[k].density(X)
+        return X, densities
 
     interactive_state_distribution_plot_1D(traj_data, pdf_plotter, bins=60)
 

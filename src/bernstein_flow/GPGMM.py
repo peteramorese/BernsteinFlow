@@ -2,9 +2,30 @@ import numpy as np
 from sklearn.mixture import GaussianMixture
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
+from scipy.stats import multivariate_normal
 
 import torch
 import gpytorch
+
+class GMModel:
+    def __init__(self, means : list[np.ndarray], covariances : list[np.ndarray], weights : list[float]):
+        self.means = means
+        self.covariances = covariances
+        self.weights = weights
+    
+    @classmethod
+    def from_sklearn_gmm(cls, model : GaussianMixture):
+        covariances_shape = model.covariances_.shape
+        if len(covariances_shape) == 2: # Diag
+            covariances = [np.diag(cov_diag) for cov_diag in model.covariances_]
+        elif len(covariances_shape) == 3: # Full
+            covariances = [cov for cov in model.covariances_]
+        else:
+            assert False, "Not implemented"
+        return cls(model.means_, covariances, model.weights_)
+    
+    def density(self, x : np.ndarray):
+        return sum(w * multivariate_normal.pdf(x, mean, cov) for mean, cov, w in zip(self.means, self.covariances, self.weights))
 
 def fit_gmm(X, n_components=1, covariance_type='diag', random_state=None):
     X = np.asarray(X)
@@ -14,7 +35,7 @@ def fit_gmm(X, n_components=1, covariance_type='diag', random_state=None):
         random_state=random_state
     )
     gmm.fit(X)
-    return gmm
+    return GMModel.from_sklearn_gmm(gmm)
 
 class GPModel(gpytorch.models.ExactGP):
     def __init__(self, train_x, train_xp, likelihood):
@@ -47,7 +68,6 @@ class MultivariateGPModel:
         #print("self.models: ", self.models)
         for model, likelihood in zip(self.component_models, self.likelihoods):
             with torch.no_grad(), gpytorch.settings.fast_pred_var():
-                print("x dtype: ", x.dtype)
                 xp_pred_dist = likelihood(model(x))
                 means.append(xp_pred_dist.mean.item())
                 stds.append(xp_pred_dist.stddev.item())
@@ -179,7 +199,6 @@ def compute_mean_jacobian(model : MultivariateGPModel, x):
     jacobian = []
     for component_model in model.component_models:
         mean = component_model(x_grad).mean 
-        print("mean req grad? ", mean.requires_grad)
         grad = torch.autograd.grad(mean, x_grad, retain_graph=True)[0]
         jacobian.append(grad.squeeze(0))
     J = torch.stack(jacobian)

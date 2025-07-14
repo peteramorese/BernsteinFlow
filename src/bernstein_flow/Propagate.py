@@ -1,9 +1,9 @@
 import numpy as np
 import torch
-from sklearn.mixture import GaussianMixture
+import copy
 
 from .Polynomial import Polynomial, poly_sum, poly_product, split_factor_poly_product, stable_split_factors, marginal, monomial_to_bernstein, bernstein_to_monomial
-from .GPGMM import MultivariateGPModel, compute_mean_jacobian
+from .GPGMM import GMModel, MultivariateGPModel, compute_mean_jacobian
 
 
 def propagate_bfn(belief_p_factors : list[Polynomial], transition_p_factors : list[Polynomial], mag_range=None):
@@ -29,16 +29,12 @@ def propagate_bfn(belief_p_factors : list[Polynomial], transition_p_factors : li
         p_next_marginal = poly_sum(p_next_marginal_list, stable=True) # Sum each marginal output
     return p_next_marginal
 
-def propagate_gpgmm_ekf(belief : GaussianMixture, transition_p : MultivariateGPModel):
-    weights = belief.weights_
-    means = belief.means_
-    covs = belief.covariances_
+def propagate_gpgmm_ekf(belief : GMModel, transition_p : MultivariateGPModel):
+    means = belief.means
+    covs = belief.covariances
 
-    #next_belief = GaussianMixture(n_components=len(weights), covariance_type='diag')
-    #next_belief.weights_ = weights
+    next_belief = GMModel(means=[], covariances=[], weights=copy.deepcopy(belief.weights))
 
-    next_means = []
-    next_precisions = []
     # Propagate each component of the belief GMM
     for mean, cov in zip(means, covs):
         # Propagate mean
@@ -50,13 +46,8 @@ def propagate_gpgmm_ekf(belief : GaussianMixture, transition_p : MultivariateGPM
 
         next_cov = J * cov * J.T + pred_cov
 
-        next_means.append(next_mean)
-        next_precisions.append(np.linalg.inv(next_cov))
-        #next_belief.means_.append(next_mean)
-        #next_belief.covariances_.append(pred_stds**2)
-        #next_belief.precisions_cholesky_.append(1.0 / pred_stds)
-
-    next_belief = GaussianMixture(n_components=len(weights), covariance_type='full', means_init=next_means, precisions_init=next_precisions)
+        next_belief.means.append(next_mean)
+        next_belief.covariances.append(next_cov)
 
     return next_belief
 
