@@ -1,8 +1,8 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
 from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn
-from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product
-from bernstein_flow.Propagate import propagate
+from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct
+from bernstein_flow.Propagate import propagate_bfm
 
 from .Systems import CubicMap, sample_trajectories, sample_io_pairs
 from .Visualization import interactive_transformer_plot, interactive_state_distribution_plot_1D, plot_density_1D, plot_data_1D, plot_data_2D, plot_density_2D_surface, plot_density_2D
@@ -120,8 +120,8 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=64, shuffle=True)
 
     # Create initial state and transition models
-    transformer_degrees = [20]
-    conditioner_degrees = [20]
+    transformer_degrees = [25]
+    conditioner_degrees = [25]
     cond_deg_incr = [100] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
@@ -274,11 +274,14 @@ if __name__ == "__main__":
         init_model_tfs[i].coeffs = init_model_tfs[i].coeffs.astype(np.float128)
         trans_model_tfs[i].coeffs = trans_model_tfs[i].coeffs.astype(np.float128)
 
-    p_init = poly_product(init_model_tfs)
-    p_transition = poly_product(trans_model_tfs)
+    #p_init = poly_product(init_model_tfs)
+    #p_transition = poly_product(trans_model_tfs)
+    p_init = poly_product_bernstein_direct(init_model_tfs)
+    p_transition = poly_product_bernstein_direct(trans_model_tfs)
     density_polynomials = [p_init]
     for k in range(1, timesteps):
-        p_curr = propagate([density_polynomials[k-1]], [p_transition], mag_range=3.0)
+        p_curr = propagate_bfm([density_polynomials[k-1]], [p_transition])
+        #p_curr = propagate_bfm([density_polynomials[k-1]], [p_transition], mag_range=3.0)
         density_polynomials.append(p_curr)
         print(f"Computed p(x{k})")
 

@@ -189,6 +189,9 @@ def fit_gp(X, Xp, num_iter=100, lr=0.1, device='cpu', dtype=torch.float32):
 #    return gpr
 
 def compute_mean_jacobian(model : MultivariateGPModel, x):
+    """
+    Compute the jacobian of the mean function about a given point
+    """
     is_np = isinstance(x, np.ndarray)
     if is_np:
         x = torch.from_numpy(x).to(dtype=model.dtype)
@@ -203,3 +206,34 @@ def compute_mean_jacobian(model : MultivariateGPModel, x):
         jacobian.append(grad.squeeze(0))
     J = torch.stack(jacobian)
     return J.numpy() if is_np else J
+
+def compute_mean_hessian_tensor(model : MultivariateGPModel, x):
+    """
+    Compute the second-order derivative tensor (array of 2D hessians for each component) of the mean function about a given point
+    """
+    is_np = isinstance(x, np.ndarray)
+    if is_np:
+        x = torch.from_numpy(x).to(dtype=model.dtype)
+    else:
+        assert isinstance(x, torch.Tensor)
+
+    x_grad = torch.autograd.Variable(x, requires_grad=True)
+    hessians = []
+
+    for component_model in model.component_models:
+        mean = component_model(x_grad).mean  # scalar-valued output
+
+        # Compute gradient (first derivative)
+        grad = torch.autograd.grad(mean, x_grad, create_graph=True)[0]  # shape: (input_dim,)
+
+        # Compute second derivative (Hessian)
+        hessian_rows = []
+        for i in range(grad.shape[-1]):
+            grad_i = grad[..., i]
+            hess_row = torch.autograd.grad(grad_i, x_grad, retain_graph=True)[0].squeeze(0)
+            hessian_rows.append(hess_row)
+        hessian = torch.stack(hessian_rows, dim=0)
+        hessians.append(hessian)
+
+    H = torch.stack(hessians)  # shape: (output_dim, input_dim, input_dim)
+    return H.numpy() if is_np else H

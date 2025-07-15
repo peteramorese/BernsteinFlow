@@ -2,7 +2,7 @@ from bernstein_flow.GPGMM import fit_gmm, fit_gp, compute_mean_jacobian
 from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn
 from bernstein_flow.Propagate import propagate_gpgmm_ekf
 
-from .Systems import Pendulum, sample_trajectories, sample_io_pairs
+from .Systems import VanDerPol, Pendulum, sample_trajectories, sample_io_pairs
 from .Visualization import interactive_transformer_plot, interactive_state_distribution_plot_2D, plot_density_1D, plot_data_1D, plot_data_2D, plot_density_2D_surface, plot_density_2D
 
 import numpy as np
@@ -17,16 +17,17 @@ import torch
 if __name__ == "__main__":
 
     # System model
-    system = Pendulum(dt=0.05, length=1.0, damp=1.1, covariance=0.005 * np.eye(2))
+    #system = Pendulum(dt=0.15, length=1.0, damp=5.1, covariance=0.005 * np.eye(2))
+    system = VanDerPol(dt=0.3, mu=1.5, covariance=0.005 * np.eye(2))
 
     # Dimension
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 500
+    n_traj = 300
 
     # Time horizon
-    training_timesteps = 10
+    training_timesteps = 8
     timesteps = training_timesteps
 
     def init_state_sampler():
@@ -35,7 +36,7 @@ if __name__ == "__main__":
     #io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-10.0], region_uppers=[10.0])
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
-    #interactive_state_distribution_plot_1D(traj_data, bins=60)
+    interactive_state_distribution_plot_2D(traj_data)
 
     # Create the data matrices for training
     X0_data = traj_data[0]
@@ -81,6 +82,7 @@ if __name__ == "__main__":
 
     gmms = [init_state_model]
     for k in range(1, timesteps):
+        print("Propagating distribution: ", k)
         next_gmm = propagate_gpgmm_ekf(gmms[k-1], transition_model)
         gmms.append(next_gmm)
 

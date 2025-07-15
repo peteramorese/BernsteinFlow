@@ -8,12 +8,12 @@ from enum import Enum
 
 import scipy.fft as scifft
 from scipy.special import comb
+from scipy.signal import convolve
 
 class Basis(Enum):
     MONO = 1 # monomial (power basis)
     BERN = 2 # bernstein
 
-Polynomial = torch.Tensor
 class Polynomial:
     def __init__(self, coeffs, basis = Basis.MONO):
         if isinstance(coeffs, torch.Tensor):
@@ -307,6 +307,7 @@ def poly_product(p_list : list[Polynomial]):
     freq_tensors = [scifft.rfftn(t, s=fft_size) for t in tensors]
     freq_product = np.multiply.reduce(freq_tensors)
     product = scifft.irfftn(freq_product, s=fft_size)
+    print("product ten: \n", product)
 
 
     slices = tuple(slice(0, s) for s in final_shape)
@@ -318,6 +319,86 @@ def poly_product(p_list : list[Polynomial]):
         product *= post_weight
 
     return Polynomial(product, basis=p_basis)
+
+def poly_product_bernstein_direct(p_list : list[Polynomial]):
+    for p in p_list:
+        assert p.basis() == Basis.BERN, "All polynomials must be in the Bernstein same basis"
+    p_list.sort(key=lambda p : p.dim())
+
+    def mult(p : Polynomial, q : Polynomial):
+        p_ten, q_ten = p.ten(), q.ten()
+        max_dim = max(p_ten.ndim, q_ten.ndim)
+        print("max dim: ", max_dim)
+        if p_ten.ndim < max_dim:
+            p_ten = p_ten.reshape(p_ten.shape + (1,) * (max_dim - p_ten.ndim))
+            print("p ten new shape: ", p_ten.shape)
+        elif q_ten.ndim < max_dim:
+            q_ten = q_ten.reshape(q_ten.shape + (1,) * (max_dim - q_ten.ndim))
+
+        
+        d = p.dim()
+        degA = np.array(p_ten.shape) - 1  # degrees per dim of A
+        degB = np.array(q_ten.shape) - 1  # degrees per dim of B
+        degC = degA + degB           # degrees per dim of product
+
+        print("degc: ", degC)
+
+        ## build binomial weight arrays for A and B
+        #binomA = 1
+        #binomB = 1
+        #for ax in range(d):
+        #    nA = degA[ax]
+        #    nB = degB[ax]
+        #    # 1D binomial arrays
+        #    bA = comb(nA, np.arange(nA+1))
+        #    bB = comb(nB, np.arange(nB+1))
+        #    # reshape for broadcasting
+        #    shapeA = [1]*d; shapeA[ax] = nA+1
+        #    shapeB = [1]*d; shapeB[ax] = nB+1
+        #    bA = bA.reshape(shapeA)
+        #    bB = bB.reshape(shapeB)
+        #    binomA = binomA * bA
+        #    binomB = binomB * bB
+
+        pre_weight_A = create_d_separable_tensor(lambda dim, i : comb(p_ten.shape[dim] - 1, i), p_ten.shape, dtype=p_ten.dtype)
+        pre_weight_B = create_d_separable_tensor(lambda dim, i : comb(p_ten.shape[dim] - 1, i), p_ten.shape, dtype=p_ten.dtype)
+
+        # weighted control nets
+        print("ten shape: ", p_ten.shape, q_ten.shape)
+        #A_w = p_ten * binomA
+        #B_w = q_ten * binomB
+        A_w = p_ten * pre_weight_A
+        B_w = q_ten * pre_weight_B
+
+        # multi-dimensional convolution of weighted nets
+        product = convolve(A_w, B_w, mode='full', method='direct')
+        print("product ten: \n", product)
+
+        print("H max: ", np.max(product), " H min: ", np.min(product))
+        print("H mag max: ", np.max(np.log10(np.abs(product))), " H mag min: ", np.min(np.log10(np.abs(product))))
+
+        ## build denominator binomial array for product
+        #binomC = 1
+        #for ax in range(d):
+        #    nC = degC[ax]
+        #    bC = comb(nC, np.arange(nC+1))
+        #    shapeC = [1]*d; shapeC[ax] = nC+1
+        #    bC = bC.reshape(shapeC)
+        #    binomC = binomC * bC
+
+        post_weight = create_d_separable_tensor(lambda dim, s : 1.0 / comb(product.shape[dim] - 1, s), product.shape, dtype=p_ten.dtype)
+
+        # divide out weights
+        #C = H / binomC
+        C = product * post_weight
+        return Polynomial(C, basis=Basis.BERN)
+    
+    prod = p_list[0]
+    for p in p_list[1:]:
+        prod = mult(prod, p)
+    
+    return prod
+
 
 def stable_sum_reduction(a : np.ndarray, axis=None, keepdims=False):
     """
@@ -531,24 +612,33 @@ if __name__ == "__main__":
     #print("Bernstein eval: \n", p_bern_eval)
     #print("Monomial eval: \n", p_mono_eval)
 
-    p = Polynomial(np.exp(np.random.uniform(low=-5, high=12, size=(4, 4))), basis=Basis.MONO)
-    q = Polynomial(np.exp(np.random.uniform(low=-5, high=12, size=(4, 4))), basis=Basis.MONO)
+    #p = Polynomial(np.exp(np.random.uniform(low=-5, high=12, size=(4, 4))), basis=Basis.BERN)
+    #q = Polynomial(np.exp(np.random.uniform(low=-5, high=12, size=(4, 4, 5))), basis=Basis.BERN)
+    p = Polynomial(np.random.uniform(low=-5, high=12, size=(4, 4)), basis=Basis.BERN)
+    q = Polynomial(np.random.uniform(low=-5, high=12, size=(4, 4, 2)), basis=Basis.BERN)
 
-    split = stable_split_factors([p, q], mag_range=2.0)
+    prod_fft = poly_product([p, q])
+    prod_direct = poly_product_bernstein_direct([p, q])
 
-    prod = poly_product([p, q])
-    stable_prod = split_factor_poly_product(split)
+    x = np.random.rand(5, 3)
+    print("Prod FFT: ", prod_fft(x))
+    print("Prod Direct: ", prod_direct(x))
 
-    x = np.random.rand(5, 2)
-    print("prod: ", prod(x))
-    print("prod sep: ", sum(sprod(x) for sprod in stable_prod))
+    #split = stable_split_factors([p, q], mag_range=2.0)
+
+    #prod = poly_product([p, q])
+    #stable_prod = split_factor_poly_product(split)
+
+    #x = np.random.rand(5, 2)
+    #print("prod: ", prod(x))
+    #print("prod sep: ", sum(sprod(x) for sprod in stable_prod))
 
 
-    p = Polynomial(np.array([[1, 2], [3, 4.5]]))
-    q = Polynomial(np.array([[6, 7], [2, 5.5]]))
+    #p = Polynomial(np.array([[1, 2], [3, 4.5]]))
+    #q = Polynomial(np.array([[6, 7], [2, 5.5]]))
 
-    print(poly_sum([p, q], stable=False).ten())
-    print(poly_sum([p, q], stable=True).ten())
+    #print(poly_sum([p, q], stable=False).ten())
+    #print(poly_sum([p, q], stable=True).ten())
 
     #print("old prod: ", p_prod_old(x))
 

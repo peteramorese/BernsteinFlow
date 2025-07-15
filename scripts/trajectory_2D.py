@@ -2,9 +2,9 @@ from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
 from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn
 from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product
-from bernstein_flow.Propagate import propagate
+from bernstein_flow.Propagate import propagate_bfm
 
-from .Systems import Pendulum, sample_trajectories
+from .Systems import VanDerPol, Pendulum, sample_trajectories
 from .Visualization import interactive_transformer_plot, interactive_state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
 
 import numpy as np
@@ -21,7 +21,8 @@ DTYPE = torch.float64
 if __name__ == "__main__":
 
     # System model
-    system = Pendulum(dt=0.05, length=1.0, damp=1.1, covariance=0.005 * np.eye(2))
+    #system = Pendulum(dt=0.05, length=1.0, damp=1.1, covariance=0.005 * np.eye(2))
+    system = VanDerPol(dt=0.3, mu=1.5, covariance=0.005 * np.eye(2))
 
     # Dimension
     dim = system.dim()
@@ -34,8 +35,8 @@ if __name__ == "__main__":
     n_epochs_tran = 30
 
     # Time horizon
-    training_timesteps = 20
-    timesteps = 20
+    training_timesteps = 10
+    timesteps = 10
 
     def init_state_sampler():
         return multivariate_normal.rvs(mean=np.array([0.1, 0.1]), cov = np.diag([0.10, 0.01]))
@@ -44,7 +45,7 @@ if __name__ == "__main__":
 
     # Moment match the GDT to all of the data over the whole horizon
     #gdt = GaussianDistTransform(means=np.array([0.0, 0.0]), variances=[0.3, 1.0])
-    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[0.2, 0.0])
+    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[2.2, 2.2])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
     #interactive_state_distribution_plot_2D(traj_data)
@@ -71,13 +72,11 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=64, shuffle=True)
 
     # Create initial state and transition models
-    transformer_degrees = [8, 6]
+    transformer_degrees = [10, 7]
     conditioner_degrees = [7, 6]
     cond_deg_incr = [20] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
-    #transformer_degrees = [4, 1]
-    #conditioner_degrees = [0, 1]
     transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
@@ -141,11 +140,17 @@ if __name__ == "__main__":
 
 
     # Compute the propagated polynomials
+    init_model_tfs = init_state_model.get_transformer_polynomials()
+    trans_model_tfs = transition_model.get_transformer_polynomials()
+    for i in range(len(init_model_tfs)):
+        init_model_tfs[i].coeffs = init_model_tfs[i].coeffs.astype(np.float128)
+        trans_model_tfs[i].coeffs = trans_model_tfs[i].coeffs.astype(np.float128)
+
     p_init = poly_product(init_state_model.get_transformer_polynomials())
     p_transition = poly_product(transition_model.get_transformer_polynomials())
     density_polynomials = [p_init]
     for k in range(1, timesteps):
-        p_curr = propagate([density_polynomials[k-1]], [p_transition])
+        p_curr = propagate_bfm([density_polynomials[k-1]], [p_transition], mag_range=3.0)
         density_polynomials.append(p_curr)
         print(f"Computed p(x{k})")
 
