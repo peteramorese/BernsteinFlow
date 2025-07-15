@@ -29,7 +29,7 @@ if __name__ == "__main__":
 
     # Number of training epochs
     n_epochs_init = 500
-    n_epochs_tran = 60
+    n_epochs_tran = 100
 
     # Time horizon
     training_timesteps = 10
@@ -120,8 +120,8 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=64, shuffle=True)
 
     # Create initial state and transition models
-    transformer_degrees = [25]
-    conditioner_degrees = [25]
+    transformer_degrees = [50]
+    conditioner_degrees = [50]
     cond_deg_incr = [100] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
