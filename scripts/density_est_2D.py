@@ -26,7 +26,7 @@ if __name__ == "__main__":
     n_data = 5000
 
     # Number of training epochs
-    n_epochs = 100
+    n_epochs = 10
 
     #gdt = GaussianDistTransform(mean=[0.5, 0.25], variances=[1.0, 0.5])
 
@@ -68,8 +68,8 @@ if __name__ == "__main__":
     dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
 
     # Create model
-    transformer_degrees = [12, 10]
-    conditioner_degrees = [12, 10]
+    transformer_degrees = [5, 5]
+    conditioner_degrees = [5, 5]
     cond_deg_incr = [60] * len(conditioner_degrees)
     model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, layers=2, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
@@ -114,14 +114,11 @@ if __name__ == "__main__":
     ax3d_u.set_title("Erf-space PDF")
 
 
-    p_list = model.get_density_factor_polys()
-    p_prod = poly_product_bernstein_direct(p_list, dtype=np.float128)
-    print("p_prod shape: ", p_prod.shape)
+    p_list = model.get_density_factor_polys(dtype=np.float128)
+    p_prod = poly_product_bernstein_direct(p_list)
+    print("p_prod shape: ", p_prod.shape())
 
     u_bounds = [0.0, 1.0, 0.0, 1.0]
-    def pdf_plotter():
-        return 
-
     ax3d_u = fig2.add_subplot(133, projection='3d')
     plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : p_prod(u), u_bounds, dtype=np.float128))
     ax3d_u.set_xlabel("u0")

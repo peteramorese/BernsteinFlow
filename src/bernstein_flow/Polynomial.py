@@ -60,10 +60,10 @@ class Polynomial:
 
     def shape(self):
         return self.coeffs.shape
-
+    
     def __mul__(self, other):
         if isinstance(other, Polynomial):
-            assert other.dim() == self.dim(), "Cannot auto-multply polynomials of different dimension"
+            #assert other.dim() == self.dim(), "Cannot auto-multply polynomials of different dimension"
             if self._basis == Basis.BERN and self.stable:
                 return poly_product_bernstein_direct([self, other])
             else:

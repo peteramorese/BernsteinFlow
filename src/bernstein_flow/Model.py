@@ -215,35 +215,54 @@ class BernsteinFlowModel(torch.nn.Module):
         """
         Retrieve a list of all the polynomial factors used to calculate the density
         """
-        decomposed_layer_factors = []
+        decomposed_tf_derivs = []
+        decomposed_tfs = []
         for layer_i in range(self.n_layers):
-            layer_i_factors = []
+            layer_i_tf_derivs = []
+            layer_i_tfs = []
             for i in range(self.dim):
                 c_alpha_matrix = self.get_constrained_parameters(i, layer_i=0).detach().clone()
                 coeff_ones = torch.ones(c_alpha_matrix.shape[0], 1, device=c_alpha_matrix.device)
                 coeff_zeros = torch.zeros(c_alpha_matrix.shape[0], 1, device=c_alpha_matrix.device)
                 # Formula for derivative of transformer dimension
-                tf_deriv_coefficients = self.tf_degs[i] * (torch.cat([c_alpha_matrix, coeff_ones], dim=1) - torch.cat([coeff_zeros, c_alpha_matrix], dim=1))
+                tf_deriv_coeffs = self.tf_degs[i] * (torch.cat([c_alpha_matrix, coeff_ones], dim=1) - torch.cat([coeff_zeros, c_alpha_matrix], dim=1))
 
                 # These coefficients are correct, but in matrix form; port them to tensor form
                 cond_input_dim = self.cond_input_dims[i]
                 cond_input_deg = self.cond_degs[i]
 
-                tf_deriv_coeffs_shape = (cond_input_dim) * [cond_input_deg + 1] + [tf_deriv_coefficients.shape[1]]
-                layer_i_factors.append(Polynomial(tf_deriv_coefficients.view(tf_deriv_coeffs_shape), basis=Basis.BERN, dtype=dtype))
-            decomposed_layer_factors.append(layer_i_factors)
+                tf_deriv_coeffs_shape = (cond_input_dim) * [cond_input_deg + 1] + [tf_deriv_coeffs.shape[1]]
+                layer_i_tf_derivs.append(Polynomial(tf_deriv_coeffs.view(tf_deriv_coeffs_shape), basis=Basis.BERN, dtype=dtype))
+
+                if self.n_layers > 1:
+                    print("coeff zeros shape :", coeff_zeros.shape, " c alpha shape: ", c_alpha_matrix.shape)
+                    tf_coeffs = torch.cat([coeff_zeros, c_alpha_matrix, coeff_ones], dim=1)
+                    tf_coeffs_shape = (cond_input_dim) * [cond_input_deg + 1] + [tf_coeffs.shape[1]]
+                    layer_i_tfs.append(Polynomial(tf_coeffs.view(tf_coeffs_shape), basis=Basis.BERN, dtype=dtype))
+            decomposed_tf_derivs.append(layer_i_tf_derivs)
+            decomposed_tfs.append(layer_i_tfs)
 
         # If there is only a single layer, skip composition
         if self.n_layers == 1:
-            return decomposed_layer_factors[0]
+            return decomposed_tf_derivs[0]
         else:
-            factors = decomposed_layer_factors[0]
+            factors = decomposed_tf_derivs[0]
+            input_polynomial_vec = decomposed_tfs[0]
             for layer_i in range(1, self.n_layers):
-                prev_layer_vector = factors[(layer_i-1)*self.dim:(layer_i)*self.dim]
-                curr_layer_polys = decomposed_layer_factors[layer_i]
-                for p in curr_layer_polys:
-                    p_composed = decasteljau_composition(p, prev_layer_vector)
+                #prev_layer_vector = factors[(layer_i-1)*self.dim:(layer_i)*self.dim]
+                curr_layer_tf_derivs = decomposed_tf_derivs[layer_i]
+                for i, p in enumerate(curr_layer_tf_derivs):
+                    print("p dim: ", p.dim(), " l q vec: ", len(input_polynomial_vec[:i+1]))
+                    print("q dims: ", [q.dim() for q in input_polynomial_vec[:i+1]])
+                    p_composed = decasteljau_composition(p, input_polynomial_vec[:i+1])
                     factors.append(p_composed)
+
+                if layer_i < self.n_layers - 1:
+                    curr_layer_tfs = decomposed_tfs[layer_i]
+                    for i, p in enumerate(curr_layer_tfs):
+                        print("p dim: ", p.dim(), " l q vec: ", len(input_polynomial_vec[:i+1]))
+                        #print("q dims: ", [q.dim() for q in prev_layer_vector[:i+1]])
+                        input_polynomial_vec[i] = decasteljau_composition(p, input_polynomial_vec[:i+1])
             return factors
 
 
