@@ -96,8 +96,8 @@ def interactive_transformer_plot(model, dim, cond_dim = 0, dtype = torch.float32
             x_vals[:, cond_dim + i] = xi_vals
             
             # Calculate transformer values and derivatives
-            tf_vals = model.transformer(x_vals, i)
-            tf_deriv_vals = model.transformer_deriv(x_vals, i)
+            tf_vals = model.transformer(x_vals, i, layer_i=0)
+            tf_deriv_vals = model.transformer_deriv(x_vals, i, layer_i=0)
             
             # Update line data
             lines_tf[i].set_data(xi_vals.numpy(), tf_vals.detach().numpy())

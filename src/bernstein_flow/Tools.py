@@ -67,8 +67,11 @@ def grid_eval(f, bounds : list, resolution=100, device=None, dtype=torch.float32
 
 def model_u_eval_fcn(model):
     def f(x):
-        model.eval()
-        return model(x).squeeze(-1)
+        with torch.no_grad():
+            if isinstance(x, np.ndarray):
+                x = torch.from_numpy(x)
+            model.eval()
+            return model(x).squeeze(-1).numpy()
     return f
 
 def model_x_eval_fcn(model, dt, device=None, dtype=torch.float32):
@@ -84,7 +87,7 @@ def model_x_eval_fcn(model, dt, device=None, dtype=torch.float32):
             return model(u).detach().cpu().numpy()
 
         x_density_np = dt.x_density(x, u_density)
-        return torch.from_numpy(x_density_np).to(device=device)
+        return x_density_np
 
     return f  
 

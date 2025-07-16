@@ -1,6 +1,7 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, optimize
 from bernstein_flow.Tools import grid_eval, model_u_eval_fcn, model_x_eval_fcn
+from bernstein_flow.Polynomial import poly_product_bernstein_direct
 
 from .TestDataSets import sample_modal_gaussian
 from .Visualization import interactive_transformer_plot, plot_density_2D, plot_density_2D_surface, plot_data_2D
@@ -25,7 +26,7 @@ if __name__ == "__main__":
     n_data = 5000
 
     # Number of training epochs
-    n_epochs = 300
+    n_epochs = 100
 
     #gdt = GaussianDistTransform(mean=[0.5, 0.25], variances=[1.0, 0.5])
 
@@ -33,8 +34,8 @@ if __name__ == "__main__":
     covariances = [torch.eye(dim)*1.5, torch.eye(dim)*0.5]
     #X_data = sample_modal_gaussian(n_data, means=means, covariances=covariances, weights=[.3, .7])
 
-    #X_data, _ = make_moons(n_data, noise=0.05)
-    X_data, _ = make_circles(n_data, noise=0.1, factor=0.4)
+    X_data, _ = make_moons(n_data, noise=0.05)
+    #X_data, _ = make_circles(n_data, noise=0.1, factor=0.4)
 
     gdt = GaussianDistTransform.moment_match_data(X_data, variance_pads=[0.5] * dim)
 
@@ -64,13 +65,13 @@ if __name__ == "__main__":
     # Create data loader
     U_data_torch = torch.tensor(U_data, dtype=DTYPE)
     dataset = TensorDataset(U_data_torch)
-    dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
 
     # Create model
-    transformer_degrees = [14, 10]
-    conditioner_degrees = [14, 10]
-    cond_deg_incr = [0] * len(conditioner_degrees)
-    model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
+    transformer_degrees = [12, 10]
+    conditioner_degrees = [12, 10]
+    cond_deg_incr = [60] * len(conditioner_degrees)
+    model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, layers=2, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
     print("Number of parameters in model: ", model.n_parameters())
 
@@ -98,30 +99,39 @@ if __name__ == "__main__":
 
 
     fig2 = plt.figure()
-    ax3d_x = fig2.add_subplot(121, projection='3d')
+    ax3d_x = fig2.add_subplot(131, projection='3d')
     plot_density_2D_surface(ax3d_x, X0, X1, Z_x)
     ax3d_x.set_xlabel("x0")
     ax3d_x.set_ylabel("x1")
     ax3d_x.set_zlabel("p(x)")
     ax3d_x.set_title("Feature-space PDF")
 
-    ax3d_u = fig2.add_subplot(122, projection='3d')
+    ax3d_u = fig2.add_subplot(132, projection='3d')
     plot_density_2D_surface(ax3d_u, X0, X1, Z_u)
     ax3d_u.set_xlabel("u0")
     ax3d_u.set_ylabel("u1")
     ax3d_u.set_zlabel("p(u)")
     ax3d_u.set_title("Erf-space PDF")
 
+
+    p_list = model.get_density_factor_polys()
+    p_prod = poly_product_bernstein_direct(p_list, dtype=np.float128)
+    print("p_prod shape: ", p_prod.shape)
+
+    u_bounds = [0.0, 1.0, 0.0, 1.0]
+    def pdf_plotter():
+        return 
+
+    ax3d_u = fig2.add_subplot(133, projection='3d')
+    plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : p_prod(u), u_bounds, dtype=np.float128))
+    ax3d_u.set_xlabel("u0")
+    ax3d_u.set_ylabel("u1")
+    ax3d_u.set_zlabel("p(u)")
+    ax3d_u.set_title("Composed Polynomial Erf-space PDF")
+
     # Plot transformers
-    fig3, axes, sliders = interactive_transformer_plot(model, dim, dtype=DTYPE)
+    #fig3, axes, sliders = interactive_transformer_plot(model, dim, dtype=DTYPE)
 
-    #print("UNCONSTRAINED Model params:")
-    #for i in range(dim):
-    #    print(model.A[i])
-
-    #print("Model params:")
-    #for i in range(dim):
-    #    print(model.get_constrained_parameters(i))
 
 
     plt.show()

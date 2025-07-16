@@ -15,7 +15,7 @@ class Basis(Enum):
     BERN = 2 # bernstein
 
 class Polynomial:
-    def __init__(self, coeffs, basis = Basis.MONO, stable = False):
+    def __init__(self, coeffs, basis = Basis.MONO, stable = False, dtype = np.float64):
         """
         Create a d-dimensional polynomial with a coefficient tensor.
 
@@ -25,9 +25,9 @@ class Polynomial:
             operation_mode : ['fast', 'stable'] specify if default is to use fast operations or numerically stable operations
         """
         if isinstance(coeffs, torch.Tensor):
-            self.coeffs = coeffs.detach().cpu().numpy()
+            self.coeffs = coeffs.detach().cpu().numpy().astype(dtype)
         elif isinstance(coeffs, np.ndarray):
-            self.coeffs = coeffs
+            self.coeffs = coeffs.astype(dtype)
         else:
             raise ValueError("Input coeffs tensor supported as torch.Tensor or np.ndarray")
 
@@ -39,6 +39,10 @@ class Polynomial:
 
     def basis(self):
         return self._basis
+    
+    def set_type(self, dtype):
+        if dtype != self.coeffs.dtype:
+            self.coeffs = self.coeffs.astype(dtype)
 
     def __call__(self, x):
         """
