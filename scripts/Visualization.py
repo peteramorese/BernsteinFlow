@@ -321,11 +321,11 @@ def plot_density_1D(ax : plt.Axes, X, Z, alpha = 0.2):
 
 def plot_density_2D(ax : plt.Axes, X0, X1, Z):
     ax.contourf(X0, X1, Z, levels=50, cmap='viridis')
+    ax.contour(X0, X1, Z, levels=10, colors='white', linewidths=0.8)
 
 def plot_data_1D(ax : plt.Axes, data : np.ndarray, bins=10):
     assert data.shape[1] == 1
     ax.hist(data, bins=bins, density=True)
-    ax.scatter(data[:, 0], data[:, 1], alpha=0.5, s=1)
 
 def plot_data_2D(ax : plt.Axes, data : np.ndarray):
     assert data.shape[1] == 2

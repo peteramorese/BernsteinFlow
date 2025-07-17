@@ -1,7 +1,7 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
 from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn
-from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product
+from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct
 from bernstein_flow.Propagate import propagate_bfm
 
 from .Systems import VanDerPol, Pendulum, sample_trajectories
@@ -22,7 +22,7 @@ if __name__ == "__main__":
 
     # System model
     #system = Pendulum(dt=0.05, length=1.0, damp=1.1, covariance=0.005 * np.eye(2))
-    system = VanDerPol(dt=0.3, mu=1.5, covariance=0.005 * np.eye(2))
+    system = VanDerPol(dt=0.3, mu=1.0, covariance=0.1 * np.eye(2))
 
     # Dimension
     dim = system.dim()
@@ -31,15 +31,15 @@ if __name__ == "__main__":
     n_traj = 2000
 
     # Number of training epochs
-    n_epochs_init = 600
-    n_epochs_tran = 30
+    n_epochs_init = 500
+    n_epochs_tran = 50
 
     # Time horizon
     training_timesteps = 10
     timesteps = 10
 
     def init_state_sampler():
-        return multivariate_normal.rvs(mean=np.array([0.1, 0.1]), cov = np.diag([0.10, 0.01]))
+        return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
 
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
@@ -50,6 +50,7 @@ if __name__ == "__main__":
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
     #interactive_state_distribution_plot_2D(traj_data)
     interactive_state_distribution_plot_2D(u_traj_data)
+    input("...")
 
     # Create the data matrices for training
     X0_data = traj_data[0]
@@ -72,11 +73,12 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=64, shuffle=True)
 
     # Create initial state and transition models
-    transformer_degrees = [10, 7]
-    conditioner_degrees = [7, 6]
-    cond_deg_incr = [20] * len(conditioner_degrees)
+    transformer_degrees = [20, 15]
+    conditioner_degrees = [20, 15]
+    cond_deg_incr = [30] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
+    cond_deg_incr = [20] * len(conditioner_degrees)
     transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
@@ -95,7 +97,7 @@ if __name__ == "__main__":
 
     interactive_transformer_plot(transition_model, dim, cond_dim=dim, dtype=DTYPE)    
 
-    c_alphas = [transition_model.get_constrained_parameters(i) for i in range(dim)]
+    c_alphas = [transition_model.get_constrained_parameters(i, layer_i=0) for i in range(dim)]
     print("c alpha shapes: ", [alpha.shape for alpha in c_alphas])
     c_alphas_min_max = [(torch.min(alpha).item(), torch.max(alpha).item()) for alpha in c_alphas]
     print("trans model coeff min and max: ", c_alphas_min_max)
@@ -140,17 +142,16 @@ if __name__ == "__main__":
 
 
     # Compute the propagated polynomials
-    init_model_tfs = init_state_model.get_transformer_polynomials()
-    trans_model_tfs = transition_model.get_transformer_polynomials()
-    for i in range(len(init_model_tfs)):
-        init_model_tfs[i].coeffs = init_model_tfs[i].coeffs.astype(np.float128)
-        trans_model_tfs[i].coeffs = trans_model_tfs[i].coeffs.astype(np.float128)
+    init_model_tfs = init_state_model.get_density_factor_polys(dtype=np.float128)
+    trans_model_tfs = transition_model.get_density_factor_polys(dtype=np.float128)
 
-    p_init = poly_product(init_state_model.get_transformer_polynomials())
-    p_transition = poly_product(transition_model.get_transformer_polynomials())
+    p_init = poly_product_bernstein_direct(init_model_tfs)
+    p_transition = poly_product_bernstein_direct(trans_model_tfs)
+    print("p_init shape: ", p_init.shape())
+    print("p_tran shape: ", p_transition.shape())
     density_polynomials = [p_init]
     for k in range(1, timesteps):
-        p_curr = propagate_bfm([density_polynomials[k-1]], [p_transition], mag_range=3.0)
+        p_curr = propagate_bfm([density_polynomials[k-1]], [p_transition])
         density_polynomials.append(p_curr)
         print(f"Computed p(x{k})")
 

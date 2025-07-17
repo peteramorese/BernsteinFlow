@@ -1,7 +1,7 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, optimize
 from bernstein_flow.Tools import grid_eval, model_u_eval_fcn, model_x_eval_fcn
-from bernstein_flow.Polynomial import poly_product_bernstein_direct
+from bernstein_flow.Polynomial import poly_product_bernstein_direct, stable_split_factors, split_factor_poly_product
 
 from .TestDataSets import sample_modal_gaussian
 from .Visualization import interactive_transformer_plot, plot_density_2D, plot_density_2D_surface, plot_data_2D
@@ -23,7 +23,7 @@ if __name__ == "__main__":
     dim = 2
 
     # Number of data points
-    n_data = 5000
+    n_data = 2000
 
     # Number of training epochs
     n_epochs = 10
@@ -68,10 +68,10 @@ if __name__ == "__main__":
     dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
 
     # Create model
-    transformer_degrees = [5, 5]
-    conditioner_degrees = [5, 5]
+    transformer_degrees = [8, 8]
+    conditioner_degrees = [8, 8]
     cond_deg_incr = [60] * len(conditioner_degrees)
-    model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, layers=2, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
+    model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, layers=1, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
     print("Number of parameters in model: ", model.n_parameters())
 
@@ -115,12 +115,18 @@ if __name__ == "__main__":
 
 
     p_list = model.get_density_factor_polys(dtype=np.float128)
-    p_prod = poly_product_bernstein_direct(p_list)
-    print("p_prod shape: ", p_prod.shape())
+    print("p_list dtype: ", p_list[0].coeffs.dtype)
+    split_factors = stable_split_factors(p_list, mag_range = 6)
+    print("split factors dtype: ", split_factors[0][0].coeffs.dtype)
+    p_prod_terms = split_factor_poly_product(split_factors)
+    #p_prod = poly_product_bernstein_direct(p_list)
+    print("p_prod terms shape: ", [p_prod.shape() for p_prod in p_prod_terms])
+    #print("p_prod shape: ", p_prod.shape())
 
     u_bounds = [0.0, 1.0, 0.0, 1.0]
     ax3d_u = fig2.add_subplot(133, projection='3d')
-    plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : p_prod(u), u_bounds, dtype=np.float128))
+    #plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : p_prod(u), u_bounds, dtype=np.float128))
+    plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : sum([p_prod(u) for p_prod in p_prod_terms]), u_bounds, dtype=np.float128))
     ax3d_u.set_xlabel("u0")
     ax3d_u.set_ylabel("u1")
     ax3d_u.set_zlabel("p(u)")

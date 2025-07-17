@@ -63,7 +63,6 @@ class BernsteinFlowModel(torch.nn.Module):
 
         self.tf_degs = transformer_degrees
         self.cond_degs = conditioner_degrees
-        self.cond_degs = conditioner_degrees
         self.n_layers = layers
         
         if conditioner_deg_incr is not None:
@@ -120,7 +119,7 @@ class BernsteinFlowModel(torch.nn.Module):
 
         if self.n_layers == 1:
             for i in range(self.dim):
-                tf_val = self.transformer_deriv(layer_input, i, layer_i=0)
+                tf_val = self.transformer_deriv(x, i, layer_i=0)
                 density *= tf_val
         else:
             layer_input = x
@@ -137,7 +136,7 @@ class BernsteinFlowModel(torch.nn.Module):
                 layer_input = torch.vstack(next_layer_input).t()
         return density
 
-    def get_constrained_parameters(self, i : int, layer_i : int):
+    def get_constrained_parameters(self, i : int, layer_i : int = 0):
         alpha_matrix = self.layers[layer_i][i] if self.cond_deg_incr is None else self.deg_incr_matrices[i] @ self.layers[layer_i][i]
         #print(" ------ cond deg incr: ", self.cond_deg_incr, " A size: ", self.A[i].shape, " deg incr size: ", self.deg_incr_matrices[i].shape)
         #print(" ------ alpha matrix size: ", alpha_matrix.shape, " using deg raise? : ", self.cond_deg_incr is not None)
@@ -221,7 +220,7 @@ class BernsteinFlowModel(torch.nn.Module):
             layer_i_tf_derivs = []
             layer_i_tfs = []
             for i in range(self.dim):
-                c_alpha_matrix = self.get_constrained_parameters(i, layer_i=0).detach().clone()
+                c_alpha_matrix = self.get_constrained_parameters(i, layer_i=layer_i).detach().clone()
                 coeff_ones = torch.ones(c_alpha_matrix.shape[0], 1, device=c_alpha_matrix.device)
                 coeff_zeros = torch.zeros(c_alpha_matrix.shape[0], 1, device=c_alpha_matrix.device)
                 # Formula for derivative of transformer dimension
@@ -269,7 +268,7 @@ class BernsteinFlowModel(torch.nn.Module):
 
 
 class ConditionalBernsteinFlowModel(BernsteinFlowModel):
-    def __init__(self, dim : int, conditional_dim : int, transformer_degrees : int, conditioner_degrees : int, conditioner_deg_incr : list[int] = None, device = None, dtype = torch.float32):
+    def __init__(self, dim : int, conditional_dim : int, transformer_degrees : int, conditioner_degrees : int, layers : int = 1, conditioner_deg_incr : list[int] = None, device = None, dtype = torch.float32):
         """
         Conditional flow model for p(x | y). The data must be supplied IN THE FORM [y, x] to evaluation/training
         """
@@ -280,6 +279,7 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
 
         self.tf_degs = transformer_degrees
         self.cond_degs = conditioner_degrees
+        self.n_layers = layers
 
         if conditioner_deg_incr is not None:
             assert len(conditioner_degrees) == len(conditioner_deg_incr)
@@ -289,7 +289,7 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
         self.dtype = dtype
 
         # Parameters
-        self.A = torch.nn.ParameterList()
+        self.layers = torch.nn.ModuleList([torch.nn.ParameterList() for _ in range(self.n_layers)])
         self.deg_incr_matrices = list() # Transformation matrices to raise the conditioner degrees
         self.mpsi = list() # Moore Penrose Psuedo Inverse for bernstein degree increase
         for i in range(dim):
@@ -297,12 +297,11 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
             # For conditional model, the dimension of each condition effectively increase by the conditional dim
             alpha_j_size = (conditioner_degrees[i] + 1)**(i + conditional_dim)
 
-            # Initialize the coefficients of each Bernstein conditioner except the first and last one (which are always 0 and 1)
-            # Rows correspond to basis polynomials, columns correspond to which TF coefficient the conditioner outputs
-            alpha_matrix = torch.nn.Parameter(torch.rand(alpha_j_size, transformer_degrees[i] - 1, dtype=self.dtype, device=self.device))
+            for param_list in self.layers:
+                # Offset the initial values such that the initialized transformers are near linear, to avoid nan loss
+                unconstrained_param_mat = torch.nn.Parameter(0.5 * torch.rand(alpha_j_size, transformer_degrees[i] - 1, dtype=self.dtype, device=self.device) - 1.2) 
+                param_list.append(unconstrained_param_mat)
         
-            self.A.append(alpha_matrix)
-
             if self.cond_deg_incr is not None:
                 # Create the MPSI matrix based on the shape transformation of the bernstein polynomial
                 original_shape = (conditioner_degrees[i] + 1,) * (i + conditional_dim)

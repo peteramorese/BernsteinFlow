@@ -15,7 +15,7 @@ class Basis(Enum):
     BERN = 2 # bernstein
 
 class Polynomial:
-    def __init__(self, coeffs, basis = Basis.MONO, stable = False, dtype = np.float64):
+    def __init__(self, coeffs, basis = Basis.MONO, stable = False, dtype = None):
         """
         Create a d-dimensional polynomial with a coefficient tensor.
 
@@ -24,6 +24,8 @@ class Polynomial:
             basis : coefficient basis
             operation_mode : ['fast', 'stable'] specify if default is to use fast operations or numerically stable operations
         """
+        if dtype is None: 
+            dtype = np.float64
         if isinstance(coeffs, torch.Tensor):
             self.coeffs = coeffs.detach().cpu().numpy().astype(dtype)
         elif isinstance(coeffs, np.ndarray):
@@ -406,8 +408,8 @@ def poly_product_bernstein_direct(p_list : list[Polynomial]):
         elif q_ten.ndim < max_dim:
             q_ten = q_ten.reshape(q_ten.shape + (1,) * (max_dim - q_ten.ndim))
 
-        pre_weight_A = _create_d_separable_tensor(lambda dim, i : comb(p_ten.shape[dim] - 1, i), p_ten.shape, dtype=p_ten.dtype)
-        pre_weight_B = _create_d_separable_tensor(lambda dim, i : comb(q_ten.shape[dim] - 1, i), q_ten.shape, dtype=q_ten.dtype)
+        pre_weight_A = _create_d_separable_tensor(lambda dim, i : comb(p_ten.shape[dim] - 1, i), p_ten.shape, dtype=dtype)
+        pre_weight_B = _create_d_separable_tensor(lambda dim, i : comb(q_ten.shape[dim] - 1, i), q_ten.shape, dtype=dtype)
 
         # weighted control nets
         A_w = p_ten * pre_weight_A
@@ -417,8 +419,9 @@ def poly_product_bernstein_direct(p_list : list[Polynomial]):
         #    product = direct_nd_convolve(A_w, B_w)
         #else:
         #    product = convolve(A_w, B_w, mode='full', method='direct')
+        print("convs dtype b4: ", A_w.dtype)
         product = convolve(A_w, B_w, mode='full', method='direct')
-        print("product_dtype: ", product.dtype)
+        print("product_dtype af: ", product.dtype)
 
         post_weight = _create_d_separable_tensor(lambda dim, s : 1.0 / comb(product.shape[dim] - 1, s), product.shape, dtype=p_ten.dtype)
         product *= post_weight
@@ -447,7 +450,7 @@ def split_factor_poly_product(summands_list : list[list[Polynomial]], shrink_to_
     if not use_fft and p_basis == Basis.BERN:
         products = []
         for factor_p_list in it.product(*summands_list):
-            products.append(poly_product_bernstein_direct(factor_p_list))
+            products.append(poly_product_bernstein_direct(list(factor_p_list)))
         return products
     
     summands_tensors = [[p.ten() for p in p_list] for p_list in summands_list]
@@ -532,7 +535,9 @@ def stable_split_factors(p_list : list[Polynomial], mag_range : float = 6.0):
             threshold_i = 10.0 ** (np.log10(mag_min) + i * mag_range)
             below_thresh = (p_ten_abs <= threshold_i) if i < n_splits else True
             include = ~mask & below_thresh # Determine which elements to include in this summand: not elements already included (in the mask) and elements that are above the threshold
+            #print("p_ten dtype: ", p_ten.dtype, " mask dtype: ", include.dtype, " prod dtype: ",(include * p_ten).dtype)
             summands.append(Polynomial(include * p_ten, basis=basis))
+            print("summand dtype: ", summands[-1].coeffs.dtype)
             mask = mask | below_thresh # Update the mask to reflect elements included in this summand
         factor_list.append(summands)
     
@@ -659,7 +664,7 @@ def _stable_sum_reduction(a : np.ndarray, axis=None, keepdims=False):
 
     return result
 
-def direct_nd_convolve(A: np.ndarray, B: np.ndarray):
+def _direct_nd_convolve(A: np.ndarray, B: np.ndarray):
     if A.ndim != B.ndim:
         raise ValueError("Input arrays must have the same number of dimensions")
     out_shape = tuple(a + b - 1 for a, b in zip(A.shape, B.shape))
