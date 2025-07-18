@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM pytorch/pytorch:2.7.1-cuda11.8-cudnn9-runtime
 
 # Set working directory inside the container
 WORKDIR /root/BernsteinFlow

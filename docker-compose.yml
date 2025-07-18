@@ -6,3 +6,8 @@ services:
     volumes:
       - .:/root/BernsteinFlow
     command: tail -f /dev/null  # Temporary command to keep the container running
+    deploy:
+        resources:
+            reservations:
+                devices:
+                  - capabilities: [gpu]
