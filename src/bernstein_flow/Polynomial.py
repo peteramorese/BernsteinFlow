@@ -522,6 +522,7 @@ def stable_split_factors(p_list : list[Polynomial], mag_range : float = 6.0):
                    A larger range will result in fewer splits, while a smaller range will result in more splits
     """
     basis = p_list[0].basis()
+    dtype = p_list[0].coeffs.dtype
     factor_list = [] 
     #is_np = isinstance(p_list[0].ten(), np.ndarray)
     for p in p_list:
@@ -535,9 +536,7 @@ def stable_split_factors(p_list : list[Polynomial], mag_range : float = 6.0):
             threshold_i = 10.0 ** (np.log10(mag_min) + i * mag_range)
             below_thresh = (p_ten_abs <= threshold_i) if i < n_splits else True
             include = ~mask & below_thresh # Determine which elements to include in this summand: not elements already included (in the mask) and elements that are above the threshold
-            #print("p_ten dtype: ", p_ten.dtype, " mask dtype: ", include.dtype, " prod dtype: ",(include * p_ten).dtype)
-            summands.append(Polynomial(include * p_ten, basis=basis))
-            print("summand dtype: ", summands[-1].coeffs.dtype)
+            summands.append(Polynomial(include * p_ten, basis=basis, dtype=dtype))
             mask = mask | below_thresh # Update the mask to reflect elements included in this summand
         factor_list.append(summands)
     

@@ -59,8 +59,8 @@ if __name__ == "__main__":
     axes[0, 1].set_ylabel("u1")
     axes[0, 1].set_title("Erf-space Data")
 
-    plt.show(block=False)
-    input("Continue to training...")
+    #plt.show(block=False)
+    #input("Continue to training...")
 
     # Create data loader
     U_data_torch = torch.tensor(U_data, dtype=DTYPE)
@@ -135,6 +135,8 @@ if __name__ == "__main__":
     # Plot transformers
     #fig3, axes, sliders = interactive_transformer_plot(model, dim, dtype=DTYPE)
 
+    fig.savefig("./figures/density_est_2D.png")
 
 
-    plt.show()
+
+    #plt.show()
