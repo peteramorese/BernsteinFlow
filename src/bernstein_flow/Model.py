@@ -4,6 +4,8 @@ import math
 from torch.utils.data import DataLoader, TensorDataset
 from sympy import symbols, binomial, lambdify
 import numpy as np
+import time
+import sys
 
 from .Polynomial import Polynomial, Basis, decasteljau_composition
 from .HyperProjection import bernstein_raised_degree_tf
@@ -164,8 +166,8 @@ class BernsteinFlowModel(torch.nn.Module):
     
     def transformer(self, x : torch.Tensor, i : int, layer_i : int):
         assert i < self.dim, "Index of transformer is greater than the dimension of the random variable"
-        if self.device is not None:
-            assert x.device == self.device, "Devices don't match"
+        #if self.device is not None:
+        #    assert x.device == self.device, "Devices don't match"
 
         tf_basis_vals = torch.stack([phi_j(x[:, self.cond_input_dims[i]]) for phi_j in self.tf_basis_funcs[i]], dim=1)
 
@@ -187,8 +189,8 @@ class BernsteinFlowModel(torch.nn.Module):
     
     def transformer_deriv(self, x : torch.Tensor, i : int, layer_i : int):
         assert i < self.dim, "Number of transformers is the dimension of the random variable"
-        if self.device is not None:
-            assert x.device == self.device, "Devices don't match"
+        #if self.device is not None:
+        #    assert x.device == self.device, f"Devices don't match. x device: {x.device}, model device: {self.device}"
 
         # Evaluate the basis functions for each term in the transformer
         #print("number of tf basis funcs", len(self.tf_deriv_basis_funcs[i]))
@@ -341,12 +343,26 @@ def train_step(model, x_data, optimizer):
     optimizer.step()
     return loss.item()
 
-def optimize(model, data_loader : DataLoader, optimizer, epochs=100):
+def optimize(model, data_loader : DataLoader, optimizer, epochs=100, buffer_size = 20):
+    stdout_buffer = []
+
     for epoch in range(epochs):
+        start_time = time.time()
         total_loss = 0.0
         for x_batch in data_loader:
             x_batch = x_batch[0].to(next(model.parameters()).device)
+            #print("x_batch device: ",x_batch.device) 
             loss = train_step(model, x_batch, optimizer)
             total_loss += loss
         avg_loss = total_loss / len(data_loader)
-        print(f"Epoch {epoch+1}: Avg Loss = {avg_loss:.6f}")
+        
+        line = f"Epoch {epoch+1}: Avg Loss = {avg_loss:.6f}, time: {time.time() - start_time:.3f}"
+        stdout_buffer.append(line)
+        if len(stdout_buffer) <= buffer_size:
+            print(line)
+        else:
+            stdout_buffer.pop(0)
+            sys.stdout.write("\033[F" * len(stdout_buffer))
+            for l in stdout_buffer:
+                sys.stdout.write("\033[K")
+                print(l)

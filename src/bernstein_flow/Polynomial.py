@@ -551,7 +551,7 @@ def stable_split_factors(p_list : list[Polynomial], mag_range : float = 6.0):
     
     #return [Polynomial(term, basis=p_list[0].basis()) for term in product_terms]
     
-def marginal(p : Polynomial, dims : list[int], stable : bool = False):
+def marginal(p : Polynomial, dims : set[int], stable : bool = False):
     """
     Integrate a polynomial over the specified dims from x_l = 0 to x_l = 1
 
@@ -567,7 +567,7 @@ def marginal(p : Polynomial, dims : list[int], stable : bool = False):
         
         # Sum along the desired dimensions (integrate) then weight by the area of the basis polynomials
         summed_tensor = np.sum(p.ten(), axis=tuple(dims), keepdims=False) if not stable else _stable_sum_reduction(p.ten(), axis=tuple(dims), keepdims=False)
-        return Polynomial(weight * summed_tensor, basis=Basis.BERN, stable=stable)
+        return Polynomial(weight * summed_tensor, basis=Basis.BERN, stable=stable) if len(dims) < p.dim() else weight * summed_tensor
     else:
         result = p.ten().copy()
         
@@ -598,8 +598,13 @@ def marginal(p : Polynomial, dims : list[int], stable : bool = False):
             # Sum along this dimension (integrate)
             result = np.sum(result, axis=dim, keepdims=False) if not stable else _stable_sum_reduction(result, axis=dim, keepdims=False)
         
-        return Polynomial(result, basis=Basis.MONO, stable=stable)
-
+        return Polynomial(result, basis=Basis.MONO, stable=stable) if len(dims) < p.dim() else weight * summed_tensor
+    
+def mc_auc(p : Polynomial, n_samples : int):
+    d = p.dim()
+    X = np.random.rand(n_samples, d)
+    p_evals = p(X)
+    return np.mean(p_evals)
 
 ################## Utility helper functions ##################
 
@@ -729,31 +734,41 @@ if __name__ == "__main__":
 
 
     #p = Polynomial(np.array([[1, 2], [3, 4.5]]), basis=Basis.BERN)
+
     dtype = np.float128
     p = Polynomial(np.random.uniform(low=0, high=1, size=(3, 4, 3)).astype(dtype), basis=Basis.BERN)
-    q1 = Polynomial(np.random.uniform(low=0, high=1, size=(4, 6, 3)).astype(dtype), basis = Basis.BERN)
-    q2 = Polynomial(np.random.uniform(low=0, high=1, size=(3, 8, 3)).astype(dtype), basis = Basis.BERN)
-    q3 = Polynomial(np.random.uniform(low=0, high=1, size=(9, 4, 7)).astype(dtype), basis = Basis.BERN)
 
-    #q1 = Polynomial(np.array([[4, 3], [4, 5]]), basis = Basis.BERN)
-    #q2 = Polynomial(np.array([[7, 6, 5], [-1, 2, -2]]), basis = Basis.BERN)
+    mc = mc_auc(p, 10000)
+    analytical = marginal(p, dims = list(range(p.dim())))
 
-    x = np.random.rand(5, 3)
+    print("mc: ", mc)
+    print("analytical: ", analytical)
 
-    y1 = q1(x)
-    y2 = q2(x)
-    y3 = q3(x)
+    #dtype = np.float128
+    #p = Polynomial(np.random.uniform(low=0, high=1, size=(3, 4, 3)).astype(dtype), basis=Basis.BERN)
+    #q1 = Polynomial(np.random.uniform(low=0, high=1, size=(4, 6, 3)).astype(dtype), basis = Basis.BERN)
+    #q2 = Polynomial(np.random.uniform(low=0, high=1, size=(3, 8, 3)).astype(dtype), basis = Basis.BERN)
+    #q3 = Polynomial(np.random.uniform(low=0, high=1, size=(9, 4, 7)).astype(dtype), basis = Basis.BERN)
 
-    combined_y = np.vstack([y1, y2, y3]).T
-    #combined_y = np.vstack([y1, y2]).T
-    true_val = p(combined_y)
+    ##q1 = Polynomial(np.array([[4, 3], [4, 5]]), basis = Basis.BERN)
+    ##q2 = Polynomial(np.array([[7, 6, 5], [-1, 2, -2]]), basis = Basis.BERN)
 
-    composed_p = decasteljau_composition(p, [q1, q2, q3], stable=True)
-    print("composed p shape: ",composed_p.shape()) 
-    #composed_p = decasteljau_composition(p, [q1, q2])
+    #x = np.random.rand(5, 3)
 
-    print("true val:         ", true_val)
-    print("composed p value: " ,composed_p(x))
+    #y1 = q1(x)
+    #y2 = q2(x)
+    #y3 = q3(x)
+
+    #combined_y = np.vstack([y1, y2, y3]).T
+    ##combined_y = np.vstack([y1, y2]).T
+    #true_val = p(combined_y)
+
+    #composed_p = decasteljau_composition(p, [q1, q2, q3], stable=True)
+    #print("composed p shape: ",composed_p.shape()) 
+    ##composed_p = decasteljau_composition(p, [q1, q2])
+
+    #print("true val:         ", true_val)
+    #print("composed p value: " ,composed_p(x))
 
     #q = Polynomial(np.array([[6, 7], [2, 5.5]]))
 
