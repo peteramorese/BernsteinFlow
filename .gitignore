@@ -1,4 +1,5 @@
 figures/
+sync_mozart.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
