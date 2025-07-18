@@ -130,9 +130,9 @@ def interactive_transformer_plot(model, dim, cond_dim = 0, dtype = torch.float32
     
     return fig, axes, sliders
 
-def interactive_state_distribution_plot_2D(trajectory_data, pdf_func=None):
+def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True, bounds=None):
     """
-    Plots an interactive scatter plot of 2D state distributions across time steps.
+    Plots a (interactive) scatter plot of 2D state distributions across time steps.
     
     If pdf_func is provided, adds a second subplot to visualize a 2D density.
 
@@ -150,6 +150,48 @@ def interactive_state_distribution_plot_2D(trajectory_data, pdf_func=None):
     if k == 0:
         raise ValueError("trajectory_data must be a non-empty list")
 
+    all_data = np.vstack(trajectory_data)
+    if bounds is not None:
+        x_min, x_max, y_min, y_max = bounds
+        #print("xmin: ", x_min, " xmax: ", x_max)
+    else:
+        x_min, x_max = np.min(all_data[:, 0]), np.max(all_data[:, 0])
+        y_min, y_max = np.min(all_data[:, 1]), np.max(all_data[:, 1])
+        #print("xmin: ", x_min, " xmax: ", x_max)
+
+    if not interactive:
+        if pdf_func is not None:
+            fig, axes = plt.subplots(2, k, figsize=(4*k, 8), squeeze=False)
+            scatter_axes = axes[0]
+            pdf_axes = axes[1]
+        else:
+            fig, scatter_axes = plt.subplots(1, k, figsize=(4*k, 4), squeeze=False)
+            scatter_axes = scatter_axes[0]
+            pdf_axes = None
+
+        for t in range(k):
+            ax = scatter_axes[t]
+            ax.scatter(trajectory_data[t][:, 0], trajectory_data[t][:, 1], alpha=0.6)
+            ax.set_xlim(x_min, x_max)
+            ax.set_ylim(y_min, y_max)
+            ax.set_xlabel("State dim 1")
+            ax.set_ylabel("State dim 2")
+            ax.set_title(f"Timestep {t}")
+
+            if pdf_func is not None:
+                ax_pdf = pdf_axes[t]
+                X, Y, Z = pdf_func(t)
+                ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
+                ax_pdf.set_xlim(x_min, x_max)
+                ax_pdf.set_ylim(y_min, y_max)
+                ax_pdf.set_xlabel("x1")
+                ax_pdf.set_ylabel("x2")
+                ax_pdf.set_title(f"PDF {t}")
+
+        plt.tight_layout()
+        #plt.show()
+        return fig, axes
+
     if pdf_func is not None:
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
         ax_scatter, ax_pdf = axes
@@ -160,9 +202,6 @@ def interactive_state_distribution_plot_2D(trajectory_data, pdf_func=None):
     plt.subplots_adjust(bottom=0.25)
 
     # Set global axis limits
-    all_data = np.vstack(trajectory_data)
-    x_min, x_max = np.min(all_data[:, 0]), np.max(all_data[:, 0])
-    y_min, y_max = np.min(all_data[:, 1]), np.max(all_data[:, 1])
     ax_scatter.set_xlim(x_min, x_max)
     ax_scatter.set_ylim(y_min, y_max)
     ax_scatter.set_xlabel("State dimension 1")

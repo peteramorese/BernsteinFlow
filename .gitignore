@@ -1,5 +1,6 @@
 figures/
 sync_mozart.sh
+nohup.out
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

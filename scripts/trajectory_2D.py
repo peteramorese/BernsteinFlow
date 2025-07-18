@@ -5,7 +5,7 @@ from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_pro
 from bernstein_flow.Propagate import propagate_bfm
 
 from .Systems import VanDerPol, Pendulum, sample_trajectories
-from .Visualization import interactive_transformer_plot, interactive_state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
+from .Visualization import interactive_transformer_plot, state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -31,8 +31,8 @@ if __name__ == "__main__":
     n_traj = 2000
 
     # Number of training epochs
-    n_epochs_init = 500
-    n_epochs_tran = 50
+    n_epochs_init = 10
+    n_epochs_tran = 1
 
     # Time horizon
     training_timesteps = 10
@@ -48,9 +48,8 @@ if __name__ == "__main__":
     gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[2.2, 2.2])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
-    #interactive_state_distribution_plot_2D(traj_data)
-    interactive_state_distribution_plot_2D(u_traj_data)
-    input("...")
+    #state_distribution_plot_2D(traj_data)
+    #state_distribution_plot_2D(u_traj_data)
 
     # Create the data matrices for training
     X0_data = traj_data[0]
@@ -73,8 +72,8 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=64, shuffle=True)
 
     # Create initial state and transition models
-    transformer_degrees = [20, 15]
-    conditioner_degrees = [20, 15]
+    transformer_degrees = [6, 6]
+    conditioner_degrees = [6, 6]
     cond_deg_incr = [30] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
 
@@ -95,12 +94,12 @@ if __name__ == "__main__":
     optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran)
     print("Done training transition model \n")
 
-    interactive_transformer_plot(transition_model, dim, cond_dim=dim, dtype=DTYPE)    
+    #interactive_transformer_plot(transition_model, dim, cond_dim=dim, dtype=DTYPE)    
 
-    c_alphas = [transition_model.get_constrained_parameters(i, layer_i=0) for i in range(dim)]
-    print("c alpha shapes: ", [alpha.shape for alpha in c_alphas])
-    c_alphas_min_max = [(torch.min(alpha).item(), torch.max(alpha).item()) for alpha in c_alphas]
-    print("trans model coeff min and max: ", c_alphas_min_max)
+    #c_alphas = [transition_model.get_constrained_parameters(i, layer_i=0) for i in range(dim)]
+    #print("c alpha shapes: ", [alpha.shape for alpha in c_alphas])
+    #c_alphas_min_max = [(torch.min(alpha).item(), torch.max(alpha).item()) for alpha in c_alphas]
+    #print("trans model coeff min and max: ", c_alphas_min_max)
 
     #fig, axes = plt.subplots(2, 2)
     #fig.set_figheight(9)
@@ -147,7 +146,7 @@ if __name__ == "__main__":
 
     p_init = poly_product_bernstein_direct(init_model_tfs)
     p_transition = poly_product_bernstein_direct(trans_model_tfs)
-    print("p_init shape: ", p_init.shape())
+    print("p_init shape: ", p_init.shape(), " dtype: ", p_init.coeffs.dtype)
     print("p_tran shape: ", p_transition.shape())
     density_polynomials = [p_init]
     for k in range(1, timesteps):
@@ -166,7 +165,7 @@ if __name__ == "__main__":
     #plot_density_2D_surface(ax3d_x, U0, U1, Z)
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
-    interactive_state_distribution_plot_2D(u_traj_data, pdf_plotter)
+    state_distribution_plot_2D(u_traj_data, pdf_plotter, interactive=True, bounds=u_bounds)
 
     
 

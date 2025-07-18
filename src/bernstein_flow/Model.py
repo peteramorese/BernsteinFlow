@@ -164,11 +164,13 @@ class BernsteinFlowModel(torch.nn.Module):
     
     def transformer(self, x : torch.Tensor, i : int, layer_i : int):
         assert i < self.dim, "Index of transformer is greater than the dimension of the random variable"
+        if self.device is not None:
+            assert x.device == self.device, "Devices don't match"
 
         tf_basis_vals = torch.stack([phi_j(x[:, self.cond_input_dims[i]]) for phi_j in self.tf_basis_funcs[i]], dim=1)
 
         # Evaluate the basis functions for each term in the conditioner
-        cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(self.cond_input_dims[i])]) for phi_k in self.cond_basis_funcs[i]], dim=1) if self.cond_input_dims[i] > 0 else torch.ones(x.shape[0], 1, device=x.device, dtype=self.dtype)
+        cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(self.cond_input_dims[i])]) for phi_k in self.cond_basis_funcs[i]], dim=1) if self.cond_input_dims[i] > 0 else torch.ones(x.shape[0], 1, device=self.device, dtype=self.dtype)
         
         c_alpha_matrix = self.get_constrained_parameters(i, layer_i)
 
@@ -176,8 +178,8 @@ class BernsteinFlowModel(torch.nn.Module):
 
         # Augment the coefficient matrices with the first and last coefficients
         # First weight is 0, last weight is 1
-        coeff_ones = torch.ones(tf_coeffs.shape[0], 1, device=x.device, dtype=x.dtype)
-        coeff_zeros = torch.zeros(tf_coeffs.shape[0], 1, device=x.device, dtype=x.dtype)
+        coeff_ones = torch.ones(tf_coeffs.shape[0], 1, device=self.device, dtype=self.dtype)
+        coeff_zeros = torch.zeros(tf_coeffs.shape[0], 1, device=self.device, dtype=self.dtype)
         tf_coeffs = torch.cat([coeff_zeros, tf_coeffs, coeff_ones], dim=1)
 
         tf_val = torch.sum(torch.mul(tf_coeffs, tf_basis_vals), 1) 
@@ -185,6 +187,8 @@ class BernsteinFlowModel(torch.nn.Module):
     
     def transformer_deriv(self, x : torch.Tensor, i : int, layer_i : int):
         assert i < self.dim, "Number of transformers is the dimension of the random variable"
+        if self.device is not None:
+            assert x.device == self.device, "Devices don't match"
 
         # Evaluate the basis functions for each term in the transformer
         #print("number of tf basis funcs", len(self.tf_deriv_basis_funcs[i]))
@@ -195,7 +199,7 @@ class BernsteinFlowModel(torch.nn.Module):
         #print("input x: ", [x[:, j] for j in range(self.cond_input_dims[i])])
         ##print("output: ", self.cond_basis_funcs[0](*[x[:, j] for j in range(self.cond_input_dims[i])]))
         #print("cond basis func [0]: ", self.cond_basis_funcs[0])
-        cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(self.cond_input_dims[i])]) for phi_k in self.cond_basis_funcs[i]], dim=1) if self.cond_input_dims[i] > 0 else torch.ones(x.shape[0], 1, device=x.device, dtype=self.dtype)
+        cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(self.cond_input_dims[i])]) for phi_k in self.cond_basis_funcs[i]], dim=1) if self.cond_input_dims[i] > 0 else torch.ones(x.shape[0], 1, device=self.device, dtype=self.dtype)
         
         c_alpha_matrix = self.get_constrained_parameters(i, layer_i)
 
@@ -203,8 +207,8 @@ class BernsteinFlowModel(torch.nn.Module):
 
         # Compute the difference coefficients used in the derivative of bernstein polynomial (c_{j+1} - c_j)
         # First weight is 0, last weight is 1
-        coeff_ones = torch.ones(tf_coeffs.shape[0], 1, device=x.device, dtype=x.dtype)
-        coeff_zeros = torch.zeros(tf_coeffs.shape[0], 1, device=x.device, dtype=x.dtype)
+        coeff_ones = torch.ones(tf_coeffs.shape[0], 1, device=self.device, dtype=self.dtype)
+        coeff_zeros = torch.zeros(tf_coeffs.shape[0], 1, device=self.device, dtype=self.dtype)
         tf_deriv_coeffs = torch.cat([tf_coeffs, coeff_ones], dim=1) - torch.cat([coeff_zeros, tf_coeffs], dim=1)
 
         tf_val = torch.sum(torch.mul(tf_deriv_coeffs, tf_deriv_basis_vals), 1) 

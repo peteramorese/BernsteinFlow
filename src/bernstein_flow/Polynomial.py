@@ -24,12 +24,16 @@ class Polynomial:
             basis : coefficient basis
             operation_mode : ['fast', 'stable'] specify if default is to use fast operations or numerically stable operations
         """
-        if dtype is None: 
-            dtype = np.float64
         if isinstance(coeffs, torch.Tensor):
+            if dtype is None: 
+                dtype = np.float32 if coeffs.dtype == torch.float32 else np.float64
             self.coeffs = coeffs.detach().cpu().numpy().astype(dtype)
         elif isinstance(coeffs, np.ndarray):
-            self.coeffs = coeffs.astype(dtype)
+            if dtype is None: 
+                self.coeffs = coeffs
+            else:
+                self.coeffs = coeffs.astype(dtype)
+
         else:
             raise ValueError("Input coeffs tensor supported as torch.Tensor or np.ndarray")
 
@@ -419,12 +423,13 @@ def poly_product_bernstein_direct(p_list : list[Polynomial]):
         #    product = direct_nd_convolve(A_w, B_w)
         #else:
         #    product = convolve(A_w, B_w, mode='full', method='direct')
-        print("convs dtype b4: ", A_w.dtype)
+        #print("convs dtype b4: ", A_w.dtype)
         product = convolve(A_w, B_w, mode='full', method='direct')
-        print("product_dtype af: ", product.dtype)
+        #print("product_dtype af: ", product.dtype)
 
-        post_weight = _create_d_separable_tensor(lambda dim, s : 1.0 / comb(product.shape[dim] - 1, s), product.shape, dtype=p_ten.dtype)
+        post_weight = _create_d_separable_tensor(lambda dim, s : 1.0 / comb(product.shape[dim] - 1, s), product.shape, dtype=dtype)
         product *= post_weight
+        #print("product dtype: " ,product.dtype, " poly dtype: ", Polynomial(product, basis=Basis.BERN, stable=True).coeffs.dtype)
         return Polynomial(product, basis=Basis.BERN, stable=True)
     
     prod = p_list[0]
