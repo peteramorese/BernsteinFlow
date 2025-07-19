@@ -150,6 +150,8 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
     if k == 0:
         raise ValueError("trajectory_data must be a non-empty list")
 
+    scatter_size = 5
+
     all_data = np.vstack(trajectory_data)
     if bounds is not None:
         x_min, x_max, y_min, y_max = bounds
@@ -171,7 +173,8 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
 
         for t in range(k):
             ax = scatter_axes[t]
-            ax.scatter(trajectory_data[t][:, 0], trajectory_data[t][:, 1], alpha=0.6)
+            #plot_data_2D(ax, trajectory_data[t])
+            ax.scatter(trajectory_data[t][:, 0], trajectory_data[t][:, 1], alpha=0.3, s=scatter_size)
             ax.set_xlim(x_min, x_max)
             ax.set_ylim(y_min, y_max)
             ax.set_xlabel("State dim 1")
@@ -181,7 +184,8 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
             if pdf_func is not None:
                 ax_pdf = pdf_axes[t]
                 X, Y, Z = pdf_func(t)
-                ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
+                plot_density_2D(ax_pdf, X, Y, Z)
+                #ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
                 ax_pdf.set_xlim(x_min, x_max)
                 ax_pdf.set_ylim(y_min, y_max)
                 ax_pdf.set_xlabel("x1")
@@ -209,12 +213,14 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
     ax_scatter.set_title("State Distribution at Timestep 0")
 
     # Initial scatter
-    scatter = ax_scatter.scatter(trajectory_data[0][:, 0], trajectory_data[0][:, 1], alpha=0.6)
+    plot_data_2D(ax_scatter, trajectory_data[0])
+    scatter = ax_scatter.scatter(trajectory_data[0][:, 0], trajectory_data[0][:, 1], alpha=0.3, s=scatter_size)
 
     # Initial density plot if pdf_func is provided
     if pdf_func is not None:
         X, Y, Z = pdf_func(0)
-        pdf_plot = ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
+        #pdf_plot = ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
+        plot_density_2D(ax_pdf, X, Y, Z)
         ax_pdf.set_xlim(x_min, x_max)
         ax_pdf.set_ylim(y_min, y_max)
         ax_pdf.set_title("PDF at Timestep 0")
@@ -245,7 +251,8 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
             for c in ax_pdf.collections:
                 c.remove()
             X, Y, Z = pdf_func(t)
-            ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
+            plot_density_2D(ax_pdf, X, Y, Z)
+            #ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
             ax_pdf.set_title(f"PDF at Timestep {t}")
 
         fig.canvas.draw_idle()

@@ -312,10 +312,8 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
                 # Create the MPSI matrix based on the shape transformation of the bernstein polynomial
                 original_shape = (conditioner_degrees[i] + 1,) * (i + conditional_dim)
                 deg_incr_shape = (conditioner_degrees[i] + conditioner_deg_incr[i] + 1,) * (i + conditional_dim)
-                print("orig shape: ",original_shape)
-                print("incr shape: ",deg_incr_shape)
                 deg_incr_matrix_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape).A
-                print("mat shape: ",deg_incr_matrix_np.shape)
+                print("Degree increase matrix size: ", deg_incr_matrix_np.shape)
 
                 self.deg_incr_matrices.append(torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
                 self.mpsi.append(torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)) # Left psuedo-inverse
@@ -343,7 +341,7 @@ def train_step(model, x_data, optimizer):
     optimizer.step()
     return loss.item()
 
-def optimize(model, data_loader : DataLoader, optimizer, epochs=100, buffer_size = 20):
+def optimize(model, data_loader : DataLoader, optimizer, epochs=100, log_buffer_size = 20):
     stdout_buffer = []
 
     for epoch in range(epochs):
@@ -358,7 +356,7 @@ def optimize(model, data_loader : DataLoader, optimizer, epochs=100, buffer_size
         
         line = f"Epoch {epoch+1}: Avg Loss = {avg_loss:.6f}, time: {time.time() - start_time:.3f}"
         stdout_buffer.append(line)
-        if len(stdout_buffer) <= buffer_size:
+        if len(stdout_buffer) <= log_buffer_size:
             print(line)
         else:
             stdout_buffer.pop(0)

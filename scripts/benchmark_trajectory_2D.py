@@ -32,7 +32,7 @@ if __name__ == "__main__":
 
     # System model
     #system = Pendulum(dt=0.05, length=1.0, damp=1.1, covariance=0.005 * np.eye(2))
-    system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
+    system = VanDerPol(dt=0.3, mu=0.8, covariance=0.1 * np.eye(2))
 
     # Dimension
     dim = system.dim()
@@ -41,8 +41,8 @@ if __name__ == "__main__":
     n_traj = 2000
 
     # Number of training epochs
-    n_epochs_init = 400
-    n_epochs_tran = 20
+    n_epochs_init = 5000
+    n_epochs_tran = 200
 
     # Time horizon
     training_timesteps = 10
@@ -74,19 +74,19 @@ if __name__ == "__main__":
     # Create data loader
     U0_data_torch = torch.tensor(U0_data, dtype=DTYPE)
     U0_dataset = TensorDataset(U0_data_torch)
-    U0_dataloader = DataLoader(U0_dataset, batch_size=1024, shuffle=True, pin_memory=True)
+    U0_dataloader = DataLoader(U0_dataset, batch_size=128, shuffle=True, pin_memory=True)
 
     Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
-    Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=True)
+    Up_dataloader = DataLoader(Up_dataset, batch_size=128, shuffle=True, pin_memory=True)
 
     # Create initial state and transition models
-    transformer_degrees = [20, 5]
-    conditioner_degrees = [20, 5]
-    init_cond_deg_incr = [30] * len(conditioner_degrees)
+    transformer_degrees = [25, 20]
+    conditioner_degrees = [25, 20]
+    init_cond_deg_incr = [10] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=init_cond_deg_incr, device=device)
 
-    tran_cond_deg_incr = [20] * len(conditioner_degrees)
+    tran_cond_deg_incr = [10] * len(conditioner_degrees)
     transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=tran_cond_deg_incr, device=device)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
@@ -97,14 +97,14 @@ if __name__ == "__main__":
     
     print("Training initial state model...")
     start = time.time()
-    optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init)
+    optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, log_buffer_size=30)
     init_train_time = time.time() - start
     print("Done training initial state model \n")
 
     print("Training transition model...")
     start = time.time()
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran, log_buffer_size=30)
     tran_train_time = time.time() - start
     print("Done training transition model \n")
 
@@ -172,5 +172,5 @@ if __name__ == "__main__":
     with open(f"./benchmarks/trajectory_2D_{curr_date_time}.json", "w") as f:
         json.dump(benchmark_fields, f, indent=4)
 
-    state_dist_fig.savefig("./figures/trajectory_2D.png")
+    state_dist_fig.savefig(f"./figures/trajectory_2D_{curr_date_time}.png")
 
