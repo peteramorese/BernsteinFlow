@@ -213,7 +213,7 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
     ax_scatter.set_title("State Distribution at Timestep 0")
 
     # Initial scatter
-    plot_data_2D(ax_scatter, trajectory_data[0])
+    #plot_data_2D(ax_scatter, trajectory_data[0])
     scatter = ax_scatter.scatter(trajectory_data[0][:, 0], trajectory_data[0][:, 1], alpha=0.3, s=scatter_size)
 
     # Initial density plot if pdf_func is provided
@@ -259,6 +259,7 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
 
     timestep_slider.on_changed(update)
     plt.show()
+    return 
 
 def interactive_state_distribution_plot_1D(trajectory_data, pdf_func=None, bins=30):
     """

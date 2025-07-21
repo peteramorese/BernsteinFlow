@@ -6,6 +6,7 @@ from scipy.stats import multivariate_normal
 
 import torch
 import gpytorch
+import time
 
 class GMModel:
     def __init__(self, means : list[np.ndarray], covariances : list[np.ndarray], weights : list[float]):
@@ -26,6 +27,9 @@ class GMModel:
     
     def density(self, x : np.ndarray):
         return sum(w * multivariate_normal.pdf(x, mean, cov) for mean, cov, w in zip(self.means, self.covariances, self.weights))
+
+    def n_mixands(self):
+        return len(self.means)
 
 def fit_gmm(X, n_components=1, covariance_type='diag', random_state=None):
     X = np.asarray(X)
@@ -62,10 +66,11 @@ class MultivariateGPModel:
             x = torch.from_numpy(x).to(dtype=self.dtype)
         else:
             assert isinstance(x, torch.Tensor)
+            if x.dtype != self.dtype:
+                x = x.to(dtype=self.dtype)
 
         means = []
         stds = []
-        #print("self.models: ", self.models)
         for model, likelihood in zip(self.component_models, self.likelihoods):
             with torch.no_grad(), gpytorch.settings.fast_pred_var():
                 xp_pred_dist = likelihood(model(x))
@@ -91,7 +96,7 @@ class MultivariateGPModel:
                 dist = likelihood(model(x))
                 log_density += dist.log_prob(xp[i])
         return np.exp(log_density.item())
-
+    
 def fit_gp(X, Xp, num_iter=100, lr=0.1, device='cpu', dtype=torch.float32):
     """
     Fit a GP using GPyTorch for each output dimension of Xp.
@@ -124,8 +129,8 @@ def fit_gp(X, Xp, num_iter=100, lr=0.1, device='cpu', dtype=torch.float32):
     for d in range(Xp.shape[1]):
         xp = Xp[:, d]
 
-        likelihood = gpytorch.likelihoods.GaussianLikelihood().to(device)
-        model = GPModel(X, xp, likelihood).to(device)
+        likelihood = gpytorch.likelihoods.GaussianLikelihood().to(device, dtype=dtype)
+        model = GPModel(X, xp, likelihood).to(device, dtype=dtype)
 
         model.train()
         likelihood.train()
@@ -134,17 +139,21 @@ def fit_gp(X, Xp, num_iter=100, lr=0.1, device='cpu', dtype=torch.float32):
 
         mll = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, model)
 
-        for i in range(num_iter):
+        for epoch in range(num_iter):
+            start_time = time.time()
             optimizer.zero_grad()
             output = model(X)
             loss = -mll(output, xp)
             loss.backward()
             optimizer.step()
 
+            line = f"Epoch {epoch+1}: Loss = {loss:.6f}, time: {time.time() - start_time:.3f}"
+            print(line)
+
         models.append(model.eval())
         likelihoods.append(likelihood.eval())
 
-    return MultivariateGPModel(models, likelihoods)
+    return MultivariateGPModel(models, likelihoods, dtype=dtype)
 
 #def fit_gp(X, Xp, kernel=None, alpha=1e-10, optimizer='fmin_l_bfgs_b', n_restarts_optimizer=5, normalize_y=True):
 #    """

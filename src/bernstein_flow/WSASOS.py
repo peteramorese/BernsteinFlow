@@ -12,7 +12,7 @@ class WSASOS:
         self.n_samples = n_samples 
         self.n_samples = n_samples
 
-    def J2_action(J2: np.ndarray, u: np.ndarray):
+    def J2_action(self, J2: np.ndarray, u: np.ndarray):
         """
         Contract the second-derivative tensor J2 (shape m x n x n)
         with u twice to produce a vector of length m.
@@ -32,23 +32,26 @@ class WSASOS:
         assert J.ndim == 2, "Jacobian must be 2D array"
         assert H.ndim == 3, "Second order tensor must be 3D array"
 
-        # 1. Linearized output covariance and its inverse
+        #print("cov size: ", cov.shape)
+
+        # Linearized output covariance and its inverse
         Pz = J @ cov @ J.T
         Pz_inv = inv(Pz)
 
-        # 2. Input whitening factors
+        # Input whitening factors
         P_half = sqrtm(cov)
         # ensure real
         P_half = np.real_if_close(P_half)
 
-        # 3. Monte Carlo approximate Qw: an n x n matrix
-        n = mean.shape[0]
+        # Monte Carlo approximate Qw: an n x n matrix
+        n = mean.shape[1]
         Qw = np.zeros((n, n))
         for _ in range(self.n_samples):
             # sample on unit sphere in whitened space
             y = np.random.normal(size=n)
             y /= np.linalg.norm(y)
             # map back to original input space
+            #print(f'cov shape: {cov.shape}, P_half shape: {P_half.shape}, y shape: {y.shape}')
             u = P_half @ y
             # second-order action
             v = self.J2_action(H, u)
