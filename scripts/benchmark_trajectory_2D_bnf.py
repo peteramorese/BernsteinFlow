@@ -15,11 +15,18 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 from scipy.stats import multivariate_normal
 import time
+import os
 import json
 from datetime import datetime
 
 def get_date_time_str():
     return datetime.now().strftime("%Yy_%mm_%dd_%Hh_%Mm_%Ss")
+
+def save_figure_bundle(fig_bundle, dir):
+    os.makedirs(dir, exist_ok=True)
+    for k, fig in enumerate(fig_bundle):
+        print("saving to: ", dir + f"/k_{k}.pdf")
+        fig.savefig(dir + f"/k_{k}.pdf")
 
 
 DTYPE = torch.float64
@@ -31,14 +38,13 @@ if __name__ == "__main__":
     benchmark_fields = dict()
 
     # System model
-    #system = Pendulum(dt=0.05, length=1.0, damp=1.1, covariance=0.005 * np.eye(2))
-    system = VanDerPol(dt=0.3, mu=0.8, covariance=0.1 * np.eye(2))
+    system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
 
     # Dimension
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 2000
+    n_traj = 500
 
     # Number of training epochs
     n_epochs_init = 5000
@@ -52,14 +58,13 @@ if __name__ == "__main__":
         return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
 
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
+    test_traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
     # Moment match the GDT to all of the data over the whole horizon
     #gdt = GaussianDistTransform(means=np.array([0.0, 0.0]), variances=[0.3, 1.0])
     gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[2.2, 2.2])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
-    #state_distribution_plot_2D(traj_data)
-    #state_distribution_plot_2D(u_traj_data)
 
     # Create the data matrices for training
     X0_data = traj_data[0]
@@ -126,20 +131,19 @@ if __name__ == "__main__":
         mc_aucs.append(mc_auc(p_curr, n_samples=10000))
         print(f"Computed p(x{k}) in {prop_times[-1]:.2f} seconds")
 
-        # Compute the log likelihood
-        allh = avg_log_likelihood(u_traj_data[k], p_curr)
-        print(f" - Average log likelihood: {allh:.3f}")
-        allhs.append(allh)
+        # Compute the log likelihood using the x density
+        x_allh = avg_log_likelihood(test_traj_data[k], lambda x : gdt.x_density(x, p_curr))
+        print(f" - Average log likelihood: {x_allh:.3f}")
+        allhs.append(x_allh)
 
         density_polynomials.append(p_curr)
 
-    # Make pdf plotter for interactive vis
-    u_bounds = [0.0, 1.0, 0.0, 1.0]
+    x_bounds = [-5.0, 5.0, -5.0, 5.0]
     def pdf_plotter(k : int):
-        return grid_eval(lambda u : density_polynomials[k](u), u_bounds, dtype=DTYPE)
+        return grid_eval(lambda x : gdt.x_density(x, density_polynomials[k]), x_bounds, dtype=DTYPE)
 
-    u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
-    state_dist_fig, _ = state_distribution_plot_2D(u_traj_data, pdf_plotter, interactive=False, bounds=u_bounds)
+    state_dist_fig, _ = state_distribution_plot_2D(traj_data, pdf_plotter, interactive=False, bounds=x_bounds)
+    particle_figs, pdf_figs = state_distribution_plot_2D(traj_data, pdf_plotter, interactive=False, bounds=x_bounds, separate_figures=True, exclude_ticks=False)
 
     
 
@@ -168,9 +172,12 @@ if __name__ == "__main__":
 
 
 
+    experiment_name = f"trajectory_2D_bnf_{curr_date_time}"
 
-    with open(f"./benchmarks/trajectory_2D_{curr_date_time}.json", "w") as f:
+    with open(f"./benchmarks/{experiment_name}.json", "w") as f:
         json.dump(benchmark_fields, f, indent=4)
 
-    state_dist_fig.savefig(f"./figures/trajectory_2D_{curr_date_time}.png")
+    save_figure_bundle(particle_figs, f"./figures/{experiment_name}/particle")
+    save_figure_bundle(pdf_figs, f"./figures/{experiment_name}/pdf")
+    state_dist_fig.savefig(f"./figures/{experiment_name}/combined.pdf")
 

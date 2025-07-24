@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 import copy
+from scipy.spatial import Rectangle
+from itertools import product
 
 from .Polynomial import Polynomial, poly_sum, poly_product, split_factor_poly_product, stable_split_factors, marginal, monomial_to_bernstein, bernstein_to_monomial, poly_product_bernstein_direct
 from .GPGMM import GMModel, MultivariateGPModel, compute_mean_jacobian, compute_mean_hessian_tensor
@@ -58,41 +60,39 @@ def propagate_gpgmm_ekf(belief : GMModel, transition_p : MultivariateGPModel):
 
     return next_belief
 
-def propagatate_gpgmm_wsasos(belief : GMModel, transition_p : MultivariateGPModel, n_samples = 500):
+def propagate_gpgmm_wsasos(belief : GMModel, transition_p : MultivariateGPModel, n_samples = 500):
     wsasos = WSASOS(n_samples=n_samples)
     return wsasos.wsasos_split_and_propagate(belief, transition_p)
 
-#def propagate_gpgmm_pwl(belief : GMModel, transition_p : MultivariateGPModel, linearization_points : np.ndarray):
-#    """
-#    Propagate the GP-GMM model forward using an EKF-style linearization for lin-gaussian prop of each GMM component
-#
-#    Args:
-#        belief : GMM current belief 
-#        transition_p : GP transition distribution 
-#        linearization_points : 2D (m x n) array of m points to perform linearization at for each component. The dimension m dictates the branching factor
-#    """
-#    assert linearization_points.shape[1] == len(belief.means[0])
-#    means = belief.means
-#    covs = belief.covariances
-#    weights = belief.weights
-#
-#    next_means = list()
-#    next_covs = list()
-#    next_weights = list()
-#
-#    for mean, cov, weight in zip(means, covs, weights):
-#        for i in range(linearization_points.shape[0]):
-#            linearization_point = linearization_points[i, :].reshape(1, -1)
-#
-#            next_mean, pred_stds = transition_p.predict(mean)
-#            pred_cov = np.diag(pred_stds**2)
-#
-#            # Propagate covariance
-#            J = compute_mean_jacobian(transition_p, linearization_point)
-#
-#            next_cov = J * cov * J.T + pred_cov
-#
-#            next_belief.means.append(next_mean)
-#            next_belief.covariances.append(next_cov)
+def propagate_grid_gmm(belief : GMModel, transition_p : MultivariateGPModel, bounds : list, resolution = 10):
+    domain = Rectangle(mins=np.array(bounds[::2]), maxes=np.array(bounds[1::2]))
+    diag_vector = (np.array(bounds[1::2]) - np.array(bounds[::2])) / resolution
 
+    linspaces = [np.linspace(domain_min, domain_max, resolution, endpoint=False) for domain_min, domain_max in zip(domain.mins, domain.maxes)]
+    #mesh = np.meshgrid(*linspaces, indexing='ij')
 
+    next_belief = GMModel(means=[], covariances=[], weights=[])
+
+    for min_coord in product(*linspaces):
+        min_coord = np.asarray(min_coord)
+        max_coord = min_coord + diag_vector
+        center_point = min_coord + 0.5 * diag_vector
+
+        region = Rectangle(mins=min_coord, maxes=max_coord)
+
+        next_weight = belief.integrate(region)
+        #print("centerjpoint :" ,center_point.reshape(1, -1))
+        next_mean, pred_stds = transition_p.predict(center_point.reshape(1, -1))
+        pred_cov = pred_stds**2
+
+        next_belief.means.append(next_mean)
+        next_belief.covariances.append(pred_cov)
+        next_belief.weights.append(next_weight)
+    
+    return next_belief
+
+    #cell_counts = [resolution - 1 for _ in range(transition_p.dim)]
+
+    #coords = [np.linspace(domain_min, domain_max, resolution) for domain_min, domain_max in zip(domain.mins, domain.maxes)]
+    #for idx in product(*[range(n) for n in cell_counts]):
+    #    region = Rectangle()

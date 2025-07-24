@@ -130,11 +130,11 @@ def interactive_transformer_plot(model, dim, cond_dim = 0, dtype = torch.float32
     
     return fig, axes, sliders
 
-def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True, bounds=None):
+def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True, bounds=None, separate_figures=False, exclude_ticks=False):
     """
     Plots a (interactive) scatter plot of 2D state distributions across time steps.
     
-    If pdf_func is provided, adds a second subplot to visualize a 2D density.
+    If pdf_func is provided, adds a subplot or separate figures to visualize a 2D density.
 
     Parameters:
     -----------
@@ -143,24 +143,66 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
         Each array contains p samples from the 2D state distribution at a specific time step.
 
     pdf_func : Optional[Callable[[int], Tuple[np.ndarray, np.ndarray, np.ndarray]]]
-        A function that takes a timestep index `k` and returns (X, Y, Z) for a 2D density plot,
-        where X and Y are meshgrids and Z is the density evaluated over them.
+        A function that takes a timestep index `k` and returns (X, Y, Z) for a 2D density plot.
+
+    interactive : bool
+        If True, uses a slider to visualize time evolution interactively.
+
+    bounds : Optional[Tuple[float, float, float, float]]
+        Bounds for x and y axes: (x_min, x_max, y_min, y_max)
+
+    separate_figures : bool
+        If True, creates and returns separate figures for each plot.
     """
     k = len(trajectory_data)
     if k == 0:
         raise ValueError("trajectory_data must be a non-empty list")
 
-    scatter_size = 5
-
+    scatter_size = 8
     all_data = np.vstack(trajectory_data)
+
     if bounds is not None:
         x_min, x_max, y_min, y_max = bounds
-        #print("xmin: ", x_min, " xmax: ", x_max)
     else:
         x_min, x_max = np.min(all_data[:, 0]), np.max(all_data[:, 0])
         y_min, y_max = np.min(all_data[:, 1]), np.max(all_data[:, 1])
-        #print("xmin: ", x_min, " xmax: ", x_max)
 
+    # Handle separate figures mode
+    if separate_figures:
+        scatter_figures = []
+        pdf_figures = [] if pdf_func is not None else None
+
+        for t in range(k):
+            # Scatter figure
+            fig_scatter, ax_scatter = plt.subplots()
+            ax_scatter.scatter(trajectory_data[t][:, 0], trajectory_data[t][:, 1], alpha=0.3, s=scatter_size)
+            ax_scatter.set_xlim(x_min, x_max)
+            ax_scatter.set_ylim(y_min, y_max)
+            if exclude_ticks:
+                ax_scatter.set_xticks([])
+                ax_scatter.set_yticks([])
+            ax_scatter.set_xlabel("")
+            ax_scatter.set_ylabel("")
+            ax_scatter.set_title("")
+            scatter_figures.append(fig_scatter)
+
+            if pdf_func is not None:
+                fig_pdf, ax_pdf = plt.subplots()
+                X, Y, Z = pdf_func(t)
+                plot_density_2D(ax_pdf, X, Y, Z)
+                ax_pdf.set_xlim(x_min, x_max)
+                ax_pdf.set_ylim(y_min, y_max)
+                if exclude_ticks:
+                    ax_pdf.set_xticks([])
+                    ax_pdf.set_yticks([])
+                ax_pdf.set_xlabel("")
+                ax_pdf.set_ylabel("")
+                ax_pdf.set_title("")
+                pdf_figures.append(fig_pdf)
+
+        return scatter_figures, pdf_figures
+
+    # Regular multi-subplot mode (non-interactive or interactive)
     if not interactive:
         if pdf_func is not None:
             fig, axes = plt.subplots(2, k, figsize=(4*k, 8), squeeze=False)
@@ -173,7 +215,6 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
 
         for t in range(k):
             ax = scatter_axes[t]
-            #plot_data_2D(ax, trajectory_data[t])
             ax.scatter(trajectory_data[t][:, 0], trajectory_data[t][:, 1], alpha=0.3, s=scatter_size)
             ax.set_xlim(x_min, x_max)
             ax.set_ylim(y_min, y_max)
@@ -185,7 +226,6 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
                 ax_pdf = pdf_axes[t]
                 X, Y, Z = pdf_func(t)
                 plot_density_2D(ax_pdf, X, Y, Z)
-                #ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
                 ax_pdf.set_xlim(x_min, x_max)
                 ax_pdf.set_ylim(y_min, y_max)
                 ax_pdf.set_xlabel("x1")
@@ -193,9 +233,9 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
                 ax_pdf.set_title(f"PDF {t}")
 
         plt.tight_layout()
-        #plt.show()
         return fig, axes
 
+    # Interactive plot with slider
     if pdf_func is not None:
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
         ax_scatter, ax_pdf = axes
@@ -205,21 +245,16 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
 
     plt.subplots_adjust(bottom=0.25)
 
-    # Set global axis limits
     ax_scatter.set_xlim(x_min, x_max)
     ax_scatter.set_ylim(y_min, y_max)
     ax_scatter.set_xlabel("State dimension 1")
     ax_scatter.set_ylabel("State dimension 2")
     ax_scatter.set_title("State Distribution at Timestep 0")
 
-    # Initial scatter
-    #plot_data_2D(ax_scatter, trajectory_data[0])
     scatter = ax_scatter.scatter(trajectory_data[0][:, 0], trajectory_data[0][:, 1], alpha=0.3, s=scatter_size)
 
-    # Initial density plot if pdf_func is provided
     if pdf_func is not None:
         X, Y, Z = pdf_func(0)
-        #pdf_plot = ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
         plot_density_2D(ax_pdf, X, Y, Z)
         ax_pdf.set_xlim(x_min, x_max)
         ax_pdf.set_ylim(y_min, y_max)
@@ -227,8 +262,7 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
         ax_pdf.set_xlabel("x1")
         ax_pdf.set_ylabel("x2")
 
-    # Slider axis and widget
-    slider_ax = plt.axes([0.15, 0.1, 0.7, 0.05])  # [left, bottom, width, height]
+    slider_ax = plt.axes([0.15, 0.1, 0.7, 0.05])
     timestep_slider = widgets.Slider(
         ax=slider_ax,
         label='Timestep',
@@ -241,25 +275,152 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
 
     def update(val):
         t = int(timestep_slider.val)
-
-        # Update scatter plot
         scatter.set_offsets(trajectory_data[t])
         ax_scatter.set_title(f"State Distribution at Timestep {t}")
 
-        # Update PDF plot
         if pdf_func is not None:
             for c in ax_pdf.collections:
                 c.remove()
             X, Y, Z = pdf_func(t)
             plot_density_2D(ax_pdf, X, Y, Z)
-            #ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
             ax_pdf.set_title(f"PDF at Timestep {t}")
 
         fig.canvas.draw_idle()
 
     timestep_slider.on_changed(update)
     plt.show()
-    return 
+    return
+
+#def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True, bounds=None):
+#    """
+#    Plots a (interactive) scatter plot of 2D state distributions across time steps.
+#    
+#    If pdf_func is provided, adds a second subplot to visualize a 2D density.
+#
+#    Parameters:
+#    -----------
+#    trajectory_data : list of np.ndarray
+#        A list of length k, where each element is a (p x 2) array.
+#        Each array contains p samples from the 2D state distribution at a specific time step.
+#
+#    pdf_func : Optional[Callable[[int], Tuple[np.ndarray, np.ndarray, np.ndarray]]]
+#        A function that takes a timestep index `k` and returns (X, Y, Z) for a 2D density plot,
+#        where X and Y are meshgrids and Z is the density evaluated over them.
+#    """
+#    k = len(trajectory_data)
+#    if k == 0:
+#        raise ValueError("trajectory_data must be a non-empty list")
+#
+#    scatter_size = 5
+#
+#    all_data = np.vstack(trajectory_data)
+#    if bounds is not None:
+#        x_min, x_max, y_min, y_max = bounds
+#        #print("xmin: ", x_min, " xmax: ", x_max)
+#    else:
+#        x_min, x_max = np.min(all_data[:, 0]), np.max(all_data[:, 0])
+#        y_min, y_max = np.min(all_data[:, 1]), np.max(all_data[:, 1])
+#        #print("xmin: ", x_min, " xmax: ", x_max)
+#
+#    if not interactive:
+#        if pdf_func is not None:
+#            fig, axes = plt.subplots(2, k, figsize=(4*k, 8), squeeze=False)
+#            scatter_axes = axes[0]
+#            pdf_axes = axes[1]
+#        else:
+#            fig, scatter_axes = plt.subplots(1, k, figsize=(4*k, 4), squeeze=False)
+#            scatter_axes = scatter_axes[0]
+#            pdf_axes = None
+#
+#        for t in range(k):
+#            ax = scatter_axes[t]
+#            #plot_data_2D(ax, trajectory_data[t])
+#            ax.scatter(trajectory_data[t][:, 0], trajectory_data[t][:, 1], alpha=0.3, s=scatter_size)
+#            ax.set_xlim(x_min, x_max)
+#            ax.set_ylim(y_min, y_max)
+#            ax.set_xlabel("State dim 1")
+#            ax.set_ylabel("State dim 2")
+#            ax.set_title(f"Timestep {t}")
+#
+#            if pdf_func is not None:
+#                ax_pdf = pdf_axes[t]
+#                X, Y, Z = pdf_func(t)
+#                plot_density_2D(ax_pdf, X, Y, Z)
+#                #ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
+#                ax_pdf.set_xlim(x_min, x_max)
+#                ax_pdf.set_ylim(y_min, y_max)
+#                ax_pdf.set_xlabel("x1")
+#                ax_pdf.set_ylabel("x2")
+#                ax_pdf.set_title(f"PDF {t}")
+#
+#        plt.tight_layout()
+#        #plt.show()
+#        return fig, axes
+#
+#    if pdf_func is not None:
+#        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+#        ax_scatter, ax_pdf = axes
+#    else:
+#        fig, ax_scatter = plt.subplots(figsize=(6, 6))
+#        ax_pdf = None
+#
+#    plt.subplots_adjust(bottom=0.25)
+#
+#    # Set global axis limits
+#    ax_scatter.set_xlim(x_min, x_max)
+#    ax_scatter.set_ylim(y_min, y_max)
+#    ax_scatter.set_xlabel("State dimension 1")
+#    ax_scatter.set_ylabel("State dimension 2")
+#    ax_scatter.set_title("State Distribution at Timestep 0")
+#
+#    # Initial scatter
+#    #plot_data_2D(ax_scatter, trajectory_data[0])
+#    scatter = ax_scatter.scatter(trajectory_data[0][:, 0], trajectory_data[0][:, 1], alpha=0.3, s=scatter_size)
+#
+#    # Initial density plot if pdf_func is provided
+#    if pdf_func is not None:
+#        X, Y, Z = pdf_func(0)
+#        #pdf_plot = ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
+#        plot_density_2D(ax_pdf, X, Y, Z)
+#        ax_pdf.set_xlim(x_min, x_max)
+#        ax_pdf.set_ylim(y_min, y_max)
+#        ax_pdf.set_title("PDF at Timestep 0")
+#        ax_pdf.set_xlabel("x1")
+#        ax_pdf.set_ylabel("x2")
+#
+#    # Slider axis and widget
+#    slider_ax = plt.axes([0.15, 0.1, 0.7, 0.05])  # [left, bottom, width, height]
+#    timestep_slider = widgets.Slider(
+#        ax=slider_ax,
+#        label='Timestep',
+#        valmin=0,
+#        valmax=k - 1,
+#        valinit=0,
+#        valstep=1,
+#        color='steelblue'
+#    )
+#
+#    def update(val):
+#        t = int(timestep_slider.val)
+#
+#        # Update scatter plot
+#        scatter.set_offsets(trajectory_data[t])
+#        ax_scatter.set_title(f"State Distribution at Timestep {t}")
+#
+#        # Update PDF plot
+#        if pdf_func is not None:
+#            for c in ax_pdf.collections:
+#                c.remove()
+#            X, Y, Z = pdf_func(t)
+#            plot_density_2D(ax_pdf, X, Y, Z)
+#            #ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
+#            ax_pdf.set_title(f"PDF at Timestep {t}")
+#
+#        fig.canvas.draw_idle()
+#
+#    timestep_slider.on_changed(update)
+#    plt.show()
+#    return 
 
 def interactive_state_distribution_plot_1D(trajectory_data, pdf_func=None, bins=30):
     """

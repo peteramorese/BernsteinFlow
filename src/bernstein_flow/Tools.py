@@ -93,4 +93,4 @@ def model_x_eval_fcn(model, dt, device=None, dtype=torch.float32):
 
 def avg_log_likelihood(data : np.ndarray, density_fcn):
     likelihoods = density_fcn(data)
-    return np.mean(np.log(likelihoods))
+    return np.mean(np.log(likelihoods + 1e-10))

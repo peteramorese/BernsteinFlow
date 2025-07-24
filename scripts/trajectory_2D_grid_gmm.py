@@ -2,7 +2,7 @@ from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.GPGMM import GMModel, GPModel, fit_gmm, fit_gp
 from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn
 from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct
-from bernstein_flow.Propagate import propagate_gpgmm_ekf, propagate_gpgmm_wsasos
+from bernstein_flow.Propagate import propagate_grid_gmm
 
 from .Systems import VanDerPol, Pendulum, sample_trajectories
 from .Visualization import interactive_transformer_plot, state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
@@ -29,14 +29,14 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 100
+    n_traj = 500
 
     # Number of training epochs
-    n_epochs_tran = 4
+    n_epochs_tran = 50
 
     # Time horizon
-    training_timesteps = 5
-    timesteps = 5
+    training_timesteps = 10
+    timesteps = 10
 
     def init_state_sampler():
         return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
@@ -52,17 +52,17 @@ if __name__ == "__main__":
     Xp_data = create_transition_data_matrix(traj_data[:training_timesteps])
 
     print("Fitting initial state model...")
-    init_state_model = fit_gmm(X0_data, n_components=10, covariance_type='full')
+    init_state_model = fit_gmm(X0_data, n_components=10, covariance_type='diag')
     print("Fitting transition state model...")
     transition_model = fit_gp(Xp_data[:, dim:], Xp_data[:, :dim], num_iter=n_epochs_tran, dtype=torch.float64)
     print("Done!")
 
 
-    density_gmms_ekf = [init_state_model]
+    density_gmms = [init_state_model]
     for k in range(1, timesteps):
-        p_curr = propagate_gpgmm_ekf(density_gmms_ekf[k-1], transition_model)
-        print(f"Computed p(x{k}) (EKF). Number of components: ", p_curr.n_mixands())
-        density_gmms_ekf.append(p_curr)
+        p_curr = propagate_grid_gmm(density_gmms[k-1], transition_model, bounds=x_bounds, resolution=20)
+        print(f"Computed p(x{k}). Number of components: ", p_curr.n_mixands())
+        density_gmms.append(p_curr)
 
     #density_gmms_wsasos = [init_state_model]
     #for k in range(1, timesteps):
@@ -72,29 +72,31 @@ if __name__ == "__main__":
 
     # Make pdf plotter for interactive vis
     def pdf_plotter(k : int):
-        return grid_eval(lambda x : density_gmms_ekf[k].density(x), x_bounds, dtype=DTYPE)
-    state_dist_fig_ekf, _ = state_distribution_plot_2D(traj_data, pdf_plotter, interactive=False, bounds=x_bounds)
+        return grid_eval(lambda x : density_gmms[k].density(x), x_bounds, dtype=DTYPE)
+    state_distribution_plot_2D(traj_data, pdf_plotter, interactive=False, bounds=x_bounds)
+    #state_dist_fig_ekf, _ = state_distribution_plot_2D(traj_data, pdf_plotter, interactive=False, bounds=x_bounds)
 
     ## Make pdf plotter for interactive vis
     #def pdf_plotter(k : int):
     #    return grid_eval(lambda x : density_gmms_wsasos[k].density(x), x_bounds, dtype=DTYPE)
     #state_dist_fig_wsasos, _ = state_distribution_plot_2D(traj_data, pdf_plotter, interactive=False, bounds=x_bounds)
 
-    particle_figs, ekf_figs = state_distribution_plot_2D(traj_data, pdf_plotter, interactive=False, bounds=x_bounds, separate_figures=True, exclude_ticks=False)
+    #particle_figs, ekf_figs = state_distribution_plot_2D(traj_data, pdf_plotter, interactive=False, bounds=x_bounds, separate_figures=True, exclude_ticks=False)
+
+    plt.show()
+
+    #def save_figure_bundle(fig_bundle, dir):
+    #    print("cwd: ", os.getcwd())
+    #    os.makedirs(dir, exist_ok=True)
+    #    for k, fig in enumerate(fig_bundle):
+    #        print("saving to: ", dir + f"/k_{k}.png")
+    #        fig.savefig(dir + f"/k_{k}.png")
 
 
-    def save_figure_bundle(fig_bundle, dir):
-        print("cwd: ", os.getcwd())
-        os.makedirs(dir, exist_ok=True)
-        for k, fig in enumerate(fig_bundle):
-            print("saving to: ", dir + f"/k_{k}.png")
-            fig.savefig(dir + f"/k_{k}.png")
 
+    #state_dist_fig_ekf.savefig("./figures/trajectory_2D_gpgmm_ekf.png")
+    ##state_dist_fig_wsasos.savefig("./figures/trajectory_2D_gpgmm_wsasos.png")
 
-
-    state_dist_fig_ekf.savefig("./figures/trajectory_2D_gpgmm_ekf.png")
-    #state_dist_fig_wsasos.savefig("./figures/trajectory_2D_gpgmm_wsasos.png")
-
-    save_figure_bundle(particle_figs, "./figures/trajectory_2D_gpgmm_ekf_separate_particle")
-    #save_figure_bundle(wsasos_figs, "./figures/trajectory_2D_gpgmm_wsasos_separate_pdf")
+    #save_figure_bundle(particle_figs, "./figures/trajectory_2D_gpgmm_ekf_separate_particle")
+    ##save_figure_bundle(wsasos_figs, "./figures/trajectory_2D_gpgmm_wsasos_separate_pdf")
 
