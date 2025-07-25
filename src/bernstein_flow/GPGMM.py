@@ -133,6 +133,34 @@ class MultivariateGPModel:
         J = torch.autograd.functional.jacobian(mean_fcn, x)
         return J.numpy() if is_np else J
 
+    def hessian_tensor(self, x):
+        """
+        Compute the second-order derivative tensor (array of 2D hessians for each component) of the mean function about a given point
+        """
+        is_np = isinstance(x, np.ndarray)
+        if is_np:
+            x = torch.from_numpy(x)
+        else:
+            assert isinstance(x, torch.Tensor)
+        
+        x = x.flatten()
+
+        x = x.to(dtype=self.dtype, device=next(self.gp.parameters()).device)
+        x = torch.autograd.Variable(x, requires_grad=True)
+
+        hessian_layers = []
+        for i in range(x.shape[0]):
+            def mean_fcn(x_in : torch.Tensor):
+                pred = self.likelihood(self.gp(x_in.reshape(1, -1)))
+                return pred.mean[:,i].squeeze(0)
+            H_i = torch.autograd.functional.hessian(mean_fcn, x)
+            hessian_layers.append(H_i)
+
+        H = torch.stack(hessian_layers)
+        print(H.shape)
+        return H.numpy() if is_np else H
+
+
 def fit_gp(X : torch.Tensor, Xp : torch.Tensor, num_epochs=100, lr=0.1, device='cpu', dtype=torch.float64):
     dim = X.shape[1]
     likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=dim, rank=1).to(dtype=dtype)
@@ -157,56 +185,6 @@ def fit_gp(X : torch.Tensor, Xp : torch.Tensor, num_epochs=100, lr=0.1, device='
 
     return MultivariateGPModel(model, likelihood)
 
-#def compute_mean_jacobian(model : MultivariateGPModel, x):
-#    """
-#    Compute the jacobian of the mean function about a given point
-#    """
-#    is_np = isinstance(x, np.ndarray)
-#    if is_np:
-#        x = torch.from_numpy(x).to(dtype=model.dtype)
-#    else:
-#        assert isinstance(x, torch.Tensor)
-#
-#    x_grad = torch.autograd.Variable(x, requires_grad=True)
-#    jacobian = []
-#    for component_model in model.component_models:
-#        mean = component_model(x_grad).mean 
-#        grad = torch.autograd.grad(mean, x_grad, retain_graph=True)[0]
-#        jacobian.append(grad.squeeze(0))
-#    J = torch.stack(jacobian)
-#    return J.numpy() if is_np else J
-
-def compute_mean_hessian_tensor(model : MultivariateGPModel, x):
-    """
-    Compute the second-order derivative tensor (array of 2D hessians for each component) of the mean function about a given point
-    """
-    is_np = isinstance(x, np.ndarray)
-    if is_np:
-        x = torch.from_numpy(x).to(dtype=model.dtype)
-    else:
-        assert isinstance(x, torch.Tensor)
-
-    x_grad = torch.autograd.Variable(x, requires_grad=True)
-    hessians = []
-
-    for component_model in model.component_models:
-        mean = component_model(x_grad).mean  # scalar-valued output
-
-        # Compute gradient (first derivative)
-        grad = torch.autograd.grad(mean, x_grad, create_graph=True)[0]  # shape: (input_dim,)
-
-        # Compute second derivative (Hessian)
-        hessian_rows = []
-        for i in range(grad.shape[-1]):
-            grad_i = grad[..., i]
-            hess_row = torch.autograd.grad(grad_i, x_grad, retain_graph=True)[0].squeeze(0)
-            hessian_rows.append(hess_row)
-        hessian = torch.stack(hessian_rows, dim=0)
-        hessians.append(hessian)
-
-    H = torch.stack(hessians)  # shape: (output_dim, input_dim, input_dim)
-    return H.numpy() if is_np else H
-
 import matplotlib.pyplot as plt
 if __name__ == "__main__":
     n_dim = 2
@@ -220,11 +198,11 @@ if __name__ == "__main__":
     ax = fig.gca()
     ax.scatter(train_x[:, 0], train_x[:, 1])
 
-    train_y = torch.sin(train_x) + torch.from_numpy(true_dist.rvs(size=N))
+    train_y = torch.sin(4.0 * train_x) + torch.from_numpy(true_dist.rvs(size=N))
 
     mvgp = fit_gp(train_x, train_y)
 
-    test_x = np.array([0.4, 1.0])
+    test_x = np.array([0.2, 0.3])
     mean, cov = mvgp.predict(test_x.reshape(1, -1))
     print("mean: ", mean, " cov: ", cov)
 
@@ -254,7 +232,9 @@ if __name__ == "__main__":
     axes[1].grid(True)
 
     J = mvgp.jacobian(test_x.reshape(1, -1))
+    H = mvgp.hessian_tensor(test_x.reshape(1, -1))
     print("Jacobian: \n", J)
+    print("Hessian: \n", H)
 
     ## Optional: Plot as a 3D surface plot
     #from mpl_toolkits.mplot3d import Axes3D
