@@ -47,10 +47,10 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 500
+    n_traj = 100
 
     # Number of training epochs
-    n_epochs_tran = 200
+    n_epochs_tran = 10
 
     # Time horizon
     training_timesteps = 10
@@ -67,6 +67,7 @@ if __name__ == "__main__":
     # Create the data matrices for training
     X0_data = traj_data[0]
     Xp_data = create_transition_data_matrix(traj_data[:training_timesteps])
+    Xp_data_torch = torch.from_numpy(Xp_data)
 
     print("Fitting initial state model...")
     start = time.time()
@@ -75,7 +76,7 @@ if __name__ == "__main__":
 
     print("Fitting transition state model...")
     start = time.time()
-    transition_model = fit_gp(Xp_data[:, dim:], Xp_data[:, :dim], num_iter=n_epochs_tran, dtype=torch.float64)
+    transition_model = fit_gp(Xp_data_torch[:, dim:], Xp_data_torch[:, :dim], num_epochs=n_epochs_tran, dtype=torch.float64)
     tran_train_time = time.time() - start
     print("Done!")
 

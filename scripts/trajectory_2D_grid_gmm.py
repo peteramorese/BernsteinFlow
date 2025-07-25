@@ -29,7 +29,7 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 500
+    n_traj = 300
 
     # Number of training epochs
     n_epochs_tran = 50
@@ -50,17 +50,18 @@ if __name__ == "__main__":
     # Create the data matrices for training
     X0_data = traj_data[0]
     Xp_data = create_transition_data_matrix(traj_data[:training_timesteps])
+    Xp_data_torch = torch.from_numpy(Xp_data)
 
     print("Fitting initial state model...")
     init_state_model = fit_gmm(X0_data, n_components=10, covariance_type='diag')
     print("Fitting transition state model...")
-    transition_model = fit_gp(Xp_data[:, dim:], Xp_data[:, :dim], num_iter=n_epochs_tran, dtype=torch.float64)
+    transition_model = fit_gp(Xp_data_torch[:, dim:], Xp_data_torch[:, :dim], num_epochs=n_epochs_tran, dtype=torch.float64)
     print("Done!")
 
 
     density_gmms = [init_state_model]
     for k in range(1, timesteps):
-        p_curr = propagate_grid_gmm(density_gmms[k-1], transition_model, bounds=x_bounds, resolution=20)
+        p_curr = propagate_grid_gmm(density_gmms[k-1], transition_model, bounds=x_bounds, resolution=10)
         print(f"Computed p(x{k}). Number of components: ", p_curr.n_mixands())
         density_gmms.append(p_curr)
 

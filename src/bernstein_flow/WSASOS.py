@@ -2,7 +2,7 @@ import numpy as np
 from scipy.linalg import sqrtm, inv, eigh
 from scipy.stats import multivariate_normal
 
-from .GPGMM import GMModel, MultivariateGPModel, compute_mean_jacobian, compute_mean_hessian_tensor
+from .GPGMM import GMModel, MultivariateGPModel
 
 class WSASOS:
     """
@@ -94,8 +94,8 @@ class WSASOS:
             mean = mean.reshape(1, -1)
 
             # 1. compute split direction
-            J = compute_mean_jacobian(transition_p, mean)
-            H = compute_mean_hessian_tensor(transition_p, mean)
+            J = transition_p.jacobian(mean)
+            H = transition_p.hessian_tensor(mean)
             d = self.wsasos_direction(mean, cov, J, H)
 
             # 2. directional variance: reciprocal precision along d
@@ -120,11 +120,10 @@ class WSASOS:
                 # new covariance
                 Pi = sig2_ui * Pbar
                 # propagate via linearization
-                next_child_mean, pred_stds = transition_p.predict(child_mean)
-                pred_cov = np.diag(pred_stds**2)
+                next_child_mean, next_child_cov = transition_p.predict(child_mean)
 
-                J_child = compute_mean_jacobian(transition_p, child_mean)
-                next_child_cov = J_child @ Pi @ J_child.T + pred_cov
+                J_child = transition_p.jacobian(child_mean)
+                next_child_cov = J_child @ Pi @ J_child.T + next_child_cov
 
                 new_means.append(next_child_mean)
                 new_covs.append(next_child_cov)

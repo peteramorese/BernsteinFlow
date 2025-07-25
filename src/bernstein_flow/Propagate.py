@@ -5,7 +5,7 @@ from scipy.spatial import Rectangle
 from itertools import product
 
 from .Polynomial import Polynomial, poly_sum, poly_product, split_factor_poly_product, stable_split_factors, marginal, monomial_to_bernstein, bernstein_to_monomial, poly_product_bernstein_direct
-from .GPGMM import GMModel, MultivariateGPModel, compute_mean_jacobian, compute_mean_hessian_tensor
+from .GPGMM import GMModel, MultivariateGPModel
 from .WSASOS import WSASOS
 
 
@@ -47,15 +47,17 @@ def propagate_gpgmm_ekf(belief : GMModel, transition_p : MultivariateGPModel):
     for mean, cov in zip(means, covs):
         # Propagate mean
         mean = mean.reshape(1, -1)
-        next_mean, pred_stds = transition_p.predict(mean)
-        pred_cov = np.diag(pred_stds**2)
+        pred_mean, pred_cov = transition_p.predict(mean)
 
         # Propagate covariance
-        J = compute_mean_jacobian(transition_p, mean)
+        J = transition_p.jacobian(mean)
 
+        print("pred_cov shape: ", pred_cov.shape)
+        print("j shape: ", J.shape)
+        print("cov shape: ", cov.shape)
         next_cov = J @ cov @ J.T + pred_cov
 
-        next_belief.means.append(next_mean)
+        next_belief.means.append(pred_mean)
         next_belief.covariances.append(next_cov)
 
     return next_belief
@@ -82,11 +84,11 @@ def propagate_grid_gmm(belief : GMModel, transition_p : MultivariateGPModel, bou
 
         next_weight = belief.integrate(region)
         #print("centerjpoint :" ,center_point.reshape(1, -1))
-        next_mean, pred_stds = transition_p.predict(center_point.reshape(1, -1))
-        pred_cov = pred_stds**2
+        pred_mean, pred_cov = transition_p.predict(center_point.reshape(1, -1))
+        pred_cov_diag = np.diag(pred_cov) 
 
-        next_belief.means.append(next_mean)
-        next_belief.covariances.append(pred_cov)
+        next_belief.means.append(pred_mean)
+        next_belief.covariances.append(pred_cov_diag)
         next_belief.weights.append(next_weight)
     
     return next_belief

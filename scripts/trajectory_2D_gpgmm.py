@@ -54,7 +54,7 @@ if __name__ == "__main__":
     print("Fitting initial state model...")
     init_state_model = fit_gmm(X0_data, n_components=10, covariance_type='full')
     print("Fitting transition state model...")
-    transition_model = fit_gp(Xp_data[:, dim:], Xp_data[:, :dim], num_iter=n_epochs_tran, dtype=torch.float64)
+    transition_model = fit_gp(Xp_data[:, dim:], Xp_data[:, :dim], num_epochs=n_epochs_tran, dtype=torch.float64)
     print("Done!")
 
 

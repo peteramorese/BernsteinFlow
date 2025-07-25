@@ -28,7 +28,8 @@ class GMModel:
         return cls(model.means_, covariances, model.weights_)
     
     def density(self, x : np.ndarray):
-        return sum(w * multivariate_normal.pdf(x, mean, cov) for mean, cov, w in zip(self.means, self.covariances, self.weights))
+        dim = x.shape[1] if x.ndim == 2 else x.shape[0]
+        return sum(w * multivariate_normal.pdf(x, mean.reshape((dim,)), cov) for mean, cov, w in zip(self.means, self.covariances, self.weights))
 
     def n_mixands(self):
         return len(self.means)
@@ -123,11 +124,13 @@ class MultivariateGPModel:
         else:
             assert isinstance(x, torch.Tensor)
 
+        x = x.flatten()
+
         x = x.to(dtype=self.dtype, device=next(self.gp.parameters()).device)
         x = torch.autograd.Variable(x, requires_grad=True)
 
         def mean_fcn(x_in : torch.Tensor):
-            pred = self.likelihood(self.gp(x_in))
+            pred = self.likelihood(self.gp(x_in.reshape(1, -1)))
             return pred.mean.squeeze(0)
 
         J = torch.autograd.functional.jacobian(mean_fcn, x)
@@ -192,7 +195,7 @@ if __name__ == "__main__":
     true_cov = np.array([[1.0, -0.2], [-0.2, 1.0]])
     true_dist = multivariate_normal(mean=np.zeros(2), cov=true_cov)
 
-    N = 1000
+    N = 100
     train_x = torch.randn(N, n_dim)
     fig = plt.figure()
     ax = fig.gca()
