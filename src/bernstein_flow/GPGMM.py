@@ -114,6 +114,31 @@ class MultivariateGPModel:
             else:
                 return pred.mean, pred.covariance_matrix
     
+    def sample(self, x, n_samples : int):
+        is_np = isinstance(x, np.ndarray)
+        if is_np:
+            x = torch.from_numpy(x)
+        else:
+            assert isinstance(x, torch.Tensor)
+
+        x = x.to(dtype=self.dtype, device=next(self.gp.parameters()).device)
+
+        if x.ndim == 1:
+            x = x.unsqueeze(0)  # make it (1, D)
+        
+        self.gp.eval()
+        self.likelihood.eval()
+        with torch.no_grad():
+            posterior = self.likelihood(self.gp(x))  # MultitaskMultivariateNormal
+
+            # Sample: shape (num_samples, N*T)
+            raw_samples = posterior.rsample(sample_shape=torch.Size([n_samples]))
+
+            # Reshape to (num_samples, N, T)
+            samples = raw_samples.view(n_samples, x.shape[0], -1)
+            
+            return samples.numpy() if is_np else samples
+    
     def jacobian(self, x):
         self.gp.eval()
         self.likelihood.eval()
@@ -163,7 +188,7 @@ class MultivariateGPModel:
         return H.numpy() if is_np else H
 
 
-def fit_gp(X : torch.Tensor, Xp : torch.Tensor, num_epochs=100, lr=0.1, device='cpu', dtype=torch.float64):
+def fit_gp(Xp : torch.Tensor, X : torch.Tensor, num_epochs=100, lr=0.1, device='cpu', dtype=torch.float64):
     dim = X.shape[1]
     likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=dim, rank=1).to(dtype=dtype)
     model = MultitaskGP(X, Xp, likelihood).to(dtype=dtype)

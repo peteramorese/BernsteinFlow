@@ -50,11 +50,12 @@ if __name__ == "__main__":
     # Create the data matrices for training
     X0_data = traj_data[0]
     Xp_data = create_transition_data_matrix(traj_data[:training_timesteps])
+    Xp_data_torch = torch.from_numpy(Xp_data)
 
     print("Fitting initial state model...")
     init_state_model = fit_gmm(X0_data, n_components=10, covariance_type='full')
     print("Fitting transition state model...")
-    transition_model = fit_gp(Xp_data[:, dim:], Xp_data[:, :dim], num_epochs=n_epochs_tran, dtype=torch.float64)
+    transition_model = fit_gp(Xp=Xp_data_torch[:, dim:], X=Xp_data_torch[:, :dim], num_epochs=n_epochs_tran, dtype=torch.float64)
     print("Done!")
 
 

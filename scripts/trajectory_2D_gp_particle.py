@@ -2,7 +2,7 @@ from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.GPGMM import GMModel, GPModel, fit_gmm, fit_gp
 from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn
 from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct
-from bernstein_flow.Propagate import propagate_grid_gmm
+from bernstein_flow.Propagate import propagate_gp_particle
 
 from .Systems import VanDerPol, Pendulum, sample_trajectories
 from .Visualization import interactive_transformer_plot, state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
@@ -32,11 +32,14 @@ if __name__ == "__main__":
     n_traj = 300
 
     # Number of training epochs
-    n_epochs_tran = 50
+    n_epochs_tran = 30
 
     # Time horizon
     training_timesteps = 10
     timesteps = 10
+
+    # Max init particles
+    max_init_particles = n_traj
 
     def init_state_sampler():
         return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
@@ -52,18 +55,19 @@ if __name__ == "__main__":
     Xp_data = create_transition_data_matrix(traj_data[:training_timesteps])
     Xp_data_torch = torch.from_numpy(Xp_data)
 
-    print("Fitting initial state model...")
-    init_state_model = fit_gmm(X0_data, n_components=10, covariance_type='diag')
+    #print("Fitting initial state model...")
+    #init_state_model = fit_gmm(X0_data, n_components=10, covariance_type='diag')
+    
     print("Fitting transition state model...")
     transition_model = fit_gp(Xp=Xp_data_torch[:, dim:], X=Xp_data_torch[:, :dim], num_epochs=n_epochs_tran, dtype=torch.float64)
     print("Done!")
 
-
-    density_gmms = [init_state_model]
+    init_state_particles = X0_data[:max_init_particles, :]
+    particle_sets = [init_state_particles]
     for k in range(1, timesteps):
-        p_curr = propagate_grid_gmm(density_gmms[k-1], transition_model, bounds=x_bounds, resolution=10)
-        print(f"Computed p(x{k}). Number of components: ", p_curr.n_mixands())
-        density_gmms.append(p_curr)
+        p_curr = propagate_gp_particle(particle_sets[k-1], transition_model)
+        print(f"Computed p(x{k}). Number of particles: ", p_curr.shape[0])
+        particle_sets.append(p_curr)
 
     #density_gmms_wsasos = [init_state_model]
     #for k in range(1, timesteps):
@@ -72,9 +76,10 @@ if __name__ == "__main__":
     #    density_gmms_wsasos.append(p_curr)
 
     # Make pdf plotter for interactive vis
-    def pdf_plotter(k : int):
-        return grid_eval(lambda x : density_gmms[k].density(x), x_bounds, dtype=DTYPE)
-    state_distribution_plot_2D(traj_data, pdf_plotter, interactive=False, bounds=x_bounds)
+    #def pdf_plotter(k : int):
+    #    return grid_eval(lambda x : density_gmms[k].density(x), x_bounds, dtype=DTYPE)
+    fig, axes = state_distribution_plot_2D(traj_data, interactive=False, bounds=x_bounds)
+    fig, axes = state_distribution_plot_2D(particle_sets, interactive=False, bounds=x_bounds)
     #state_dist_fig_ekf, _ = state_distribution_plot_2D(traj_data, pdf_plotter, interactive=False, bounds=x_bounds)
 
     ## Make pdf plotter for interactive vis

@@ -95,3 +95,13 @@ def propagate_grid_gmm(belief : GMModel, transition_p : MultivariateGPModel, bou
     #coords = [np.linspace(domain_min, domain_max, resolution) for domain_min, domain_max in zip(domain.mins, domain.maxes)]
     #for idx in product(*[range(n) for n in cell_counts]):
     #    region = Rectangle()
+
+def propagate_gp_particle(particles : np.ndarray, transition_p : MultivariateGPModel, n_added_samples = 1):
+    #new_particles = np.zeros((particles.shape[0] * n_added_samples, particles.shape[1]))
+
+    #$for i in range(particles.shape[0]):
+    #$    new_particles[i, :] = transition_p.sample(particles[i, :].reshape(1, -1), n_added_samples)
+
+    new_particles = transition_p.sample(particles, n_added_samples)
+    new_particles = np.transpose(new_particles, (1, 0, 2)).reshape(-1, particles.shape[1])
+    return new_particles

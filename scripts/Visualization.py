@@ -233,7 +233,7 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
                 ax_pdf.set_title(f"PDF {t}")
 
         plt.tight_layout()
-        return fig, axes
+        return fig, [scatter_axes, pdf_axes]
 
     # Interactive plot with slider
     if pdf_func is not None:

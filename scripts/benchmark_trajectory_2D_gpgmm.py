@@ -76,7 +76,7 @@ if __name__ == "__main__":
 
     print("Fitting transition state model...")
     start = time.time()
-    transition_model = fit_gp(Xp_data_torch[:, dim:], Xp_data_torch[:, :dim], num_epochs=n_epochs_tran, dtype=torch.float64)
+    transition_model = fit_gp(Xp=Xp_data_torch[:, dim:], X=Xp_data_torch[:, :dim], num_epochs=n_epochs_tran, dtype=torch.float64)
     tran_train_time = time.time() - start
     print("Done!")
 
