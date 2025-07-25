@@ -160,7 +160,6 @@ class MultivariateGPModel:
             hessian_layers.append(H_i)
 
         H = torch.stack(hessian_layers)
-        print(H.shape)
         return H.numpy() if is_np else H
 
 

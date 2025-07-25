@@ -47,10 +47,10 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 100
+    n_traj = 500
 
     # Number of training epochs
-    n_epochs_tran = 10
+    n_epochs_tran = 200
 
     # Time horizon
     training_timesteps = 10

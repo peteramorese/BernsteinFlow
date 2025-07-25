@@ -52,9 +52,6 @@ def propagate_gpgmm_ekf(belief : GMModel, transition_p : MultivariateGPModel):
         # Propagate covariance
         J = transition_p.jacobian(mean)
 
-        print("pred_cov shape: ", pred_cov.shape)
-        print("j shape: ", J.shape)
-        print("cov shape: ", cov.shape)
         next_cov = J @ cov @ J.T + pred_cov
 
         next_belief.means.append(pred_mean)
