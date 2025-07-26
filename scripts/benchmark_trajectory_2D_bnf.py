@@ -74,16 +74,20 @@ if __name__ == "__main__":
     U0_data = gdt.X_to_U(X0_data) # Initial state data
     Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    use_gpu = False
+    if use_gpu:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device("cpu")
 
     # Create data loader
     U0_data_torch = torch.tensor(U0_data, dtype=DTYPE)
     U0_dataset = TensorDataset(U0_data_torch)
-    U0_dataloader = DataLoader(U0_dataset, batch_size=128, shuffle=True, pin_memory=True)
+    U0_dataloader = DataLoader(U0_dataset, batch_size=128, shuffle=True, pin_memory=use_gpu)
 
     Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
-    Up_dataloader = DataLoader(Up_dataset, batch_size=128, shuffle=True, pin_memory=True)
+    Up_dataloader = DataLoader(Up_dataset, batch_size=128, shuffle=True, pin_memory=use_gpu)
 
     # Create initial state and transition models
     transformer_degrees = [25, 20]

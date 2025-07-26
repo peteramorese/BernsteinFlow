@@ -4,7 +4,7 @@ from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model
 from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct
 from bernstein_flow.Propagate import propagate_gpgmm_ekf, propagate_gpgmm_wsasos
 
-from .Systems import VanDerPol, Pendulum, sample_trajectories
+from .Systems import VanDerPol, VanDerPolMN, Pendulum, LotkaVolterra, BistableOscillator, sample_trajectories
 from .Visualization import interactive_transformer_plot, state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
 
 import numpy as np
@@ -13,7 +13,7 @@ import matplotlib.widgets as widgets
 from mpl_toolkits.mplot3d import Axes3D
 import torch
 from torch.utils.data import DataLoader, TensorDataset
-from scipy.stats import multivariate_normal
+from scipy.stats import multivariate_normal, beta, gamma
 import os
 
 
@@ -23,29 +23,38 @@ if __name__ == "__main__":
 
     # System model
     #system = Pendulum(dt=0.05, length=1.0, damp=1.1, covariance=0.005 * np.eye(2))
-    system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
+    #system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
+    #system = LotkaVolterra(dt=0.05, alpha=5.0, beta=1.8, delta=2.26, gamma=5.0, covariance=0.005 * np.eye(2))
+    #system = VanDerPolMN(dt=0.3, mu=0.9, covariance=0.2 * np.eye(2))
+    system = BistableOscillator(dt=0.1, a=1.0, d=1.0, cov_scale=0.03)
 
     # Dimension
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 100
+    n_traj = 1000
 
     # Number of training epochs
     n_epochs_tran = 4
 
     # Time horizon
-    training_timesteps = 5
-    timesteps = 5
+    training_timesteps = 10
+    timesteps = 20
 
     def init_state_sampler():
         return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
+    #def init_state_sampler():
+    #    #return beta.rvs(a=3, b=2, loc=0, scale=3, size=(1,2)) 
+    #    return gamma.rvs(a=2, loc=0, scale=0.3, size=(1,2)) 
 
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
     x_bounds = [-5.0, 5.0, -5.0, 5.0]
+    #x_bounds = [0.0, 10.0, 0.0, 10.0]
     state_distribution_plot_2D(traj_data, interactive=True, bounds=x_bounds)
     plt.show()
+    
+    assert False
 
     # Create the data matrices for training
     X0_data = traj_data[0]
