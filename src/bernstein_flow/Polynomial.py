@@ -7,7 +7,8 @@ import numpy as np
 from enum import Enum
 
 import scipy.fft as scifft
-from scipy.special import comb
+from scipy.special import comb, betainc, beta
+from scipy.spatial import Rectangle
 from scipy.signal import convolve
 
 class Basis(Enum):
@@ -599,12 +600,38 @@ def marginal(p : Polynomial, dims : set[int], stable : bool = False):
             result = np.sum(result, axis=dim, keepdims=False) if not stable else _stable_sum_reduction(result, axis=dim, keepdims=False)
         
         return Polynomial(result, basis=Basis.MONO, stable=stable) if len(dims) < p.dim() else weight * summed_tensor
+
+def integrate(p : Polynomial, region : Rectangle, stable : bool = False):
+    assert p.dim() == region.m, "Region must have the same dimension as the polynomial being integrated"
+
+    p_shape = np.array(p.shape())
+
+    total_integral = 0.0
+    for midx in np.ndindex(p.coeffs.shape):
+        coeff = p.coeffs[midx]
+        if coeff == 0.0:
+            continue
+
+        midx = np.array(midx)
+
+        if p.basis() == Basis.BERN:
+            int_values_1d = beta(midx + 1, p_shape - midx) * comb(p_shape - 1, midx) * (betainc(midx + 1, p_shape - midx, region.maxes) - betainc(midx + 1, p_shape - midx, region.mins))
+        else:
+            int_values_1d = (region.maxes**(midx + 1) - region.mins**(midx + 1)) / (midx + 1)
+        total_integral += coeff * np.prod(int_values_1d)
     
-def mc_auc(p : Polynomial, n_samples : int):
+    return total_integral
+
+def mc_auc(p : Polynomial, n_samples : int, region : Rectangle = None):
     d = p.dim()
-    X = np.random.rand(n_samples, d)
+    if region is None:
+        X = np.random.rand(n_samples, d)
+        vol = 1.0
+    else:
+        X = np.random.uniform(low=region.mins, high=region.maxes, size=(n_samples, d))
+        vol = region.volume()
     p_evals = p(X)
-    return np.mean(p_evals)
+    return np.mean(p_evals) * vol
 
 ################## Utility helper functions ##################
 
@@ -735,14 +762,14 @@ if __name__ == "__main__":
 
     #p = Polynomial(np.array([[1, 2], [3, 4.5]]), basis=Basis.BERN)
 
-    dtype = np.float128
-    p = Polynomial(np.random.uniform(low=0, high=1, size=(3, 4, 3)).astype(dtype), basis=Basis.BERN)
+    #dtype = np.float128
+    #p = Polynomial(np.random.uniform(low=0, high=1, size=(3, 4, 3)).astype(dtype), basis=Basis.BERN)
 
-    mc = mc_auc(p, 10000)
-    analytical = marginal(p, dims = list(range(p.dim())))
+    #mc = mc_auc(p, 10000)
+    #analytical = marginal(p, dims = list(range(p.dim())))
 
-    print("mc: ", mc)
-    print("analytical: ", analytical)
+    #print("mc: ", mc)
+    #print("analytical: ", analytical)
 
     #dtype = np.float128
     #p = Polynomial(np.random.uniform(low=0, high=1, size=(3, 4, 3)).astype(dtype), basis=Basis.BERN)
@@ -770,7 +797,16 @@ if __name__ == "__main__":
     #print("true val:         ", true_val)
     #print("composed p value: " ,composed_p(x))
 
-    #q = Polynomial(np.array([[6, 7], [2, 5.5]]))
+    q_bern = Polynomial(np.random.uniform(low=-10, high=10, size=(3, 8, 7)), basis=Basis.BERN)
+    q_mono = bernstein_to_monomial(q_bern)
+
+    r = Rectangle(mins=[0.2, 0.4, 0.2], maxes=[0.7, 0.7, 0.3])
+    integ_result_mono = integrate(q_mono, r)
+    integ_result_bern = integrate(q_bern, r)
+
+    print("mono result: ", integ_result_mono) 
+    print("bern result: ", integ_result_bern) 
+    print("mc result: ", mc_auc(q_mono, n_samples = 10000, region=r)) 
 
     #print(poly_sum([p, q], stable=False).ten())
     #print(poly_sum([p, q], stable=True).ten())
