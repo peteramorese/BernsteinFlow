@@ -74,31 +74,35 @@ if __name__ == "__main__":
     U0_data = gdt.X_to_U(X0_data) # Initial state data
     Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    use_gpu = True
+    if use_gpu:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device("cpu")
 
     # Create data loader
     U0_data_torch = torch.tensor(U0_data, dtype=DTYPE)
     U0_dataset = TensorDataset(U0_data_torch)
-    U0_dataloader = DataLoader(U0_dataset, batch_size=128, shuffle=True, pin_memory=True)
+    U0_dataloader = DataLoader(U0_dataset, batch_size=128, shuffle=True, pin_memory=use_gpu)
 
     Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
-    Up_dataloader = DataLoader(Up_dataset, batch_size=128, shuffle=True, pin_memory=True)
+    Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=use_gpu)
 
     # Create initial state and transition models
-    transformer_degrees = [25, 20]
-    conditioner_degrees = [25, 20]
-    init_cond_deg_incr = [10] * len(conditioner_degrees)
+    transformer_degrees = [20, 20]
+    conditioner_degrees = [20, 20]
+    init_cond_deg_incr = [15] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=init_cond_deg_incr, device=device)
 
-    tran_cond_deg_incr = [10] * len(conditioner_degrees)
+    tran_cond_deg_incr = [15] * len(conditioner_degrees)
     transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=tran_cond_deg_incr, device=device)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
     print(f"Created transition model with {transition_model.n_parameters()} parameters")
 
     # Train the models
-    init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-3)
+    init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-1)
     
     print("Training initial state model...")
     start = time.time()

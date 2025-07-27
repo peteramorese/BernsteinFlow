@@ -56,6 +56,9 @@ if __name__ == "__main__":
     training_timesteps = 10
     timesteps = 10
 
+    # Grid Resolution
+    grid_resolution = 30
+
     def init_state_sampler():
         return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
 
@@ -89,7 +92,7 @@ if __name__ == "__main__":
     allhs = []
     for k in range(1, timesteps):
         start = time.time()
-        p_curr = propagate_grid_gmm(density_gmms[k-1], transition_model, bounds=x_bounds)
+        p_curr = propagate_grid_gmm(density_gmms[k-1], transition_model, bounds=x_bounds, resolution=grid_resolution)
         prop_times.append(time.time() - start)
         print(f"Computed p(x{k}) in {prop_times[-1]:.2f} seconds. Number of components: ", p_curr.n_mixands())
 
