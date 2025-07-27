@@ -47,8 +47,8 @@ if __name__ == "__main__":
     n_traj = 500
 
     # Number of training epochs
-    n_epochs_init = 5000
-    n_epochs_tran = 200
+    n_epochs_init = 1000
+    n_epochs_tran = 150
 
     # Time horizon
     training_timesteps = 10
@@ -90,19 +90,20 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=use_gpu)
 
     # Create initial state and transition models
-    transformer_degrees = [20, 20]
-    conditioner_degrees = [20, 20]
+    transformer_degrees = [30, 30]
+    conditioner_degrees = [30, 30]
     init_cond_deg_incr = [5] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=init_cond_deg_incr, device=device)
 
     tran_cond_deg_incr = [5] * len(conditioner_degrees)
-    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=tran_cond_deg_incr, device=device)
+    #transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=tran_cond_deg_incr, device=device)
+    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, device=device)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
     print(f"Created transition model with {transition_model.n_parameters()} parameters")
 
     # Train the models
-    init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-1)
+    init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
     
     print("Training initial state model...")
     start = time.time()
@@ -112,7 +113,7 @@ if __name__ == "__main__":
 
     print("Training transition model...")
     start = time.time()
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
     optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran, log_buffer_size=30)
     tran_train_time = time.time() - start
     print("Done training transition model \n")
