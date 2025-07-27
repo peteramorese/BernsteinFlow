@@ -4,7 +4,7 @@ from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model
 from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct
 from bernstein_flow.Propagate import propagate_gpgmm_ekf, propagate_gpgmm_wsasos
 
-from .Systems import VanDerPol, Pendulum, sample_trajectories
+from .Systems import VanDerPol, BistableOscillator, sample_trajectories
 from .Visualization import interactive_transformer_plot, state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
 
 import numpy as np
@@ -41,7 +41,8 @@ if __name__ == "__main__":
     max_time = 2000
 
     # System model
-    system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
+    #system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
+    system = BistableOscillator(dt=0.1, a=1.0, d=1.0, cov_scale=0.03)
 
     # Dimension
     dim = system.dim()

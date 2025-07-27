@@ -122,7 +122,7 @@ class Pendulum(DiscreteTimeStochasticSystem):
         return np.array([theta_next, theta_dot_next]) + v
 
 class VanDerPol(DiscreteTimeStochasticSystem):
-    def __init__(self, dt: float, mu: float = 1.0, covariance: np.ndarray = np.eye(2)):
+    def __init__(self, dt : float, mu : float = 1.0, covariance : np.ndarray = np.eye(2)):
         """
         Van der Pol oscillator with additive Gaussian noise.
         
@@ -139,7 +139,7 @@ class VanDerPol(DiscreteTimeStochasticSystem):
         self.dt = dt
         self.mu = mu
 
-    def next_state(self, x: np.ndarray, v: np.ndarray):
+    def next_state(self, x : np.ndarray, v : np.ndarray):
         x1, x2 = x
         dx1 = x2
         dx2 = self.mu * (1 - x1**2) * x2 - x1
@@ -148,3 +148,99 @@ class VanDerPol(DiscreteTimeStochasticSystem):
         x2_next = x2 + self.dt * dx2
 
         return np.array([x1_next, x2_next]) + v
+
+class VanDerPolMN(DiscreteTimeStochasticSystem):
+    def __init__(self, dt : float, mu : float = 1.0, covariance : np.ndarray = np.eye(2)):
+        """
+        Van der Pol oscillator with multiplicative noise.
+        
+        Args:
+            dt : time step
+            mu : nonlinearity parameter
+            covariance : 2x2 covariance matrix for process noise
+        """
+        def noise():
+            return stats.multivariate_normal.rvs(mean=np.ones(2), cov=covariance)
+            #return stats.beta.rvs(a=2, b=2, loc=0.5, scale=scale, size=2)
+
+        super().__init__(dim=2, v_dist=noise)
+
+        self.dt = dt
+        self.mu = mu
+
+    def next_state(self, x : np.ndarray, v : np.ndarray):
+        x1, x2 = x
+        dx1 = x2
+        v1, v2 = v
+        dx2 = (self.mu*v1) * (1 - x1**2) * x2 - v2*x1
+
+        x1_next = x1 + self.dt * dx1
+        x2_next = x2 + self.dt * dx2
+
+        return np.array([x1_next, x2_next])
+    
+class LotkaVolterra(DiscreteTimeStochasticSystem):
+    def __init__(self, dt: float, alpha = 1.0, beta = 0.1, delta = 0.075, gamma = 1.5, covariance : np.ndarray = np.eye(2), alpha_scale = 0.1):
+        """
+        LotkaVolterra population dynamics with multiplicative noise
+
+        Args:
+            dt : time step
+            alpha : prey birth rate
+            beta : predation rate
+            delta : predator reproduction per prey consumed
+            gamma : predator death rate
+            covariance : 3D covariance of 1) multiplicative noise for prey, 2) multiplicative noise for predators, and 3) noise in the prey birth rate
+        """
+        def v_dist():
+            v_pop = stats.multivariate_normal.rvs(mean=np.zeros(2), cov=covariance)
+            return v_pop
+            #v_alpha = stats.beta.rvs(a=2, b=5, loc=0.7, scale=np.sqrt(alpha_scale))
+            #return np.append(v_pop, v_alpha)
+        
+        super().__init__(dim=2, v_dist=v_dist)
+
+        self.dt = dt
+        self.alpha = alpha
+        self.beta = beta
+        self.delta = delta
+        self.gamma = gamma
+    
+    def next_state(self, x : np.ndarray, v : np.ndarray):
+        x1, x2 = x
+        v1, v2 = v
+
+        x1_next = x1 + self.dt * ((1.0 * self.alpha)* x1 - self.beta * x1 * x2) + v1 * x1
+        x2_next = x2 + self.dt * (self.delta * x1 * x2 - self.gamma * x2) + v2 * x2
+
+        return np.array([x1_next, x2_next])
+    
+class BistableOscillator(DiscreteTimeStochasticSystem):
+    def __init__(self, dt : float, a = 1.0, b = 1.0, c = 0.5, d = 1.0, e = 1.0, f = 0.5, cov_scale=0.01):
+
+        n_components = 2
+        means = [np.array([0.0, 0.0]), 0.5 * np.array([1.0, 1.0])]
+        #means = [np.array([0.5, 0.5]), 2.0 * np.array([1.2, 1.2])]
+        covariances = [cov_scale * np.array([[1.0, 0.2], [0.2, 1.0]]), cov_scale * np.array([[1.0, -0.2], [-0.2, 1.0]])]
+        def v_dist():
+            component = np.random.choice(n_components, size=1, p=[0.6, 0.4])[0]
+            return stats.multivariate_normal.rvs(mean=means[component], cov=covariances[component])
+        
+        super().__init__(dim=2, v_dist=v_dist)
+
+        self.dt = dt
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+        self.e = e
+        self.f = f
+    
+    def next_state(self, x : np.ndarray, v : np.ndarray):
+        x1, x2 = x
+        v1, v2 = v
+
+        x1_next = x1 + self.dt * (self.a * x1 - self.b * x1**3 - self.c * x2) + x1 * v1
+        x2_next = x2 + self.dt * (self.d * x2 - self.e * x2**3 - self.f * x1) + x2 * v2
+
+        return np.array([x1_next, x2_next])

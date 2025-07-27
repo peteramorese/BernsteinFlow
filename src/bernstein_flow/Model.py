@@ -76,8 +76,8 @@ class BernsteinFlowModel(torch.nn.Module):
 
         # Parameters
         self.layers = torch.nn.ModuleList([torch.nn.ParameterList() for _ in range(self.n_layers)])
-        self.deg_incr_matrices = list() # Transformation matrices to raise the conditioner degrees
-        self.mpsi = list() # Moore Penrose Psuedo Inverse for bernstein degree increase
+        self.deg_incr_matrices = torch.nn.ModuleList() # Transformation matrices to raise the conditioner degrees
+        self.mpsi = torch.nn.ModuleList() # Moore Penrose Psuedo Inverse for bernstein degree increase
         for i in range(dim):
             # Number of coefficients in each conditioner polynomial (flattened tensor)
             alpha_j_size = (conditioner_degrees[i] + 1)**(i)
@@ -100,8 +100,8 @@ class BernsteinFlowModel(torch.nn.Module):
                 deg_incr_shape = (conditioner_degrees[i] + conditioner_deg_incr[i] + 1,) * (i)
                 deg_incr_matrix_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape).A
 
-                self.deg_incr_matrices.append(torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
-                self.mpsi.append(torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)) # Left psuedo-inverse
+                self.deg_incr_matrices.append(torch.nn.Parameter(torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device), requires_grad=False))
+                self.mpsi.append(torch.nn.Parameter(torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device), requires_grad=False)) # Left psuedo-inverse
         
         # Basis functions
         self.tf_basis_funcs = [bernstein_basis_functions(1, transformer_degrees[i]) for i in range(dim)]
