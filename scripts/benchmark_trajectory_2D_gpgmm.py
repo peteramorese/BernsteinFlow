@@ -129,13 +129,13 @@ if __name__ == "__main__":
 
         experiment_name = f"trajectory_2D_ekf_{curr_date_time}"
 
-        with open(f"./benchmarks/{experiment_name}.json", "w") as f:
+        save_figure_bundle(particle_figs, f"./benchmarks/{experiment_name}/particle")
+        save_figure_bundle(ekf_pdf_figs, f"./benchmarks/{experiment_name}/pdf")
+        state_dist_fig_ekf.savefig(f"./benchmarks/{experiment_name}/combined.pdf")
+    
+        with open(f"./benchmarks/{experiment_name}/data.json", "w") as f:
             json.dump(benchmark_fields, f, indent=4)
 
-        save_figure_bundle(particle_figs, f"./figures/{experiment_name}/particle")
-        save_figure_bundle(ekf_pdf_figs, f"./figures/{experiment_name}/pdf")
-        state_dist_fig_ekf.savefig(f"./figures/{experiment_name}/combined.pdf")
-    
     def wsasos():
         density_gmms_wsasos = [init_state_model]
         n_mixands_wsasos = [init_state_model.n_mixands()]
@@ -185,12 +185,13 @@ if __name__ == "__main__":
 
         experiment_name = f"trajectory_2D_wsasos_{curr_date_time}"
 
-        with open(f"./benchmarks/{experiment_name}.json", "w") as f:
+        save_figure_bundle(particle_figs, f"./benchmarks/{experiment_name}/particle")
+        save_figure_bundle(wsasos_pdf_figs, f"./benchmarks/{experiment_name}/pdf")
+        state_dist_fig_wsasos.savefig(f"./benchmarks/{experiment_name}/combined.pdf")
+
+        with open(f"./benchmarks/{experiment_name}/data.json", "w") as f:
             json.dump(benchmark_fields, f, indent=4)
 
-        save_figure_bundle(particle_figs, f"./figures/{experiment_name}/particle")
-        save_figure_bundle(wsasos_pdf_figs, f"./figures/{experiment_name}/pdf")
-        state_dist_fig_wsasos.savefig(f"./figures/{experiment_name}/combined.pdf")
 
     ekf()
     wsasos()

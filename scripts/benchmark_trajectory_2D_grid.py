@@ -128,11 +128,11 @@ if __name__ == "__main__":
 
     experiment_name = f"trajectory_2D_grid_{curr_date_time}"
 
-    with open(f"./benchmarks/{experiment_name}.json", "w") as f:
+    save_figure_bundle(particle_figs, f"./benchmarks/{experiment_name}/particle")
+    save_figure_bundle(ekf_pdf_figs, f"./benchmarks/{experiment_name}/pdf")
+    state_dist_fig.savefig(f"./benchmarks/{experiment_name}/combined.pdf")
+    
+    with open(f"./benchmarks/{experiment_name}/data.json", "w") as f:
         json.dump(benchmark_fields, f, indent=4)
 
-    save_figure_bundle(particle_figs, f"./figures/{experiment_name}/particle")
-    save_figure_bundle(ekf_pdf_figs, f"./figures/{experiment_name}/pdf")
-    state_dist_fig.savefig(f"./figures/{experiment_name}/combined.pdf")
-    
 

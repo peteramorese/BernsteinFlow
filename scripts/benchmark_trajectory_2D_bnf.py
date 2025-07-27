@@ -4,7 +4,7 @@ from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model
 from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct, mc_auc
 from bernstein_flow.Propagate import propagate_bfm
 
-from .Systems import VanDerPol, Pendulum, sample_trajectories
+from .Systems import VanDerPol, BistableOscillator, sample_trajectories
 from .Visualization import interactive_transformer_plot, state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
 
 import numpy as np
@@ -38,7 +38,8 @@ if __name__ == "__main__":
     benchmark_fields = dict()
 
     # System model
-    system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
+    #system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
+    system = BistableOscillator(dt=0.1, a=1.0, d=1.0, cov_scale=0.03)
 
     # Dimension
     dim = system.dim()
@@ -92,7 +93,7 @@ if __name__ == "__main__":
     # Create initial state and transition models
     transformer_degrees = [30, 30]
     conditioner_degrees = [30, 30]
-    init_cond_deg_incr = [5] * len(conditioner_degrees)
+    init_cond_deg_incr = [20] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=init_cond_deg_incr, device=device)
 
     tran_cond_deg_incr = [5] * len(conditioner_degrees)
@@ -179,10 +180,11 @@ if __name__ == "__main__":
 
     experiment_name = f"trajectory_2D_bnf_{curr_date_time}"
 
-    with open(f"./benchmarks/{experiment_name}.json", "w") as f:
+    save_figure_bundle(particle_figs, f"./benchmarks/{experiment_name}/particle")
+    save_figure_bundle(pdf_figs, f"./benchmarks/{experiment_name}/pdf")
+    state_dist_fig.savefig(f"./benchmarks/{experiment_name}/combined.pdf")
+
+    with open(f"./benchmarks/{experiment_name}/data.json", "w") as f:
         json.dump(benchmark_fields, f, indent=4)
 
-    save_figure_bundle(particle_figs, f"./figures/{experiment_name}/particle")
-    save_figure_bundle(pdf_figs, f"./figures/{experiment_name}/pdf")
-    state_dist_fig.savefig(f"./figures/{experiment_name}/combined.pdf")
 
