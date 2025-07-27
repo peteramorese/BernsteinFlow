@@ -76,8 +76,8 @@ class BernsteinFlowModel(torch.nn.Module):
 
         # Parameters
         self.layers = torch.nn.ModuleList([torch.nn.ParameterList() for _ in range(self.n_layers)])
-        self.deg_incr_matrices = torch.nn.ModuleList() # Transformation matrices to raise the conditioner degrees
-        self.mpsi = torch.nn.ModuleList() # Moore Penrose Psuedo Inverse for bernstein degree increase
+        #self.deg_incr_matrices = torch.nn.ModuleList() # Transformation matrices to raise the conditioner degrees
+        #self.mpsi = torch.nn.ModuleList() # Moore Penrose Psuedo Inverse for bernstein degree increase
         for i in range(dim):
             # Number of coefficients in each conditioner polynomial (flattened tensor)
             alpha_j_size = (conditioner_degrees[i] + 1)**(i)
@@ -91,8 +91,10 @@ class BernsteinFlowModel(torch.nn.Module):
         
             if self.cond_deg_incr is not None:
                 if i == 0:
-                    self.deg_incr_matrices.append(torch.eye(1, dtype=self.dtype, device=self.device))
-                    self.mpsi.append(torch.eye(1, dtype=self.dtype, device=self.device))
+                    #self.deg_incr_matrices.append(torch.eye(1, dtype=self.dtype, device=self.device))
+                    #self.mpsi.append(torch.eye(1, dtype=self.dtype, device=self.device))
+                    self.register_buffer(f"deg_incr_{i}", torch.eye(1, dtype=self.dtype, device=self.device))
+                    self.register_buffer(f"mpsi_{i}", torch.eye(1, dtype=self.dtype, device=self.device))
                     continue
 
                 # Create the MPSI matrix based on the shape transformation of the bernstein polynomial
@@ -100,8 +102,10 @@ class BernsteinFlowModel(torch.nn.Module):
                 deg_incr_shape = (conditioner_degrees[i] + conditioner_deg_incr[i] + 1,) * (i)
                 deg_incr_matrix_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape).A
 
-                self.deg_incr_matrices.append(torch.nn.Parameter(torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device), requires_grad=False))
-                self.mpsi.append(torch.nn.Parameter(torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device), requires_grad=False)) # Left psuedo-inverse
+                #self.deg_incr_matrices.append(torch.nn.Parameter(torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device), requires_grad=False))
+                #self.mpsi.append(torch.nn.Parameter(torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device), requires_grad=False)) # Left psuedo-inverse
+                self.register_buffer(f"deg_incr_{i}", torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
+                self.register_buffer(f"mpsi_{i}", torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device))
         
         # Basis functions
         self.tf_basis_funcs = [bernstein_basis_functions(1, transformer_degrees[i]) for i in range(dim)]
@@ -139,7 +143,11 @@ class BernsteinFlowModel(torch.nn.Module):
         return density
 
     def get_constrained_parameters(self, i : int, layer_i : int = 0):
-        alpha_matrix = self.layers[layer_i][i] if self.cond_deg_incr is None else self.deg_incr_matrices[i] @ self.layers[layer_i][i]
+        if self.cond_deg_incr is None:
+            alpha_matrix = self.layers[layer_i][i] 
+        else:
+            deg_incr_mat = getattr(self, f"deg_incr_{i}")
+            deg_incr_mat @ self.layers[layer_i][i]
         #print(" ------ cond deg incr: ", self.cond_deg_incr, " A size: ", self.A[i].shape, " deg incr size: ", self.deg_incr_matrices[i].shape)
         #print(" ------ alpha matrix size: ", alpha_matrix.shape, " using deg raise? : ", self.cond_deg_incr is not None)
         #input("...")
@@ -158,7 +166,8 @@ class BernsteinFlowModel(torch.nn.Module):
 
         # If the degree was raised, project the coefficients back down to the space of actual coefficients using the MPSI
         if self.cond_deg_incr is not None:
-            c_alpha_matrix = self.mpsi[i] @ c_alpha_matrix
+            mpsi = getattr(self, f"mpsi_{i}")
+            c_alpha_matrix = mpsi @ c_alpha_matrix
 
         #if torch.any(c_alpha_matrix < 0.0):
         #    print("Less than zero! min coeff: ", torch.min(c_alpha_matrix))
