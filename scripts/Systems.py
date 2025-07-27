@@ -244,3 +244,34 @@ class BistableOscillator(DiscreteTimeStochasticSystem):
         x2_next = x2 + self.dt * (self.d * x2 - self.e * x2**3 - self.f * x1) + x2 * v2
 
         return np.array([x1_next, x2_next])
+
+class DisturbedDubinsCar(DiscreteTimeStochasticSystem):
+    def __init__(self, dt : float, track_heading_function, velocity = 1.0, noise_magnitude = 0.01, controller_gain = 1.0):
+        """
+        Dubins car with feedback controller and turn angle disturbance
+        """
+
+        def v_dist():
+            return stats.multivariate_normal.rvs(mean=np.array([0.0, 0.0]), cov=noise_magnitude*np.eye(2))
+
+        super().__init__(dim=3, v_dist=v_dist)
+
+        self.dt = dt
+        self.track_heading_function = track_heading_function
+        self.velocity = velocity
+        self.noise_magnitude = noise_magnitude
+        self.controller_gain = controller_gain
+
+    def next_state(self, x : np.ndarray, v : np.ndarray):
+        x, y, theta = x
+        v1, v2 = v
+
+        dy_ref_dx = self.track_heading_function(x)
+        reference_heading = np.arctan(dy_ref_dx) + v2
+        heading_error = reference_heading - theta
+
+        x_next = x + self.dt * self.velocity * np.cos(theta + v1)
+        y_next = y + self.dt * self.velocity * np.sin(theta + v1)
+        theta_next = theta + self.controller_gain * heading_error
+
+        return np.array([x_next, y_next, theta_next])
