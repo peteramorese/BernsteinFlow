@@ -91,8 +91,8 @@ class BernsteinFlowModel(torch.nn.Module):
         
             if self.cond_deg_incr is not None:
                 if i == 0:
-                    self.deg_incr_matrices.append(torch.eye(1, dtype=self.dtype, device=self.device))
-                    self.mpsi.append(torch.eye(1, dtype=self.dtype, device=self.device))
+                    self.deg_incr_matrices.append(torch.nn.Parameter(torch.eye(1, dtype=self.dtype, device=self.device), requires_grad=False))
+                    self.mpsi.append(torch.nn.Parameter(torch.eye(1, dtype=self.dtype, device=self.device), requires_grad=False))
                     continue
 
                 # Create the MPSI matrix based on the shape transformation of the bernstein polynomial

@@ -92,10 +92,10 @@ if __name__ == "__main__":
     # Create initial state and transition models
     transformer_degrees = [20, 20]
     conditioner_degrees = [20, 20]
-    init_cond_deg_incr = [15] * len(conditioner_degrees)
+    init_cond_deg_incr = [5] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=init_cond_deg_incr, device=device)
 
-    tran_cond_deg_incr = [15] * len(conditioner_degrees)
+    tran_cond_deg_incr = [5] * len(conditioner_degrees)
     transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=tran_cond_deg_incr, device=device)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
