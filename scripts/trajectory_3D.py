@@ -13,7 +13,7 @@ import matplotlib.widgets as widgets
 from mpl_toolkits.mplot3d import Axes3D
 import torch
 from torch.utils.data import DataLoader, TensorDataset
-from scipy.stats import norm, multivariate_normal, beta
+from scipy.stats import multivariate_normal, beta
 
 
 DTYPE = torch.float64
