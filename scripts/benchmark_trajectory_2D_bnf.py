@@ -1,7 +1,7 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
-from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, avg_log_likelihood
-from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct, mc_auc
+from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, avg_log_likelihood, empirical_prob_in_region
+from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct, mc_auc, integrate
 from bernstein_flow.Propagate import propagate_bfm
 
 from .Systems import VanDerPol, BistableOscillator, sample_trajectories
@@ -14,6 +14,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from scipy.stats import multivariate_normal
+from scipy.spatial import Rectangle
 import time
 import os
 import json
@@ -38,14 +39,15 @@ if __name__ == "__main__":
     benchmark_fields = dict()
 
     # System model
-    #system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
-    system = BistableOscillator(dt=0.1, a=1.0, d=1.0, cov_scale=0.03)
+    system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
+    #system = BistableOscillator(dt=0.1, a=1.0, d=1.0, cov_scale=0.03)
 
     # Dimension
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 500
+    n_traj = 1000
+    n_test_traj = 10000
 
     # Number of training epochs
     n_epochs_init = 1000
@@ -55,11 +57,14 @@ if __name__ == "__main__":
     training_timesteps = 10
     timesteps = 10
 
+    # Region of integration
+    roi = Rectangle(mins=[0.0, 0.0], maxes=[2.0, 2.0])
+
     def init_state_sampler():
         return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
 
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
-    test_traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
+    test_traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_test_traj)
 
     # Moment match the GDT to all of the data over the whole horizon
     #gdt = GaussianDistTransform(means=np.array([0.0, 0.0]), variances=[0.3, 1.0])
@@ -91,14 +96,13 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=use_gpu)
 
     # Create initial state and transition models
-    transformer_degrees = [30, 30]
-    conditioner_degrees = [30, 30]
-    init_cond_deg_incr = [20] * len(conditioner_degrees)
+    transformer_degrees = [20, 20]
+    conditioner_degrees = [20, 20]
+    init_cond_deg_incr = [30] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=init_cond_deg_incr, device=device)
 
-    tran_cond_deg_incr = [5] * len(conditioner_degrees)
-    #transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=tran_cond_deg_incr, device=device)
-    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, device=device)
+    tran_cond_deg_incr = None #[5] * len(conditioner_degrees)
+    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=tran_cond_deg_incr, device=device)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
     print(f"Created transition model with {transition_model.n_parameters()} parameters")
@@ -124,12 +128,17 @@ if __name__ == "__main__":
     init_model_tfs = init_state_model.get_density_factor_polys(dtype=np.float128)
     trans_model_tfs = transition_model.get_density_factor_polys(dtype=np.float128)
 
+    # Convert ROI to u space
+    u_roi = gdt.rectangle_x_to_u(roi)
+
     p_init = poly_product_bernstein_direct(init_model_tfs)
     p_transition = poly_product_bernstein_direct(trans_model_tfs)
     density_polynomials = [p_init]
     prop_times = []
     mc_aucs = []
     allhs = []
+    prob_in_roi = []
+    mc_gt_prob_in_roi = []
     for k in range(1, timesteps):
         start = time.time()
         p_curr = propagate_bfm([density_polynomials[k-1]], [p_transition])
@@ -141,6 +150,16 @@ if __name__ == "__main__":
         x_allh = avg_log_likelihood(test_traj_data[k], lambda x : gdt.x_density(x, p_curr))
         print(f" - Average log likelihood: {x_allh:.3f}")
         allhs.append(x_allh)
+
+        # Compute prob in roi
+        prob_in_roi_k = integrate(p_curr, u_roi)
+        prob_in_roi.append(prob_in_roi_k)
+
+        # MC "ground truth" prob in roi
+        mc_gt_prob_in_roi_k = empirical_prob_in_region(test_traj_data[k], roi)
+        mc_gt_prob_in_roi.append(mc_gt_prob_in_roi_k)
+
+        print(f" - Evaluation: {prob_in_roi_k:.3f} / MC ground truth evaluation: {mc_gt_prob_in_roi_k:.3f}")
 
         density_polynomials.append(p_curr)
 
@@ -175,6 +194,8 @@ if __name__ == "__main__":
     benchmark_fields["prop_times"] = prop_times
     benchmark_fields["mc_auc"] = mc_aucs
     benchmark_fields["average_log_likelihood"] = allhs
+    benchmark_fields["prob_in_roi"] = prob_in_roi
+    benchmark_fields["mc_gt_prob_in_roi"] = mc_gt_prob_in_roi
 
 
 

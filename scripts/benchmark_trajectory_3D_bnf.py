@@ -76,7 +76,7 @@ if __name__ == "__main__":
     U0_data = gdt.X_to_U(X0_data) # Initial state data
     Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data
 
-    use_gpu = 
+    use_gpu = False
     if use_gpu:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:

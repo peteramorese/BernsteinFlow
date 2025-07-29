@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.stats as stats
+from scipy.spatial import Rectangle
 
 class GaussianDistTransform:
     def __init__(self, means : np.ndarray, variances : np.ndarray):
@@ -60,6 +61,22 @@ class GaussianDistTransform:
             component_multipliers = stats.norm.pdf(x, loc=self.means[dim_mask], scale=np.sqrt(self.variances[dim_mask]))
             volume_change = np.prod(component_multipliers, axis=1) if len(self.means[dim_mask]) > 1 else component_multipliers
         return x_density / volume_change
+    
+    def rectangle_x_to_u(self, r : Rectangle):
+        """
+        Convert a rectangle in the X space to a rectangle in the U space.
+        """
+        mins = self.x_to_u(r.mins)
+        maxes = self.x_to_u(r.maxes)
+        return Rectangle(mins=mins, maxes=maxes)
+
+    def rectangle_u_to_x(self, r : Rectangle):
+        """
+        Convert a rectangle in the U space to a rectangle in the X space.
+        """
+        mins = self.u_to_x(r.mins)
+        maxes = self.u_to_x(r.maxes)
+        return Rectangle(mins=mins, maxes=maxes)
 
 class GammaDistTransform:
     def __init__(self, means : np.ndarray, variances : np.ndarray, a : np.ndarray):
