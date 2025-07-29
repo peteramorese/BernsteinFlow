@@ -22,7 +22,7 @@ if __name__ == "__main__":
 
     # System model
     #system = Pendulum(dt=0.05, length=1.0, damp=1.1, covariance=0.005 * np.eye(2))
-    system = DisturbedDubinsCar(dt=0.5, track_heading_function=lambda x : np.sin(1.2*x), noise_magnitude=0.3)
+    system = DisturbedDubinsCar(dt=1.0, track_heading_function=lambda x : np.sin(1.2*x), noise_magnitude=0.3)
 
     # Dimension
     dim = system.dim()
@@ -35,8 +35,8 @@ if __name__ == "__main__":
     n_epochs_tran = 50
 
     # Time horizon
-    training_timesteps = 20
-    timesteps = 20
+    training_timesteps = 10
+    timesteps = 10
 
     def init_state_sampler():
         xy_init = multivariate_normal.rvs(mean=np.array([0.0, 0.0]), cov = np.diag([0.2, 0.2]))
