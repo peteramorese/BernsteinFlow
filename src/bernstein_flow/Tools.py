@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from scipy.spatial import Rectangle
 
 def create_transition_data_matrix(trajectory_data, separate=False):
     """
@@ -94,3 +95,7 @@ def model_x_eval_fcn(model, dt, device=None, dtype=torch.float32):
 def avg_log_likelihood(data : np.ndarray, density_fcn):
     likelihoods = density_fcn(data)
     return np.mean(np.log(likelihoods + 1e-10))
+
+def empirical_prob_in_region(data : np.ndarray, region : Rectangle):
+    within_region = np.all((data >= region.mins) & (data <= region.maxes), axis=1)
+    return np.sum(within_region) / data.shape[0]

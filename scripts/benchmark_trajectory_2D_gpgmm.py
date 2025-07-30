@@ -1,8 +1,8 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.GPGMM import GMModel, GPModel, fit_gmm, fit_gp
-from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, avg_log_likelihood
+from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, avg_log_likelihood, empirical_prob_in_region
 from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct
-from bernstein_flow.Propagate import propagate_gpgmm_ekf, propagate_gpgmm_wsasos
+from bernstein_flow.Propagate import propagate_gpgmm_ekf, propagate_gpgmm_wsasos, propagate_grid_gmm
 
 from .Systems import VanDerPol, BistableOscillator, sample_trajectories
 from .Visualization import interactive_transformer_plot, state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
@@ -14,6 +14,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from scipy.stats import multivariate_normal
+from scipy.spatial import Rectangle
 import time
 import os
 import json
@@ -37,8 +38,9 @@ if __name__ == "__main__":
 
     benchmark_fields = dict()
 
-    max_mixands = 10000
+    max_mixands = 5000
     max_time = 2000
+    grid_resolution = 20
 
     # System model
     #system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
@@ -49,13 +51,17 @@ if __name__ == "__main__":
 
     # Number of trajectories
     n_traj = 500
+    n_test_traj = 10000
 
     # Number of training epochs
-    n_epochs_tran = 200
+    n_epochs_tran = 150
 
     # Time horizon
     training_timesteps = 10
     timesteps = 10
+
+    # Region of integration
+    roi = Rectangle(mins=[0.0, 0.0], maxes=[2.0, 2.0])
 
     def init_state_sampler():
         return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
@@ -88,6 +94,8 @@ if __name__ == "__main__":
         n_mixands_ekf = [init_state_model.n_mixands()]
         prop_times_ekf = []
         allhs_ekf = []
+        #prob_in_roi = []
+        #mc_gt_prob_in_roi = []
         for k in range(1, timesteps):
             start = time.time()
             p_curr = propagate_gpgmm_ekf(density_gmms_ekf[k-1], transition_model)
@@ -98,6 +106,14 @@ if __name__ == "__main__":
             allh = avg_log_likelihood(test_traj_data[k], lambda x : p_curr.density(x))
             print(f" - Average log likelihood: {allh:.3f}")
             allhs_ekf.append(allh)
+
+            ## Compute prob in roi
+            #prob_in_roi_k = p_curr.integrate(roi)
+            #prob_in_roi.append(prob_in_roi_k)
+
+            ## MC "ground truth" prob in roi
+            #mc_gt_prob_in_roi_k = empirical_prob_in_region(test_traj_data[k], roi)
+            #mc_gt_prob_in_roi.append(mc_gt_prob_in_roi_k)
 
             n_mixands_ekf.append(p_curr.n_mixands())
             density_gmms_ekf.append(p_curr)
@@ -126,6 +142,8 @@ if __name__ == "__main__":
         benchmark_fields["n_mixands"] = n_mixands_ekf
         benchmark_fields["prop_times"] = prop_times_ekf
         benchmark_fields["average_log_likelihood"] = allhs_ekf
+        #benchmark_fields["prob_in_roi"] = prob_in_roi
+        #benchmark_fields["mc_gt_prob_in_roi"] = mc_gt_prob_in_roi
 
         experiment_name = f"trajectory_2D_ekf_{curr_date_time}"
 
@@ -141,6 +159,8 @@ if __name__ == "__main__":
         n_mixands_wsasos = [init_state_model.n_mixands()]
         prop_times_wsasos = []
         allhs_wsasos = []
+        #prob_in_roi = []
+        #mc_gt_prob_in_roi = []
         for k in range(1, timesteps):
             start = time.time()
             p_curr = propagate_gpgmm_wsasos(density_gmms_wsasos[k-1], transition_model)
@@ -151,6 +171,14 @@ if __name__ == "__main__":
             allh = avg_log_likelihood(test_traj_data[k], lambda x : p_curr.density(x))
             print(f" - Average log likelihood: {allh:.3f}")
             allhs_wsasos.append(allh)
+
+            ## Compute prob in roi
+            #prob_in_roi_k = p_curr.integrate(roi)
+            #prob_in_roi.append(prob_in_roi_k)
+
+            ## MC "ground truth" prob in roi
+            #mc_gt_prob_in_roi_k = empirical_prob_in_region(test_traj_data[k], roi)
+            #mc_gt_prob_in_roi.append(mc_gt_prob_in_roi_k)
 
             n_mixands_wsasos.append(p_curr.n_mixands())
             density_gmms_wsasos.append(p_curr)
@@ -182,6 +210,8 @@ if __name__ == "__main__":
         benchmark_fields["n_mixands"] = n_mixands_wsasos
         benchmark_fields["prop_times"] = prop_times_wsasos
         benchmark_fields["average_log_likelihood"] = allhs_wsasos
+        #benchmark_fields["prob_in_roi"] = prob_in_roi
+        #benchmark_fields["mc_gt_prob_in_roi"] = mc_gt_prob_in_roi
 
         experiment_name = f"trajectory_2D_wsasos_{curr_date_time}"
 
@@ -192,7 +222,71 @@ if __name__ == "__main__":
         with open(f"./benchmarks/{experiment_name}/data.json", "w") as f:
             json.dump(benchmark_fields, f, indent=4)
 
+    def grid():
+        density_gmms = [init_state_model]
+        n_mixands = [init_state_model.n_mixands()]
+        prop_times = []
+        allhs = []
+        prob_in_roi = []
+        mc_gt_prob_in_roi = []
+        for k in range(1, timesteps):
+            start = time.time()
+            p_curr = propagate_grid_gmm(density_gmms[k-1], transition_model, bounds=x_bounds, resolution=grid_resolution)
+            prop_times.append(time.time() - start)
+            print(f"Computed p(x{k}) in {prop_times[-1]:.2f} seconds. Number of components: ", p_curr.n_mixands())
 
+            # Compute the log likelihood
+            allh = avg_log_likelihood(test_traj_data[k], lambda x : p_curr.density(x))
+            print(f" - Average log likelihood: {allh:.3f}")
+            allhs.append(allh)
+
+            # Compute prob in roi
+            prob_in_roi_k = p_curr.integrate(roi)
+            prob_in_roi.append(prob_in_roi_k)
+
+            # MC "ground truth" prob in roi
+            mc_gt_prob_in_roi_k = empirical_prob_in_region(test_traj_data[k], roi)
+            mc_gt_prob_in_roi.append(mc_gt_prob_in_roi_k)
+
+            n_mixands.append(p_curr.n_mixands())
+            density_gmms.append(p_curr)
+
+        def pdf_plotter(k : int):
+            if k < len(density_gmms):
+                return grid_eval(lambda x : density_gmms[k].density(x), x_bounds, dtype=DTYPE)
+            else:
+                return grid_eval(lambda x : 0.0, x_bounds, dtype=DTYPE) # too many mixands
+        state_dist_fig, _ = state_distribution_plot_2D(traj_data, pdf_plotter, interactive=False, bounds=x_bounds)
+        particle_figs, ekf_pdf_figs = state_distribution_plot_2D(traj_data, pdf_plotter, interactive=False, bounds=x_bounds, separate_figures=True, exclude_ticks=False)
+
+        # Write down system properties
+        benchmark_fields["datetime"] = curr_date_time 
+        benchmark_fields["system"] = system.__class__.__name__
+        benchmark_fields["dimension"] = dim
+        benchmark_fields["n_traj"] = n_traj
+        benchmark_fields["n_epochs_tran"] = n_epochs_tran
+        benchmark_fields["training_timesteps"] = training_timesteps
+        benchmark_fields["timesteps"] = timesteps
+        benchmark_fields["init_train_time"] = init_train_time
+        benchmark_fields["tran_train_time"] = tran_train_time
+        benchmark_fields["n_mixands"] = n_mixands
+        benchmark_fields["prop_times"] = prop_times
+        benchmark_fields["average_log_likelihood"] = allhs
+        benchmark_fields["prob_in_roi"] = prob_in_roi
+        benchmark_fields["mc_gt_prob_in_roi"] = mc_gt_prob_in_roi
+        benchmark_fields["grid_resolution"] = grid_resolution
+
+        experiment_name = f"trajectory_2D_grid_{curr_date_time}"
+
+        save_figure_bundle(particle_figs, f"./benchmarks/{experiment_name}/particle")
+        save_figure_bundle(ekf_pdf_figs, f"./benchmarks/{experiment_name}/pdf")
+        state_dist_fig.savefig(f"./benchmarks/{experiment_name}/combined.pdf")
+        
+        with open(f"./benchmarks/{experiment_name}/data.json", "w") as f:
+            json.dump(benchmark_fields, f, indent=4)
+
+
+    grid()
     ekf()
     wsasos()
 

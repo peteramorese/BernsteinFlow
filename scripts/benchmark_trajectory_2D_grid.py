@@ -1,6 +1,6 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.GPGMM import GMModel, GPModel, fit_gmm, fit_gp
-from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, avg_log_likelihood
+from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, avg_log_likelihood, empirical_prob_in_region
 from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct
 from bernstein_flow.Propagate import propagate_grid_gmm
 
@@ -51,14 +51,14 @@ if __name__ == "__main__":
     n_traj = 500
 
     # Number of training epochs
-    n_epochs_tran = 200
+    n_epochs_tran = 150
 
     # Time horizon
     training_timesteps = 10
     timesteps = 10
 
     # Grid Resolution
-    grid_resolution = 30
+    grid_resolution = 20
 
     def init_state_sampler():
         return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
