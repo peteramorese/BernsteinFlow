@@ -50,7 +50,7 @@ if __name__ == "__main__":
     n_test_traj = 10000
 
     # Number of training epochs
-    n_epochs_init = 1000
+    n_epochs_init = 3000
     n_epochs_tran = 150
 
     # Time horizon
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     # Create initial state and transition models
     transformer_degrees = [20, 20]
     conditioner_degrees = [20, 20]
-    init_cond_deg_incr = [30] * len(conditioner_degrees)
+    init_cond_deg_incr = [50] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=init_cond_deg_incr, device=device)
 
     tran_cond_deg_incr = None #[5] * len(conditioner_degrees)
