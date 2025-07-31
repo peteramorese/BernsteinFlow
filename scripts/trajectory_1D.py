@@ -47,7 +47,7 @@ if __name__ == "__main__":
     io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-10.0], region_uppers=[10.0])
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
-    interactive_state_distribution_plot_1D(traj_data, bins=60)
+    #interactive_state_distribution_plot_1D(traj_data, bins=60)
 
     # Moment match the GDT to all of the data over the whole horizon
     gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[0.2])
@@ -65,47 +65,47 @@ if __name__ == "__main__":
     Up_io_data = np.hstack([gdt.X_to_U(io_data[:, :dim]), gdt.X_to_U(io_data[:, dim:])])
     #Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data 
 
-    fig = plt.figure()
-    #plot_data_2D(fig.gca(), Up_io_data)
-    plot_data_2D(fig.gca(), Up_data)
+    #fig = plt.figure()
+    ##plot_data_2D(fig.gca(), Up_io_data)
+    #plot_data_2D(fig.gca(), Up_data)
 
-    def plot_conditional_histograms(u_up_data : np.ndarray, n_intervals = 10, bins=30):
-        u = u_up_data[:, 0]
-        up = u_up_data[:, 1]
+    #def plot_conditional_histograms(u_up_data : np.ndarray, n_intervals = 10, bins=30):
+    #    u = u_up_data[:, 0]
+    #    up = u_up_data[:, 1]
 
-        # Define bin edges for x intervals
-        x_edges = np.linspace(0.01, 0.99, n_intervals + 1)
+    #    # Define bin edges for x intervals
+    #    x_edges = np.linspace(0.01, 0.99, n_intervals + 1)
 
-        fig, axes = plt.subplots(1, n_intervals, sharey=True)
+    #    fig, axes = plt.subplots(1, n_intervals, sharey=True)
 
-        if n_intervals == 1:
-            axes = [axes]  # ensure it's iterable
+    #    if n_intervals == 1:
+    #        axes = [axes]  # ensure it's iterable
 
-        for i in range(n_intervals):
-            u_min, u_max = x_edges[i], x_edges[i+1]
-            mask = (u >= u_min) & (u < u_max) if i < n_intervals - 1 else (u >= u_min) & (u <= u_max)
-            up_subset = up[mask]
+    #    for i in range(n_intervals):
+    #        u_min, u_max = x_edges[i], x_edges[i+1]
+    #        mask = (u >= u_min) & (u < u_max) if i < n_intervals - 1 else (u >= u_min) & (u <= u_max)
+    #        up_subset = up[mask]
 
-            ax = axes[i]
-            ax.hist(up_subset, bins=bins, density=True, alpha=0.7, color='skyblue', edgecolor='black')
-            ax.set_title(f'{u_min:.2f} < u < {u_max:.2f}')
-            ax.set_xlabel('y') 
+    #        ax = axes[i]
+    #        ax.hist(up_subset, bins=bins, density=True, alpha=0.7, color='skyblue', edgecolor='black')
+    #        ax.set_title(f'{u_min:.2f} < u < {u_max:.2f}')
+    #        ax.set_xlabel('y') 
 
-            Up = np.linspace(0.01, 0.99, 100).reshape(-1, 1)
-            u_mid = (u_min + u_max) / 2
-            x_mid = gdt.u_to_x(u_mid)
-            def true_xp_density(xp):
-                return system.transition_likelihood(x_mid * np.ones_like(xp), xp)
-            Z_true = gdt.u_density(Up, true_xp_density)
-            ax.plot(Up, Z_true, color='green', linestyle='--')
+    #        Up = np.linspace(0.01, 0.99, 100).reshape(-1, 1)
+    #        u_mid = (u_min + u_max) / 2
+    #        x_mid = gdt.u_to_x(u_mid)
+    #        def true_xp_density(xp):
+    #            return system.transition_likelihood(x_mid * np.ones_like(xp), xp)
+    #        Z_true = gdt.u_density(Up, true_xp_density)
+    #        ax.plot(Up, Z_true, color='green', linestyle='--')
 
-            if i == 0:
-                ax.set_ylabel('Density')
+    #        if i == 0:
+    #            ax.set_ylabel('Density')
 
-        plt.tight_layout()
-        #plt.show()
-    plot_conditional_histograms(Up_io_data, 9)
-    plt.show()
+    #    plt.tight_layout()
+    #    #plt.show()
+    #plot_conditional_histograms(Up_io_data, 9)
+    #plt.show()
 
     #input("Continue to training...")
 
@@ -117,36 +117,41 @@ if __name__ == "__main__":
     #Up_data_torch = torch.tensor(Up_io_data, dtype=DTYPE)
     Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
-    Up_dataloader = DataLoader(Up_dataset, batch_size=64, shuffle=True)
+    Up_dataloader = DataLoader(Up_dataset, batch_size=256, shuffle=True)
 
     # Create initial state and transition models
-    transformer_degrees = [50]
-    conditioner_degrees = [50]
-    cond_deg_incr = [100] * len(conditioner_degrees)
-    init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
+    degrees = [30]
+    deg_incr = [30]
+    init_state_model = BernsteinFlowModel(dim=dim, degrees=degrees, dtype=DTYPE, deg_incr=deg_incr)
 
-    #transformer_degrees = [4, 1]
-    #conditioner_degrees = [0, 1]
-    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
+    degrees = [40]
+    cond_degrees = [40]
+    deg_incr = [40]
+    cond_deg_incr = [40]
+    #degrees = [10, 8]
+    #cond_degrees = [10, 6]
+    #deg_incr = [10, 9]
+    #cond_deg_incr = [10, 9]
+    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, degrees=degrees, conditional_degrees=cond_degrees, dtype=DTYPE, deg_incr=deg_incr, cond_deg_incr=cond_deg_incr)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
     print(f"Created transition model with {transition_model.n_parameters()} parameters")
 
     # Train the models
-    init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-3)
+    init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
     print("Training initial state model...")
     optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init)
     print("Done training initial state model \n")
 
     print("Training transition model...")
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
     optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran)
     print("Done training transition model \n")
 
-    c_alphas = [transition_model.get_constrained_parameters(i) for i in range(dim)]
-    print("c alpha shapes: ", [alpha.shape for alpha in c_alphas])
-    c_alphas_min_max = [(torch.min(alpha).item(), torch.max(alpha).item()) for alpha in c_alphas]
-    print("trans model coeff min and max: ", c_alphas_min_max)
+    #c_alphas = [transition_model.get_constrained_parameters(i) for i in range(dim)]
+    #print("c alpha shapes: ", [alpha.shape for alpha in c_alphas])
+    #c_alphas_min_max = [(torch.min(alpha).item(), torch.max(alpha).item()) for alpha in c_alphas]
+    #print("trans model coeff min and max: ", c_alphas_min_max)
 
     #cond_u_fcn = model_u_eval_fcn(transition_model)
     #U0, U1, Z = grid_eval(cond_u_fcn, [0.0, 1.0, 0.0, 1.0])
@@ -179,7 +184,7 @@ if __name__ == "__main__":
 
     init_model_tfs = init_state_model.get_density_factor_polys()
 
-    p_init = poly_product(init_state_model.get_transformer_polynomials())
+    p_init = poly_product(init_model_tfs)
 
     n_slices = 9 
     u_slices = torch.linspace(0.1, 0.9, 2 * n_slices, dtype=DTYPE)
@@ -267,8 +272,8 @@ if __name__ == "__main__":
 
 
     # Compute the propagated polynomials
-    init_model_tfs = init_state_model.get_transformer_polynomials()
-    trans_model_tfs = transition_model.get_transformer_polynomials()
+    init_model_tfs = init_state_model.get_density_factor_polys()
+    trans_model_tfs = transition_model.get_density_factor_polys()
 
     for i in range(len(init_model_tfs)):
         init_model_tfs[i].coeffs = init_model_tfs[i].coeffs.astype(np.float128)

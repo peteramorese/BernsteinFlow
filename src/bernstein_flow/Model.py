@@ -154,32 +154,33 @@ class BernsteinFlowModel(torch.nn.Module):
         #if torch.min(torch.clamp(coeff_tensor.sum(dim=i, keepdim=True), min=1e-12)).item() < 0.0:
         #    print("NORMALIZER NEGATIVE")
         #    assert False
+        input_dim = self.input_dims[i]
         if self.constrained:
-            input_dim = self.input_dims[i]
 
             #print("input dim: ", input_dim)
             # Reshape to coefficient tensor
             tensor_shape = self.degrees[:input_dim+1] + 1
             tensor_shape[input_dim] -= 1
             coeff_tensor = param_vec.reshape(tuple(tensor_shape))
-            constrained_coeffs = self.degrees[i] * coeff_tensor / torch.clamp(coeff_tensor.sum(dim=i, keepdim=True), min=1e-4)
+            constrained_coeffs = self.degrees[input_dim] * coeff_tensor / torch.clamp(coeff_tensor.sum(dim=input_dim, keepdim=True), min=1e-4)
 
         else:
             # Reshape to raised degree coefficient tensor
             deg_incr_mat = getattr(self, f"deg_incr_{i}")
             mpsi = getattr(self, f"mpsi_{i}")
+            #print("Deg incr mat shape: ", deg_incr_mat.shape, " param vec shape: ", param_vec.shape)
             raised_deg_param_vec = deg_incr_mat @ param_vec
             original_shape = raised_deg_param_vec.shape
-            tensor_shape = self.degrees[:i+1] + torch.tensor(self.deg_incr[:i+1]) + 1
-            tensor_shape[i] -= 1
+            tensor_shape = self.degrees[:input_dim+1] + torch.tensor(self.deg_incr[:input_dim+1]) + 1
+            tensor_shape[input_dim] -= 1
             coeff_tensor = raised_deg_param_vec.reshape(tuple(tensor_shape))
-            constrained_coeffs = (self.degrees[i] + self.deg_incr[i]) * coeff_tensor / torch.clamp(coeff_tensor.sum(dim=i, keepdim=True), min=1e-12)
+            constrained_coeffs = (self.degrees[input_dim] + self.deg_incr[input_dim]) * coeff_tensor / torch.clamp(coeff_tensor.sum(dim=input_dim, keepdim=True), min=1e-12)
             constrained_coeffs = constrained_coeffs.reshape(original_shape)
 
             orig_deg_params = mpsi @ constrained_coeffs.reshape(-1)
 
-            tensor_shape = self.degrees[:i+1] + 1
-            tensor_shape[i] -= 1
+            tensor_shape = self.degrees[:input_dim+1] + 1
+            tensor_shape[input_dim] -= 1
             constrained_coeffs = orig_deg_params.reshape(tuple(tensor_shape))
 
         #constrained_coeffs = self.degrees[i] * torch.nn.functional.softmax(coeff_tensor, dim=i)
@@ -407,7 +408,9 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
         # Parameters
         self.layers = torch.nn.ModuleList([torch.nn.ParameterList() for _ in range(self.n_layers)])
         for i in range(dim):
+            #print("degrees: ", self.degrees)
             tf_deriv_degrees = self.degrees[:i + 1 + self.cond_dim].clone()
+            #print("tf deriv degrees:", tf_deriv_degrees)
             tf_deriv_degrees[i + self.cond_dim] -= 1
 
             poly_size = torch.prod(tf_deriv_degrees + 1).item()
@@ -418,15 +421,23 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
         
             if self.deg_incr is not None:
 
-                assert False, "TODO"
                 # Create the MPSI matrix based on the shape transformation of the bernstein polynomial
-                original_shape = (self.cond_degs + 1).tolist() + (tf_deriv_degrees + 1).tolist()
-                deg_incr_shape = [og_shape + deg_incr[i] for og_shape in original_shape]
+                original_shape = (tf_deriv_degrees + 1).tolist()
+                deg_incr_shape = [og_shape + self.deg_incr[i] for og_shape in original_shape]
+                #print("OG shape: ", original_shape, " incr shape: ", deg_incr_shape)
+                #input("...")
                 deg_incr_matrix_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape).A
                 print("Degree increase matrix size: ", deg_incr_matrix_np.shape)
 
-                #self.deg_incr_matrices.append(torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
-                #self.mpsi.append(torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)) # Left psuedo-inverse
+                # DEBUG
+                tch_degincr_mat = torch.from_numpy(deg_incr_matrix_np == 0.0)
+                n_zeros = tch_degincr_mat.sum().item()
+                print("fwd sparsity: ", n_zeros / tch_degincr_mat.numel())
+
+                tch_degincr_matinv = torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np))
+                n_zeros = tch_degincr_matinv.sum().item()
+                print("inv sparsity: ", n_zeros / tch_degincr_matinv.numel())
+
                 self.register_buffer(f"deg_incr_{i}", torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
                 self.register_buffer(f"mpsi_{i}", torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)) # Left psuedo-inverse
         
