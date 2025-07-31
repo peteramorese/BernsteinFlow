@@ -48,10 +48,12 @@ if __name__ == "__main__":
     #    return gamma.rvs(a=2, loc=0, scale=0.3, size=(1,2)) 
 
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
+    test_traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
     x_bounds = [-5.0, 5.0, -5.0, 5.0]
     #x_bounds = [0.0, 10.0, 0.0, 10.0]
-    state_distribution_plot_2D(traj_data, interactive=True, bounds=x_bounds)
+    state_distribution_plot_2D(traj_data, interactive=False, bounds=x_bounds)
+    state_distribution_plot_2D(test_traj_data, interactive=False, bounds=x_bounds)
     plt.show()
     
     assert False
