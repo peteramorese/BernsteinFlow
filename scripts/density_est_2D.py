@@ -1,7 +1,7 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, optimize
 from bernstein_flow.Tools import grid_eval, model_u_eval_fcn, model_x_eval_fcn
-from bernstein_flow.Polynomial import poly_product_bernstein_direct, stable_split_factors, split_factor_poly_product
+from bernstein_flow.Polynomial import poly_product_bernstein_direct, stable_split_factors, split_factor_poly_product, mc_auc, Polynomial, Basis
 
 from .TestDataSets import sample_modal_gaussian
 from .Visualization import interactive_transformer_plot, plot_density_2D, plot_density_2D_surface, plot_data_2D
@@ -26,7 +26,7 @@ if __name__ == "__main__":
     n_data = 2000
 
     # Number of training epochs
-    n_epochs = 10
+    n_epochs = 200
 
     #gdt = GaussianDistTransform(mean=[0.5, 0.25], variances=[1.0, 0.5])
 
@@ -65,23 +65,48 @@ if __name__ == "__main__":
     # Create data loader
     U_data_torch = torch.tensor(U_data, dtype=DTYPE)
     dataset = TensorDataset(U_data_torch)
-    dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
 
     # Create model
-    transformer_degrees = [8, 8]
-    conditioner_degrees = [8, 8]
-    cond_deg_incr = [60] * len(conditioner_degrees)
-    model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, layers=1, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
+    degrees = [15, 15]
+    deg_incr = None #[20, 20]
+    model = BernsteinFlowModel(dim=dim, degrees=degrees, layers=1, dtype=DTYPE, deg_incr=deg_incr)
+
+
+    ## DEBUG DECASTELJAU
+    #c1 = model.get_constrained_coeff_tensor(0)
+    #p1 = Polynomial(c1, basis=Basis.BERN)
+    #c2 = model.get_constrained_coeff_tensor(1)
+    #p2 = Polynomial(c2, basis=Basis.BERN)
+    #x = np.random.rand(10, p2.dim())
+    #print("p np eval: ", p2(x))
+    ##print("p np eval: ", p1(x[:,0].reshape(-1, 1)) * p2(x))
+    ##print("p tc eval: ", model.decasteljau_torch(c2, torch.tensor(x, dtype=DTYPE)))
+    ##print("p tc fwd: ", model.forward(torch.tensor(x, dtype=DTYPE)))
+
+    #raised_deg_params = [model.get_raised_degree_params(i) for i in range(model.dim)]
+    #raised_deg_polys = [Polynomial(params, basis=Basis.BERN) for params in raised_deg_params]
+    #print("p raised eval: ", raised_deg_polys[1](x))
+    #input("...")
+
+
 
     print("Number of parameters in model: ", model.n_parameters())
 
     # Train
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
     optimize(model, dataloader, optimizer, epochs=n_epochs)
 
     # Plot the density estimate
     model_x_eval = model_x_eval_fcn(model, gdt, dtype=DTYPE)
     model_u_eval = model_u_eval_fcn(model)
+
+    for i in range(dim):
+        params = model.get_constrained_coeff_tensor(i)
+        print("Params min: ", torch.min(params).item())
+    #    raised_deg_params = [model.get_raised_degree_params(i) for i in range(model.dim)]
+        #print("Min raised deg params: ", [torch.min(raised_deg_params[i]) for i in range(model.dim)])
+
 
     bounds = axes[0, 0].get_xlim() + axes[0, 0].get_ylim()
     X0, X1, Z_x = grid_eval(model_x_eval, bounds, resolution=100, dtype=DTYPE)
@@ -107,36 +132,52 @@ if __name__ == "__main__":
     ax3d_x.set_title("Feature-space PDF")
 
     ax3d_u = fig2.add_subplot(132, projection='3d')
-    plot_density_2D_surface(ax3d_u, X0, X1, Z_u)
+    plot_density_2D_surface(ax3d_u, U0, U1, Z_u)
     ax3d_u.set_xlabel("u0")
     ax3d_u.set_ylabel("u1")
     ax3d_u.set_zlabel("p(u)")
     ax3d_u.set_title("Erf-space PDF")
 
+    # DEBUG
+    #raised_deg_params = [model.get_raised_degree_params(i) for i in range(model.dim)]
+    #print("params dim: ", [params.ndim for params in raised_deg_params])
+    #raised_deg_polys = [Polynomial(params, basis=Basis.BERN) for params in raised_deg_params]
 
     p_list = model.get_density_factor_polys(dtype=np.float128)
-    print("p_list dtype: ", p_list[0].coeffs.dtype)
-    split_factors = stable_split_factors(p_list, mag_range = 6)
-    print("split factors dtype: ", split_factors[0][0].coeffs.dtype)
-    p_prod_terms = split_factor_poly_product(split_factors)
-    #p_prod = poly_product_bernstein_direct(p_list)
-    print("p_prod terms shape: ", [p_prod.shape() for p_prod in p_prod_terms])
+    #print("p_list dtype: ", p_list[0].coeffs.dtype)
+    #split_factors = stable_split_factors(p_list, mag_range = 6)
+    #print("split factors dtype: ", split_factors[0][0].coeffs.dtype)
+    #p_prod_terms = split_factor_poly_product(split_factors)
+    #print("p_prod terms shape: ", [p_prod.shape() for p_prod in p_prod_terms])
     #print("p_prod shape: ", p_prod.shape())
+
+    p_prod = poly_product_bernstein_direct(p_list)
+    print("MC AUC: ", mc_auc(p_prod, n_samples=10000))
+
+    # DEBUG
+    #p_prod_raised = poly_product_bernstein_direct(raised_deg_polys)
+
+    #x = np.random.rand(10, p_prod.dim())
+    #print("orig values: ", p_prod(x))
+    #print("raised values: ", p_prod_raised(x))
+
 
     u_bounds = [0.0, 1.0, 0.0, 1.0]
     ax3d_u = fig2.add_subplot(133, projection='3d')
-    #plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : p_prod(u), u_bounds, dtype=np.float128))
-    plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : sum([p_prod(u) for p_prod in p_prod_terms]), u_bounds, dtype=np.float128))
+    plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : p_prod(u), u_bounds, dtype=np.float128))
+    #plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : sum([p_prod(u) for p_prod in p_prod_terms]), u_bounds, dtype=np.float128))
     ax3d_u.set_xlabel("u0")
     ax3d_u.set_ylabel("u1")
     ax3d_u.set_zlabel("p(u)")
     ax3d_u.set_title("Composed Polynomial Erf-space PDF")
 
-    # Plot transformers
-    #fig3, axes, sliders = interactive_transformer_plot(model, dim, dtype=DTYPE)
 
-    fig.savefig("./figures/density_est_2D.png")
+    ## Plot transformers
+    interactive_transformer_plot(model, dim, dtype=DTYPE)
+    ##fig3, axes, sliders = interactive_transformer_plot(model, dim, dtype=DTYPE)
+
+    #fig.savefig("./figures/density_est_2D.png")
 
 
 
-    #plt.show()
+    plt.show()

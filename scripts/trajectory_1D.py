@@ -177,7 +177,7 @@ if __name__ == "__main__":
     #plot_density_2D(axes[1], U, Up, Z)
     #plt.show()
 
-    init_model_tfs = init_state_model.get_transformer_polynomials()
+    init_model_tfs = init_state_model.get_density_factor_polys()
 
     p_init = poly_product(init_state_model.get_transformer_polynomials())
 

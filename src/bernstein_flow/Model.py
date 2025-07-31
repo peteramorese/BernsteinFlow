@@ -10,7 +10,7 @@ import sys
 from .Polynomial import Polynomial, Basis, decasteljau_composition
 from .HyperProjection import bernstein_raised_degree_tf
 
-def bernstein_basis_functions(dim : int, degree : int, coefficients : torch.Tensor = None, scale : float = 1.0):
+def bernstein_basis_functions(dim : int, degrees : list[int], coefficients : torch.Tensor = None, scale : float = 1.0):
     """
     Returns a list of lambdified multivariate Bernstein basis functions and their multi-indices.
     
@@ -25,18 +25,17 @@ def bernstein_basis_functions(dim : int, degree : int, coefficients : torch.Tens
         x_syms (Tuple[sympy.Symbol]): Tuple of sympy symbols (x0, x1, ..., xd-1)
     """
     x_syms = symbols(f'x0:{dim}')
-    multi_indices = list(itertools.product(range(degree + 1), repeat=dim))
+    degree_ranges = [range(deg + 1) for deg in degrees]
+    multi_indices = list(itertools.product(*degree_ranges))
     
     basis_funcs = []
     for flat_idx, alpha in enumerate(multi_indices):
         B = 1
         for i in range(dim):
-            coeff = float(math.comb(degree, alpha[i]))
-            B *= coeff * x_syms[i]**alpha[i] * (1 - x_syms[i])**(degree - alpha[i])
-            #B *= binomial(degree, alpha[i]) * x_syms[i]**alpha[i] * (1 - x_syms[i])**(degree - alpha[i])
+            coeff = float(math.comb(degrees[i], alpha[i]))
+            B *= coeff * x_syms[i]**alpha[i] * (1 - x_syms[i])**(degrees[i] - alpha[i])
         
         # Incorporate scale/coefficients
-        #print("B: ", B)
         B *= scale
         if coefficients is not None:
             B *= coefficients[flat_idx]
@@ -46,7 +45,7 @@ def bernstein_basis_functions(dim : int, degree : int, coefficients : torch.Tens
     return basis_funcs
 
 class BernsteinFlowModel(torch.nn.Module):
-    def __init__(self, dim : int, transformer_degrees : list[int], conditioner_degrees : list[int], layers : int = 1, conditioner_deg_incr : list[int] = None, device = None, dtype = torch.float32):
+    def __init__(self, dim : int, degrees : list[int], layers : int = 1, deg_incr : list[int] = None, device = None, dtype = torch.float32):
         """
         Create a BFM simple density estimation model
 
@@ -63,55 +62,47 @@ class BernsteinFlowModel(torch.nn.Module):
 
         self.dim = dim
 
-        self.tf_degs = transformer_degrees
-        self.cond_degs = conditioner_degrees
+        assert len(degrees) == dim
+
+        self.degrees = torch.tensor(degrees)
         self.n_layers = layers
         
-        if conditioner_deg_incr is not None:
-            assert len(conditioner_degrees) == len(conditioner_deg_incr)
-        self.cond_deg_incr = conditioner_deg_incr
+        if deg_incr is not None:
+            assert len(deg_incr) == dim
+        self.deg_incr = deg_incr
+
+        self.constrained = True if deg_incr is None else False
 
         self.device = device
         self.dtype = dtype
 
         # Parameters
         self.layers = torch.nn.ModuleList([torch.nn.ParameterList() for _ in range(self.n_layers)])
-        #self.deg_incr_matrices = torch.nn.ModuleList() # Transformation matrices to raise the conditioner degrees
-        #self.mpsi = torch.nn.ModuleList() # Moore Penrose Psuedo Inverse for bernstein degree increase
-        for i in range(dim):
-            # Number of coefficients in each conditioner polynomial (flattened tensor)
-            alpha_j_size = (conditioner_degrees[i] + 1)**(i)
 
-            # Initialize the coefficients of each Bernstein conditioner except the first and last one (which are always 0 and 1)
-            # Rows correspond to basis polynomials, columns correspond to which TF coefficient the conditioner outputs. Assumes same size across all layers
+        for i in range(dim):
+            tf_deriv_degrees = self.degrees[:i + 1].clone()
+            tf_deriv_degrees[i] -= 1
+
+            # Number of coefficients in each polynomial (flattened tensor)
+            poly_size = torch.prod(tf_deriv_degrees + 1).item()
+            
+
             for param_list in self.layers:
-                # Offset the initial values such that the initialized transformers are near linear, to avoid nan loss
-                unconstrained_param_mat = torch.nn.Parameter(0.5 * torch.rand(alpha_j_size, transformer_degrees[i] - 1, dtype=self.dtype, device=self.device) - 1.2) 
+                unconstrained_param_mat = torch.nn.Parameter(torch.rand(poly_size, dtype=self.dtype, device=self.device)) 
                 param_list.append(unconstrained_param_mat)
         
-            if self.cond_deg_incr is not None:
-                if i == 0:
-                    #self.deg_incr_matrices.append(torch.eye(1, dtype=self.dtype, device=self.device))
-                    #self.mpsi.append(torch.eye(1, dtype=self.dtype, device=self.device))
-                    self.register_buffer(f"deg_incr_{i}", torch.eye(1, dtype=self.dtype, device=self.device))
-                    self.register_buffer(f"mpsi_{i}", torch.eye(1, dtype=self.dtype, device=self.device))
-                    continue
+            if self.deg_incr is not None:
 
                 # Create the MPSI matrix based on the shape transformation of the bernstein polynomial
-                original_shape = (conditioner_degrees[i] + 1,) * (i)
-                deg_incr_shape = (conditioner_degrees[i] + conditioner_deg_incr[i] + 1,) * (i)
+                original_shape = (tf_deriv_degrees + 1).tolist()
+                deg_incr_shape = [og_shape + deg_incr[i] for og_shape in original_shape]
                 deg_incr_matrix_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape).A
 
-                #self.deg_incr_matrices.append(torch.nn.Parameter(torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device), requires_grad=False))
-                #self.mpsi.append(torch.nn.Parameter(torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device), requires_grad=False)) # Left psuedo-inverse
                 self.register_buffer(f"deg_incr_{i}", torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
                 self.register_buffer(f"mpsi_{i}", torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device))
         
-        # Basis functions
-        self.tf_basis_funcs = [bernstein_basis_functions(1, transformer_degrees[i]) for i in range(dim)]
-        self.tf_deriv_basis_funcs = [bernstein_basis_functions(1, transformer_degrees[i] - 1, scale=transformer_degrees[i]) for i in range(dim)]
-        self.cond_basis_funcs = [bernstein_basis_functions(i, conditioner_degrees[i]) for i in range(dim)]
-        self.cond_input_dims = list(range(dim))
+        self.input_dims = list(range(dim))
+
     
     def n_parameters(self):
         n_params = 0
@@ -121,13 +112,14 @@ class BernsteinFlowModel(torch.nn.Module):
         return n_params
 
     def forward(self, x : torch.Tensor):
-        density = torch.ones(x.shape[0], device=x.device)
+        density = torch.ones(x.shape[0], dtype=x.dtype, device=x.device)
 
         if self.n_layers == 1:
             for i in range(self.dim):
                 tf_val = self.transformer_deriv(x, i, layer_i=0)
                 density *= tf_val
         else:
+            assert False, "Not implemented"
             layer_input = x
             for layer_i in range(len(self.layers)):
                 next_layer_input = []
@@ -142,89 +134,75 @@ class BernsteinFlowModel(torch.nn.Module):
                 layer_input = torch.vstack(next_layer_input).t()
         return density
 
-    def get_constrained_parameters(self, i : int, layer_i : int = 0):
-        if self.cond_deg_incr is None:
-            alpha_matrix = self.layers[layer_i][i] 
+    def get_constrained_coeff_tensor(self, i : int, layer_i : int = 0):
+
+        # Unconstrained
+        param_vec = self.layers[layer_i][i]        
+        
+        if self.constrained:
+            # Make each coefficient positive to ensure invertibility
+            param_vec = torch.nn.functional.softplus(param_vec)
+
+        #deg_incr_mat = getattr(self, f"deg_incr_{i}")
+        #rd_params = deg_incr_mat @ param_vec
+        #print("--------- min deg raise: ", torch.min(deg_incr_mat).item())
+        #print("--------- min raised deg params: ", torch.min(rd_params).item())
+
+
+        # Ensure that the antiderivative's range is [0, 1] by ensuring that all coefficients along the antiderivative axis add to the required value
+        #print("Min normalizer: ", torch.min(torch.clamp(coeff_tensor.sum(dim=i, keepdim=True), min=1e-6)).item())
+        #if torch.min(torch.clamp(coeff_tensor.sum(dim=i, keepdim=True), min=1e-12)).item() < 0.0:
+        #    print("NORMALIZER NEGATIVE")
+        #    assert False
+        if self.constrained:
+            input_dim = self.input_dims[i]
+
+            # Reshape to coefficient tensor
+            tensor_shape = self.degrees[:input_dim+1] + 1
+            tensor_shape[i] -= 1
+            coeff_tensor = param_vec.reshape(tuple(tensor_shape))
+            constrained_coeffs = self.degrees[i] * coeff_tensor / torch.clamp(coeff_tensor.sum(dim=i, keepdim=True), min=1e-4)
+
         else:
+            assert False, "TODO"
+            # Reshape to raised degree coefficient tensor
             deg_incr_mat = getattr(self, f"deg_incr_{i}")
-            alpha_matrix = deg_incr_mat @ self.layers[layer_i][i]
-        #print(" ------ cond deg incr: ", self.cond_deg_incr, " A size: ", self.A[i].shape, " deg incr size: ", self.deg_incr_matrices[i].shape)
-        #print(" ------ alpha matrix size: ", alpha_matrix.shape, " using deg raise? : ", self.cond_deg_incr is not None)
-        #input("...")
-
-        c_alpha_matrix = torch.zeros_like(alpha_matrix, device=self.device, dtype=self.dtype) # Constrained alpha matrix
-        prev = torch.zeros_like(alpha_matrix[:, 0], device=self.device, dtype=self.dtype)
-        for j in range(alpha_matrix.shape[1]): # Iterate through the vectors of each conditioner component
-            difference = torch.nn.functional.softplus(alpha_matrix[:, j])
-            calpha_j = difference + prev
-            c_alpha_matrix[:, j] = calpha_j
-            prev = calpha_j
-
-        # Normalize all coefficients to be between 0 and 1 (they are already ordered by design)
-        # All coefficients are > 0 so the range of sigmoid is (0.5, 1.0); shift and rescale to make range (0.0, 1.0)
-        c_alpha_matrix = 2.0 * (torch.sigmoid(c_alpha_matrix) - 0.5)
-
-        # If the degree was raised, project the coefficients back down to the space of actual coefficients using the MPSI
-        if self.cond_deg_incr is not None:
             mpsi = getattr(self, f"mpsi_{i}")
-            c_alpha_matrix = mpsi @ c_alpha_matrix
+            raised_deg_param_vec = deg_incr_mat @ param_vec
+            original_shape = raised_deg_param_vec.shape
+            tensor_shape = self.degrees[:i+1] + torch.tensor(self.deg_incr[:i+1]) + 1
+            tensor_shape[i] -= 1
+            coeff_tensor = raised_deg_param_vec.reshape(tuple(tensor_shape))
+            constrained_coeffs = (self.degrees[i] + self.deg_incr[i]) * coeff_tensor / torch.clamp(coeff_tensor.sum(dim=i, keepdim=True), min=1e-12)
+            constrained_coeffs = constrained_coeffs.reshape(original_shape)
 
-        #if torch.any(c_alpha_matrix < 0.0):
-        #    print("Less than zero! min coeff: ", torch.min(c_alpha_matrix))
-        return c_alpha_matrix
+            orig_deg_params = mpsi @ constrained_coeffs.reshape(-1)
+
+            tensor_shape = self.degrees[:i+1] + 1
+            tensor_shape[i] -= 1
+            constrained_coeffs = orig_deg_params.reshape(tuple(tensor_shape))
+
+        #constrained_coeffs = self.degrees[i] * torch.nn.functional.softmax(coeff_tensor, dim=i)
+
+        #params = constrained_coeffs.reshape(-1)
+        #rd_params = deg_incr_mat @ params
+        #print("+++++++++ min raised deg params: ", torch.min(rd_params).item())
+
+
+        return constrained_coeffs
+
+    def transformer_deriv(self, x : torch.Tensor, i : int, layer_i : int = 0):
+        coeff_tensor = self.get_constrained_coeff_tensor(i, layer_i=layer_i)
+
+        return self.decasteljau_torch(coeff_tensor, x[:, :self.input_dims[i]+1])
     
-    def transformer(self, x : torch.Tensor, i : int, layer_i : int):
-        assert i < self.dim, "Index of transformer is greater than the dimension of the random variable"
-        #if self.device is not None:
-        #    assert x.device == self.device, "Devices don't match"
+    def transformer(self, x : torch.Tensor, i : int, layer_i : int = 0):
+        coeff_tensor = self.get_constrained_coeff_tensor(i, layer_i=layer_i)
 
-        tf_basis_vals = torch.stack([phi_j(x[:, self.cond_input_dims[i]]) for phi_j in self.tf_basis_funcs[i]], dim=1)
+        antideriv_coeff_tensor = self._antiderivative_torch(coeff_tensor, axis=i)
 
-        # Evaluate the basis functions for each term in the conditioner
-        cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(self.cond_input_dims[i])]) for phi_k in self.cond_basis_funcs[i]], dim=1) if self.cond_input_dims[i] > 0 else torch.ones(x.shape[0], 1, device=self.device, dtype=self.dtype)
-        
-        c_alpha_matrix = self.get_constrained_parameters(i, layer_i)
+        return self.decasteljau_torch(antideriv_coeff_tensor, x[:, :self.input_dims[i]+1])
 
-        tf_coeffs = cond_basis_vals @ c_alpha_matrix
-
-        # Augment the coefficient matrices with the first and last coefficients
-        # First weight is 0, last weight is 1
-        coeff_ones = torch.ones(tf_coeffs.shape[0], 1, device=self.device, dtype=self.dtype)
-        coeff_zeros = torch.zeros(tf_coeffs.shape[0], 1, device=self.device, dtype=self.dtype)
-        tf_coeffs = torch.cat([coeff_zeros, tf_coeffs, coeff_ones], dim=1)
-
-        tf_val = torch.sum(torch.mul(tf_coeffs, tf_basis_vals), 1) 
-        return tf_val
-    
-    def transformer_deriv(self, x : torch.Tensor, i : int, layer_i : int):
-        assert i < self.dim, "Number of transformers is the dimension of the random variable"
-        #if self.device is not None:
-        #    assert x.device == self.device, f"Devices don't match. x device: {x.device}, model device: {self.device}"
-
-        # Evaluate the basis functions for each term in the transformer
-        #print("number of tf basis funcs", len(self.tf_deriv_basis_funcs[i]))
-        tf_deriv_basis_vals = torch.stack([phi_j(x[:, self.cond_input_dims[i]]) for phi_j in self.tf_deriv_basis_funcs[i]], dim=1)
-
-        # Evaluate the basis functions for each term in the conditioner
-        #print("range : ", self.cond_input_dims[i])
-        #print("input x: ", [x[:, j] for j in range(self.cond_input_dims[i])])
-        ##print("output: ", self.cond_basis_funcs[0](*[x[:, j] for j in range(self.cond_input_dims[i])]))
-        #print("cond basis func [0]: ", self.cond_basis_funcs[0])
-        cond_basis_vals = torch.stack([phi_k(*[x[:, j] for j in range(self.cond_input_dims[i])]) for phi_k in self.cond_basis_funcs[i]], dim=1) if self.cond_input_dims[i] > 0 else torch.ones(x.shape[0], 1, device=self.device, dtype=self.dtype)
-        
-        c_alpha_matrix = self.get_constrained_parameters(i, layer_i)
-
-        tf_coeffs = cond_basis_vals @ c_alpha_matrix
-
-        # Compute the difference coefficients used in the derivative of bernstein polynomial (c_{j+1} - c_j)
-        # First weight is 0, last weight is 1
-        coeff_ones = torch.ones(tf_coeffs.shape[0], 1, device=self.device, dtype=self.dtype)
-        coeff_zeros = torch.zeros(tf_coeffs.shape[0], 1, device=self.device, dtype=self.dtype)
-        tf_deriv_coeffs = torch.cat([tf_coeffs, coeff_ones], dim=1) - torch.cat([coeff_zeros, tf_coeffs], dim=1)
-
-        tf_val = torch.sum(torch.mul(tf_deriv_coeffs, tf_deriv_basis_vals), 1) 
-        return tf_val
-    
     def get_density_factor_polys(self, dtype = np.float64):
         """
         Retrieve a list of all the polynomial factors used to calculate the density
@@ -235,24 +213,13 @@ class BernsteinFlowModel(torch.nn.Module):
             layer_i_tf_derivs = []
             layer_i_tfs = []
             for i in range(self.dim):
-                c_alpha_matrix = self.get_constrained_parameters(i, layer_i=layer_i).detach().clone()
-                coeff_ones = torch.ones(c_alpha_matrix.shape[0], 1, device=c_alpha_matrix.device)
-                coeff_zeros = torch.zeros(c_alpha_matrix.shape[0], 1, device=c_alpha_matrix.device)
-                # Formula for derivative of transformer dimension
-                tf_deriv_coeffs = self.tf_degs[i] * (torch.cat([c_alpha_matrix, coeff_ones], dim=1) - torch.cat([coeff_zeros, c_alpha_matrix], dim=1))
-
-                # These coefficients are correct, but in matrix form; port them to tensor form
-                cond_input_dim = self.cond_input_dims[i]
-                cond_input_deg = self.cond_degs[i]
-
-                tf_deriv_coeffs_shape = (cond_input_dim) * [cond_input_deg + 1] + [tf_deriv_coeffs.shape[1]]
-                layer_i_tf_derivs.append(Polynomial(tf_deriv_coeffs.view(tf_deriv_coeffs_shape), basis=Basis.BERN, dtype=dtype))
+                tf_deriv_coeffs = self.get_constrained_coeff_tensor(i, layer_i=layer_i).detach().clone()
+                layer_i_tf_derivs.append(Polynomial(tf_deriv_coeffs, basis=Basis.BERN, dtype=dtype))
 
                 if self.n_layers > 1:
-                    print("coeff zeros shape :", coeff_zeros.shape, " c alpha shape: ", c_alpha_matrix.shape)
-                    tf_coeffs = torch.cat([coeff_zeros, c_alpha_matrix, coeff_ones], dim=1)
-                    tf_coeffs_shape = (cond_input_dim) * [cond_input_deg + 1] + [tf_coeffs.shape[1]]
-                    layer_i_tfs.append(Polynomial(tf_coeffs.view(tf_coeffs_shape), basis=Basis.BERN, dtype=dtype))
+                    antideriv_coeff_tensor = self._antiderivative_torch(tf_deriv_coeffs, axis=i)
+                    layer_i_tfs.append(Polynomial(antideriv_coeff_tensor, basis=Basis.BERN, dtype=dtype))
+
             decomposed_tf_derivs.append(layer_i_tf_derivs)
             decomposed_tfs.append(layer_i_tfs)
 
@@ -260,6 +227,7 @@ class BernsteinFlowModel(torch.nn.Module):
         if self.n_layers == 1:
             return decomposed_tf_derivs[0]
         else:
+            assert False, "Not implemented"
             factors = decomposed_tf_derivs[0]
             input_polynomial_vec = decomposed_tfs[0]
             for layer_i in range(1, self.n_layers):
@@ -278,49 +246,150 @@ class BernsteinFlowModel(torch.nn.Module):
                         #print("q dims: ", [q.dim() for q in prev_layer_vector[:i+1]])
                         input_polynomial_vec[i] = decasteljau_composition(p, input_polynomial_vec[:i+1])
             return factors
+    
+    def feasible_projection(self, max_iterations=10, tol=1e-2):
+        # Only project if model is unconstrained
+        if not self.constrained:
+            with torch.no_grad():
+                for i in range(self.dim):
+                    deg_incr_mat = getattr(self, f"deg_incr_{i}")
+                    params = self.layers[0][i].detach().clone()
+                    feasible = False
 
+                    #params_nonpos = torch.any(params < 0)
+                    for iter in range(max_iterations):
+                        raised_deg_params = deg_incr_mat @ params
+                        #print(" -- i: ", i, " Raised deg params min val iter: ", iter, " : ", torch.min(raised_deg_params))
+                        if torch.all(raised_deg_params >= 1e-1):
+                            self.layers[0][i].copy_(params)
+                            feasible = True
+
+                            #print("((((((((( min raised deg params b4: ", torch.min(raised_deg_params).item())
+                            ##const_params = self.layers[0][i].detach().clone()
+                            #const_params = self.get_constrained_coeff_tensor(i, layer_i=0).reshape(-1)
+                            #rd_params = deg_incr_mat @ const_params.reshape(-1)
+                            #print("))))))))) min raised deg params: ", torch.min(rd_params).item())
+                            break
+
+                        # Clamp raised degree parameters, then project back to original degree
+                        raised_deg_params = torch.clamp(raised_deg_params, min=(1e-1+tol))
+                        params = getattr(self, f"mpsi_{i}") @ raised_deg_params
+                        #print("raised deg params: ", raised_deg_params)
+                        #print("infeasible params: ", params)
+                        #input("...")
+                    if not feasible:
+                        print(f"Cound not find feasible projection for transformer {i} after {max_iterations} iterations.")
+                        input("...")
+                        return False
+        return True
+    
+    def get_raised_degree_params(self, i : int, layer_i : int = 0):
+        if self.constrained:
+            raise ValueError("Model was not given degree increase")
+        deg_incr_mat = getattr(self, f"deg_incr_{i}")
+        with torch.no_grad():
+            #params = self.layers[layer_i][i].detach().clone()
+            params = self.get_constrained_coeff_tensor(i, layer_i=layer_i).reshape(-1)
+        raised_deg_params = deg_incr_mat @ params
+
+        tensor_shape = self.degrees[:i+1] + torch.tensor(self.deg_incr[:i+1]) + 1
+        tensor_shape[i] -= 1
+        coeff_tensor = raised_deg_params.reshape(tuple(tensor_shape))
+        return coeff_tensor
+        
+
+    def decasteljau_torch(self, coeffs : torch.Tensor, x : torch.Tensor):
+        if x.ndim != 2:
+            raise ValueError(f"Input tensor x must be 2-dimensional (batch_size, d), but got {x.ndim} dimensions.")
+
+        batch_size, d = x.shape
+
+        assert coeffs.ndim == d, "x vector dimension does not match dimension of p"
+
+        degrees = [s - 1 for s in coeffs.shape]
+
+        expand_shape = (batch_size,) + coeffs.shape
+        current_coeffs = coeffs.expand(*expand_shape) 
+
+        for i in range(d):
+            t = x[:, i]
+            view_shape = [batch_size] + [1] * (d - i)
+            t = t.reshape(*view_shape)
+
+            degree = degrees[i]
+
+            for _ in range(degree):
+                current_coeffs = (
+                    (1 - t) * current_coeffs[:, :-1, ...] +
+                    t * current_coeffs[:, 1:, ...]
+                )
+            
+            if i < d - 1:
+                current_coeffs = current_coeffs.squeeze(dim=1)
+        return current_coeffs.squeeze()
+    
+    def _antiderivative_torch(self, coeffs : torch.Tensor, axis : int):
+        deg = coeffs.shape[axis] - 1
+
+        sum = torch.cumsum(coeffs, dim=axis)
+        new_shape = list(coeffs.shape)
+        new_shape[axis] += 1
+        antiderivative_coeffs = torch.zeros(new_shape, dtype=coeffs.dtype, device=coeffs.device)
+
+        slice_obj = [slice(None)] * coeffs.ndim
+        slice_obj[axis] = slice(1, None)
+        antiderivative_coeffs[tuple(slice_obj)] = sum
+
+        return antiderivative_coeffs / (deg + 1)
+    
 
 
 
 class ConditionalBernsteinFlowModel(BernsteinFlowModel):
-    def __init__(self, dim : int, conditional_dim : int, transformer_degrees : int, conditioner_degrees : int, layers : int = 1, conditioner_deg_incr : list[int] = None, device = None, dtype = torch.float32):
+    def __init__(self, dim : int, conditional_dim : int, degrees : list[int], conditional_degrees : list[int], layers : int = 1, deg_incr : list[int] = None, cond_deg_incr : list[int] = None, device = None, dtype = torch.float32):
         """
         Conditional flow model for p(x | y). The data must be supplied IN THE FORM [y, x] to evaluation/training
         """
         torch.nn.Module.__init__(self)
 
         self.dim = dim
-        self.joint_dim = dim + conditional_dim
+        self.cond_dim = conditional_dim
 
-        self.tf_degs = transformer_degrees
-        self.cond_degs = conditioner_degrees
+        assert len(degrees) == dim
+        assert len(conditional_degrees) == conditional_dim
+
+        self.degrees = torch.tensor(conditional_degrees + degrees)
         self.n_layers = layers
 
-        if conditioner_deg_incr is not None:
-            assert len(conditioner_degrees) == len(conditioner_deg_incr)
-        self.cond_deg_incr = conditioner_deg_incr
+        if deg_incr is not None:
+            assert len(deg_incr) == dim
+            self.deg_incr = cond_deg_incr + deg_incr
+        else:
+            self.deg_incr = None
+
+        self.constrained = True if deg_incr is None else False
 
         self.device = device
         self.dtype = dtype
 
         # Parameters
         self.layers = torch.nn.ModuleList([torch.nn.ParameterList() for _ in range(self.n_layers)])
-        self.deg_incr_matrices = list() # Transformation matrices to raise the conditioner degrees
-        self.mpsi = list() # Moore Penrose Psuedo Inverse for bernstein degree increase
         for i in range(dim):
-            # Number of coefficients in each conditioner polynomial (flattened tensor)
-            # For conditional model, the dimension of each condition effectively increase by the conditional dim
-            alpha_j_size = (conditioner_degrees[i] + 1)**(i + conditional_dim)
+            tf_deriv_degrees = self.degrees[:i + 1 + self.cond_dim].clone()
+            tf_deriv_degrees[i + self.cond_dim] -= 1
+
+            poly_size = torch.prod(tf_deriv_degrees + 1).item()
 
             for param_list in self.layers:
-                # Offset the initial values such that the initialized transformers are near linear, to avoid nan loss
-                unconstrained_param_mat = torch.nn.Parameter(0.5 * torch.rand(alpha_j_size, transformer_degrees[i] - 1, dtype=self.dtype, device=self.device) - 1.2) 
+                unconstrained_param_mat = torch.nn.Parameter(torch.rand(poly_size, dtype=self.dtype, device=self.device)) 
                 param_list.append(unconstrained_param_mat)
         
-            if self.cond_deg_incr is not None:
+            if self.deg_incr is not None:
+
+                assert False, "TODO"
                 # Create the MPSI matrix based on the shape transformation of the bernstein polynomial
-                original_shape = (conditioner_degrees[i] + 1,) * (i + conditional_dim)
-                deg_incr_shape = (conditioner_degrees[i] + conditioner_deg_incr[i] + 1,) * (i + conditional_dim)
+                original_shape = (self.cond_degs + 1).tolist() + (tf_deriv_degrees + 1).tolist()
+                deg_incr_shape = [og_shape + deg_incr[i] for og_shape in original_shape]
                 deg_incr_matrix_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape).A
                 print("Degree increase matrix size: ", deg_incr_matrix_np.shape)
 
@@ -329,27 +398,42 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
                 self.register_buffer(f"deg_incr_{i}", torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
                 self.register_buffer(f"mpsi_{i}", torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)) # Left psuedo-inverse
         
-        # Basis functions
-        self.tf_basis_funcs = [bernstein_basis_functions(1, transformer_degrees[i]) for i in range(dim)]
-        self.tf_deriv_basis_funcs = [bernstein_basis_functions(1, transformer_degrees[i] - 1, scale=transformer_degrees[i]) for i in range(dim)]
-        self.cond_basis_funcs = [bernstein_basis_functions(i + conditional_dim, conditioner_degrees[i]) for i in range(dim)]
-        self.cond_input_dims = list(range(conditional_dim, conditional_dim + dim))
+        self.input_dims = list(range(conditional_dim, conditional_dim + dim))
 
 
 def nll_loss(model, data):
     density = model(data)
     log_density = torch.log(density + 1e-10)
     loss = -log_density.mean()
-    #if math.isnan(loss):
-    #    print("Parameters: \n", model.get_constrained_parameters(0, 0), model.get_constrained_parameters(1, 0))
     return loss
 
 def train_step(model, x_data, optimizer):
     model.train()
     optimizer.zero_grad()
+    
+    # Backup parameters
+    if not model.constrained:
+        param_backup = [[params.detach().clone() for params in layer]  for layer in model.layers]
+
     loss = nll_loss(model, x_data)
     loss.backward()
     optimizer.step()
+
+    success = model.feasible_projection()
+
+    if torch.isnan(loss):
+        raised_deg_params = [model.get_raised_degree_params(i) for i in range(model.dim)]
+        print("loss is NAN... Min raised deg params: ", [torch.min(raised_deg_params[i]).item() for i in range(model.dim)])
+        print("Constraint success? : ", success)
+        input("...")
+
+
+    if not success:
+        with torch.no_grad():
+            for layer, layer_backup in zip(model.layers, param_backup):
+                for param, backup in zip(layer, layer_backup):
+                    param.copy_(backup)
+
     return loss.item()
 
 def optimize(model, data_loader : DataLoader, optimizer, epochs=100, log_buffer_size = 20):

@@ -75,13 +75,12 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=True)
 
     # Create initial state and transition models
-    transformer_degrees = [20, 15]
-    conditioner_degrees = [20, 15]
-    cond_deg_incr = [30] * len(conditioner_degrees)
-    init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr, device=device)
+    degrees = [10, 10]
+    init_state_model = BernsteinFlowModel(dim=dim, degrees=degrees, dtype=DTYPE, device=device)
 
-    cond_deg_incr = [20] * len(conditioner_degrees)
-    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr, device=device)
+    degrees = [10, 10]
+    cond_degrees = [10, 10]
+    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, degrees=degrees, conditional_degrees=cond_degrees, dtype=DTYPE, device=device)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
     print(f"Created transition model with {transition_model.n_parameters()} parameters")

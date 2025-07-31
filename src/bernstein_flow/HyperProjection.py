@@ -3,6 +3,7 @@ from math import comb
 from functools import reduce
 import matplotlib.pyplot as plt
 from scipy.linalg import qr
+from scipy.optimize import linprog
 
 from .Polynomial import Polynomial, Basis
 
@@ -102,6 +103,26 @@ def plot_projected_basis_vectors(ax : plt.Axes, A, label_prefix=r'$\hat{e}_', co
     ax.set_aspect('equal')
     #ax.set_box_aspect([1,1,1])
 
+def reduce_cone_basis(V : np.ndarray, tol=1e-8):
+    assert V.ndim == 2
+    n, N = V.shape
+
+    selected = []
+    for i in range(N):
+        v = V[:, i]
+        A_eq = V[:, [j for j in range(N) if j != i]]
+        c = np.ones(N-1)
+        res = linprog(c, A_eq=A_eq, b_eq=v, bounds=(0, None), method='highs')
+        if not res.success:
+            selected.append(i)
+        elif np.any(res.x < tol):
+            selected.append(i)
+
+        if len(selected) == n:
+            break
+
+    return V[:, selected], selected
+
 if __name__ == "__main__":
 
     #fig = plt.figure()
@@ -129,26 +150,60 @@ if __name__ == "__main__":
     #ax3d.set_zlabel("b2")
     #plt.show()
 
-    fig = plt.figure(figsize=(10, 7))
-    ax = fig.add_subplot(111, projection='3d')
+
+    original_shape = (100,)
+    new_shape = (120,)
+
+    A = bernstein_raised_degree_tf(original_shape, new_shape).A
 
 
-    raised_degs = [10, 12, 15, 20, 30, 50, 100, 1000, 10000]
-    for raised_deg in raised_degs:
-        r = np.random.rand()  # Random float between 0 and 1 for red
-        g = np.random.rand()  # Random float between 0 and 1 for green
-        b = np.random.rand()  # Random float between 0 and 1 for blue
-        color = (r, g, b)
 
-        tf = bernstein_raised_degree_tf((3,), (raised_deg,))
-        plot_projected_basis_vectors(ax, tf.A, color=color, label=f"m={raised_deg}")
+    ##M = np.eye(A.shape[0])
+    #P = A @ np.linalg.inv(A.T @ A) @ A.T
+    #n_vecs = 12
+    #proj_curr = np.random.uniform(low=0, high=1, size=(P.shape[0], n_vecs))
+    ##proj_curr = np.random.uniform(low=0, high=10, size=(P.shape[0], n_vecs))
+    #for i in range(100):
+    #    
+    #    norm_rect = np.maximum(1e-1, proj_curr) / np.linalg.norm(proj_curr, axis=0)
+    #    proj_curr = P @ norm_rect 
+    #    with np.printoptions(precision=2, suppress=True):
+    #        #print(np.min(proj_curr,axis=0))
+    #        print("proj N curr: \n", proj_curr)
+    #        n_vecs = np.linalg.pinv(A) @ proj_curr
+    #        n_vecs_normalized = n_vecs / np.linalg.norm(n_vecs, axis=0)
+    #        n_vecs_neg = np.sum(np.min(n_vecs_normalized, axis=0) < 0)
+    #        n_vecs_reduced, _ = reduce_cone_basis(n_vecs_normalized)
+    #        #print("proj n curr: \n", n_vecs_normalized)
+    #        print("proj n curr minimal: \n", n_vecs_reduced)
+    #        print("Min val: ", np.min(proj_curr), " neg vecs: ", n_vecs_neg)
+    #        
+    #        print("argmin co: ", np.argmin(np.min(proj_curr, axis=0)))
+    #        min_col_idx = np.argmin(np.min(proj_curr, axis=0))
+    #        proj_curr = np.delete(proj_curr, min_col_idx, axis=1)
+    #    input("...")
+    ##for i in range(A.shape[1]):
+
+    #fig = plt.figure(figsize=(10, 7))
+    #ax = fig.add_subplot(111, projection='3d')
+
+
+    #raised_degs = [10, 12, 15, 20, 30, 50, 100, 1000, 10000]
+    #for raised_deg in raised_degs:
+    #    r = np.random.rand()  # Random float between 0 and 1 for red
+    #    g = np.random.rand()  # Random float between 0 and 1 for green
+    #    b = np.random.rand()  # Random float between 0 and 1 for blue
+    #    color = (r, g, b)
+
+    #    tf = bernstein_raised_degree_tf((3,), (raised_deg,))
+    #    plot_projected_basis_vectors(ax, tf.A, color=color, label=f"m={raised_deg}")
     
 
-    ax.legend()
+    #ax.legend()
 
-    # Equal aspect ratio for clarity
-    plt.tight_layout()
-    plt.show()
+    ## Equal aspect ratio for clarity
+    #plt.tight_layout()
+    #plt.show()
 
 
 
@@ -169,11 +224,19 @@ if __name__ == "__main__":
     #    Z = p(np.stack((X.ravel(), Y.ravel()), axis=-1)).reshape(X.shape)
     #    ax.contourf(X, Y, Z, **kwargs)
 
-    ##p_bern = Polynomial(np.array([1,4,2]), basis=Basis.BERN)
+    p_bern = Polynomial(np.random.uniform(low=-10, high=10, size=(5, 6, 4, 3)), basis=Basis.BERN)
 
     ##plot_poly(p_bern, axes[0])
 
-    ##tf = bernstein_degree_raise_matrix(2, 13, p_bern.dim())
+    new_shape = tuple(np.array(p_bern.shape()) + 4)
+    tf = bernstein_raised_degree_tf(p_bern.shape(), new_shape)
+
+    p_bern_raised = apply_transformation(p_bern, tf)
+
+    x = np.random.rand(10, p_bern.dim())
+
+    print("orig values: ", p_bern(x))
+    print("raised values: ", p_bern_raised(x))
 
     ##p_bern_raised = apply_transformation(p_bern, tf)
     ##print("coeffs: ", p_bern.coeffs)

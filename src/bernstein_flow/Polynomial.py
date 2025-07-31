@@ -147,12 +147,6 @@ def decasteljau(p : Polynomial, x : np.ndarray):
 
     assert p.dim() == d, "x vector dimension does not match dimension of p"
 
-    if d != p_ten.ndim:
-        raise ValueError(
-            f"Dimensionality of x ({d}) must match the dimensionality of the "
-            f"polynomial's coefficient tensor ({p_ten.ndim})."
-        )
-
     degrees = [s - 1 for s in p_ten.shape]
 
     expand_shape = (batch_size,) + p_ten.shape
