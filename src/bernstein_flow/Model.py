@@ -165,7 +165,6 @@ class BernsteinFlowModel(torch.nn.Module):
             constrained_coeffs = self.degrees[i] * coeff_tensor / torch.clamp(coeff_tensor.sum(dim=i, keepdim=True), min=1e-4)
 
         else:
-            assert False, "TODO"
             # Reshape to raised degree coefficient tensor
             deg_incr_mat = getattr(self, f"deg_incr_{i}")
             mpsi = getattr(self, f"mpsi_{i}")
@@ -247,8 +246,35 @@ class BernsteinFlowModel(torch.nn.Module):
                         #print("q dims: ", [q.dim() for q in prev_layer_vector[:i+1]])
                         input_polynomial_vec[i] = decasteljau_composition(p, input_polynomial_vec[:i+1])
             return factors
+
+    def nll_loss(self, data, hard_constraint = True):
+        if self.constrained or hard_constraint:
+            density = self(data)
+            log_density = torch.log(density + 1e-10)
+            loss = -log_density.mean()
+            return loss
+        else:
+            density = self(data)
+            log_density = torch.log(density + 1e-10)
+            
+            # Compute the constraint violation
+            penalty = 0.0
+            for i in range(self.dim):
+                deg_incr_mat = getattr(self, f"deg_incr_{i}")
+                params = self.layers[0][i]
+                #print("min params: ", torch.min(params).item())
+                raised_deg_params = deg_incr_mat @ params
+                #print("min rd params: ", torch.min(raised_deg_params).item())
+                violation = torch.clamp(-raised_deg_params, min=0.0)
+                #print("violatioon: ", torch.sum(violation))
+                penalty += torch.sum(violation**2 + violation)
+                #input("...")
+
+            loss = -log_density.mean() + penalty
+            return loss
+
     
-    def feasible_projection(self, max_iterations=10, tol=1e-2):
+    def feasible_projection(self, max_iterations=50, tol=1e-2, min_thresh=1e-2):
         # Only project if model is unconstrained
         if not self.constrained:
             with torch.no_grad():
@@ -261,7 +287,7 @@ class BernsteinFlowModel(torch.nn.Module):
                     for iter in range(max_iterations):
                         raised_deg_params = deg_incr_mat @ params
                         #print(" -- i: ", i, " Raised deg params min val iter: ", iter, " : ", torch.min(raised_deg_params))
-                        if torch.all(raised_deg_params >= 1e-1):
+                        if torch.all(raised_deg_params >= min_thresh):
                             self.layers[0][i].copy_(params)
                             feasible = True
 
@@ -273,14 +299,19 @@ class BernsteinFlowModel(torch.nn.Module):
                             break
 
                         # Clamp raised degree parameters, then project back to original degree
-                        raised_deg_params = torch.clamp(raised_deg_params, min=(1e-1+tol))
+                        raised_deg_params = torch.clamp(raised_deg_params, min=(min_thresh + tol))
                         params = getattr(self, f"mpsi_{i}") @ raised_deg_params
                         #print("raised deg params: ", raised_deg_params)
                         #print("infeasible params: ", params)
                         #input("...")
                     if not feasible:
-                        print(f"Cound not find feasible projection for transformer {i} after {max_iterations} iterations.")
-                        input("...")
+                        #params = torch.clamp(params, min=1e-6)
+                        #self.layers[0][i].copy_(params)
+
+                        raised_deg_params = deg_incr_mat @ params
+                        min_val = torch.min(raised_deg_params).item()
+                        print(f"Cound not find feasible projection for transformer {i} after {max_iterations} iterations. Min raised degree param {min_val} is below {min_thresh}")
+                        #input("...")
                         return False
         return True
     
@@ -402,13 +433,12 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
         self.input_dims = list(range(conditional_dim, conditional_dim + dim))
 
 
-def nll_loss(model, data):
-    density = model(data)
-    log_density = torch.log(density + 1e-10)
-    loss = -log_density.mean()
-    return loss
 
-def train_step(model, x_data, optimizer):
+def train_step(model, x_data, optimizer, hard_constraint = True,
+             proj_max_iterations=50,
+             proj_tol=1e-2,
+             proj_min_thresh=1e-2):
+
     model.train()
     optimizer.zero_grad()
     
@@ -416,28 +446,28 @@ def train_step(model, x_data, optimizer):
     if not model.constrained:
         param_backup = [[params.detach().clone() for params in layer]  for layer in model.layers]
 
-    loss = nll_loss(model, x_data)
+    loss = model.nll_loss(x_data, hard_constraint=hard_constraint)
     loss.backward()
     optimizer.step()
 
-    success = model.feasible_projection()
 
-    if torch.isnan(loss):
-        raised_deg_params = [model.get_raised_degree_params(i) for i in range(model.dim)]
-        print("loss is NAN... Min raised deg params: ", [torch.min(raised_deg_params[i]).item() for i in range(model.dim)])
-        print("Constraint success? : ", success)
-        input("...")
+    if hard_constraint:
+        success = model.feasible_projection(max_iterations=proj_max_iterations, tol=proj_tol, min_thresh=proj_min_thresh)
 
-
-    if not success:
-        with torch.no_grad():
-            for layer, layer_backup in zip(model.layers, param_backup):
-                for param, backup in zip(layer, layer_backup):
-                    param.copy_(backup)
+        if not success:
+            with torch.no_grad():
+                for layer, layer_backup in zip(model.layers, param_backup):
+                    for param, backup in zip(layer, layer_backup):
+                        param.copy_(backup)
 
     return loss.item()
 
-def optimize(model, data_loader : DataLoader, optimizer, epochs=100, log_buffer_size = 20):
+def optimize(model, data_loader : DataLoader, optimizer, epochs=100, train_with_hard_constraint = False, 
+             proj_max_iterations=50,
+             proj_tol=1e-2,
+             proj_min_thresh=1e-2,
+             log_buffer_size = 20):
+
     stdout_buffer = []
 
     for epoch in range(epochs):
@@ -446,7 +476,7 @@ def optimize(model, data_loader : DataLoader, optimizer, epochs=100, log_buffer_
         for x_batch in data_loader:
             x_batch = x_batch[0].to(next(model.parameters()).device)
             #print("x_batch device: ",x_batch.device) 
-            loss = train_step(model, x_batch, optimizer)
+            loss = train_step(model, x_batch, optimizer, hard_constraint=train_with_hard_constraint)
             total_loss += loss
         avg_loss = total_loss / len(data_loader)
         
@@ -460,3 +490,14 @@ def optimize(model, data_loader : DataLoader, optimizer, epochs=100, log_buffer_
             for l in stdout_buffer:
                 sys.stdout.write("\033[K")
                 print(l)
+    
+    # Do a feasible projection at the end of training to make sure the model is a valid distribution
+    if not train_with_hard_constraint:
+        print("Projecting model to feasible space...")
+        success = model.feasible_projection(max_iterations=proj_max_iterations, tol=proj_tol, min_thresh=proj_min_thresh)
+        if not success:
+            raise RuntimeError("Model projection failed after training")
+        else:
+            print("Success!")
+    
+

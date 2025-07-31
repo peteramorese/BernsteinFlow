@@ -35,9 +35,12 @@ if __name__ == "__main__":
     #X_data = sample_modal_gaussian(n_data, means=means, covariances=covariances, weights=[.3, .7])
 
     X_data, _ = make_moons(n_data, noise=0.05)
+    X_data_test, _ = make_moons(n_data, noise=0.05)
     #X_data, _ = make_circles(n_data, noise=0.1, factor=0.4)
 
     gdt = GaussianDistTransform.moment_match_data(X_data, variance_pads=[0.5] * dim)
+    U_data = gdt.X_to_U(X_data)
+    U_data_test = gdt.X_to_U(X_data_test)
 
     fig, axes = plt.subplots(2, 2)
     fig.set_figheight(9)
@@ -50,7 +53,6 @@ if __name__ == "__main__":
     axes[0, 0].set_ylabel("x1")
     axes[0, 0].set_title("Data")
 
-    U_data = gdt.X_to_U(X_data)
 
     plot_data_2D(axes[0, 1], U_data)
     axes[0, 1].set_xlim((0, 1))
@@ -64,12 +66,13 @@ if __name__ == "__main__":
 
     # Create data loader
     U_data_torch = torch.tensor(U_data, dtype=DTYPE)
+    U_data_test_torch = torch.tensor(U_data_test, dtype=DTYPE)
     dataset = TensorDataset(U_data_torch)
     dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
 
     # Create model
-    degrees = [15, 15]
-    deg_incr = None #[20, 20]
+    degrees = [10, 10]
+    deg_incr = [40, 40]
     model = BernsteinFlowModel(dim=dim, degrees=degrees, layers=1, dtype=DTYPE, deg_incr=deg_incr)
 
 
@@ -95,7 +98,9 @@ if __name__ == "__main__":
 
     # Train
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
-    optimize(model, dataloader, optimizer, epochs=n_epochs)
+    optimize(model, dataloader, optimizer, epochs=n_epochs, train_with_hard_constraint=False, proj_max_iterations=100, proj_tol=1e-4, proj_min_thresh=1e-3)
+    print("Test NLL: ", model.nll_loss(U_data_test_torch))
+    #optimize(model, dataloader, optimizer, epochs=n_epochs, hard_constraint=True)
 
     # Plot the density estimate
     model_x_eval = model_x_eval_fcn(model, gdt, dtype=DTYPE)
