@@ -19,6 +19,7 @@ import time
 import os
 import json
 from datetime import datetime
+import copy
 
 def get_date_time_str():
     return datetime.now().strftime("%Yy_%mm_%dd_%Hh_%Mm_%Ss")
@@ -43,8 +44,8 @@ if __name__ == "__main__":
     grid_resolution = 20
 
     # System model
-    #system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
-    system = BistableOscillator(dt=0.1, a=1.0, d=1.0, cov_scale=0.03)
+    system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
+    #system = BistableOscillator(dt=0.1, a=1.0, d=1.0, cov_scale=0.03)
 
     # Dimension
     dim = system.dim()
@@ -67,7 +68,7 @@ if __name__ == "__main__":
         return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
 
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
-    test_traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
+    test_traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_test_traj)
 
     x_bounds = [-5.0, 5.0, -5.0, 5.0]
 
@@ -94,8 +95,8 @@ if __name__ == "__main__":
         n_mixands_ekf = [init_state_model.n_mixands()]
         prop_times_ekf = []
         allhs_ekf = []
-        #prob_in_roi = []
-        #mc_gt_prob_in_roi = []
+        prob_in_roi = []
+        mc_gt_prob_in_roi = []
         for k in range(1, timesteps):
             start = time.time()
             p_curr = propagate_gpgmm_ekf(density_gmms_ekf[k-1], transition_model)
@@ -107,13 +108,16 @@ if __name__ == "__main__":
             print(f" - Average log likelihood: {allh:.3f}")
             allhs_ekf.append(allh)
 
-            ## Compute prob in roi
-            #prob_in_roi_k = p_curr.integrate(roi)
-            #prob_in_roi.append(prob_in_roi_k)
+            # Compute prob in roi
+            p_curr_diag = copy.deepcopy(p_curr)
+            p_curr_diag.make_cov_diag()
+            prob_in_roi_k = p_curr_diag.integrate(roi)
+            prob_in_roi.append(prob_in_roi_k)
 
-            ## MC "ground truth" prob in roi
-            #mc_gt_prob_in_roi_k = empirical_prob_in_region(test_traj_data[k], roi)
-            #mc_gt_prob_in_roi.append(mc_gt_prob_in_roi_k)
+            # MC "ground truth" prob in roi
+            mc_gt_prob_in_roi_k = empirical_prob_in_region(test_traj_data[k], roi)
+            mc_gt_prob_in_roi.append(mc_gt_prob_in_roi_k)
+            print(f" - Evaluation: {prob_in_roi_k:.3f} / MC ground truth evaluation: {mc_gt_prob_in_roi_k:.3f}")
 
             n_mixands_ekf.append(p_curr.n_mixands())
             density_gmms_ekf.append(p_curr)
@@ -142,8 +146,8 @@ if __name__ == "__main__":
         benchmark_fields["n_mixands"] = n_mixands_ekf
         benchmark_fields["prop_times"] = prop_times_ekf
         benchmark_fields["average_log_likelihood"] = allhs_ekf
-        #benchmark_fields["prob_in_roi"] = prob_in_roi
-        #benchmark_fields["mc_gt_prob_in_roi"] = mc_gt_prob_in_roi
+        benchmark_fields["prob_in_roi"] = prob_in_roi
+        benchmark_fields["mc_gt_prob_in_roi"] = mc_gt_prob_in_roi
 
         experiment_name = f"trajectory_2D_ekf_{curr_date_time}"
 
@@ -159,8 +163,8 @@ if __name__ == "__main__":
         n_mixands_wsasos = [init_state_model.n_mixands()]
         prop_times_wsasos = []
         allhs_wsasos = []
-        #prob_in_roi = []
-        #mc_gt_prob_in_roi = []
+        prob_in_roi = []
+        mc_gt_prob_in_roi = []
         for k in range(1, timesteps):
             start = time.time()
             p_curr = propagate_gpgmm_wsasos(density_gmms_wsasos[k-1], transition_model)
@@ -172,13 +176,16 @@ if __name__ == "__main__":
             print(f" - Average log likelihood: {allh:.3f}")
             allhs_wsasos.append(allh)
 
-            ## Compute prob in roi
-            #prob_in_roi_k = p_curr.integrate(roi)
-            #prob_in_roi.append(prob_in_roi_k)
+            # Compute prob in roi
+            p_curr_diag = copy.deepcopy(p_curr)
+            p_curr_diag.make_cov_diag()
+            prob_in_roi_k = p_curr_diag.integrate(roi)
+            prob_in_roi.append(prob_in_roi_k)
 
-            ## MC "ground truth" prob in roi
-            #mc_gt_prob_in_roi_k = empirical_prob_in_region(test_traj_data[k], roi)
-            #mc_gt_prob_in_roi.append(mc_gt_prob_in_roi_k)
+            # MC "ground truth" prob in roi
+            mc_gt_prob_in_roi_k = empirical_prob_in_region(test_traj_data[k], roi)
+            mc_gt_prob_in_roi.append(mc_gt_prob_in_roi_k)
+            print(f" - Evaluation: {prob_in_roi_k:.3f} / MC ground truth evaluation: {mc_gt_prob_in_roi_k:.3f}")
 
             n_mixands_wsasos.append(p_curr.n_mixands())
             density_gmms_wsasos.append(p_curr)
@@ -210,8 +217,8 @@ if __name__ == "__main__":
         benchmark_fields["n_mixands"] = n_mixands_wsasos
         benchmark_fields["prop_times"] = prop_times_wsasos
         benchmark_fields["average_log_likelihood"] = allhs_wsasos
-        #benchmark_fields["prob_in_roi"] = prob_in_roi
-        #benchmark_fields["mc_gt_prob_in_roi"] = mc_gt_prob_in_roi
+        benchmark_fields["prob_in_roi"] = prob_in_roi
+        benchmark_fields["mc_gt_prob_in_roi"] = mc_gt_prob_in_roi
 
         experiment_name = f"trajectory_2D_wsasos_{curr_date_time}"
 
@@ -233,7 +240,7 @@ if __name__ == "__main__":
             start = time.time()
             p_curr = propagate_grid_gmm(density_gmms[k-1], transition_model, bounds=x_bounds, resolution=grid_resolution)
             prop_times.append(time.time() - start)
-            print(f"Computed p(x{k}) in {prop_times[-1]:.2f} seconds. Number of components: ", p_curr.n_mixands())
+            print(f"Computed p(x{k}) (Grid) in {prop_times[-1]:.2f} seconds. Number of components: ", p_curr.n_mixands())
 
             # Compute the log likelihood
             allh = avg_log_likelihood(test_traj_data[k], lambda x : p_curr.density(x))
@@ -241,12 +248,15 @@ if __name__ == "__main__":
             allhs.append(allh)
 
             # Compute prob in roi
-            prob_in_roi_k = p_curr.integrate(roi)
+            p_curr_diag = copy.deepcopy(p_curr)
+            p_curr_diag.make_cov_diag()
+            prob_in_roi_k = p_curr_diag.integrate(roi)
             prob_in_roi.append(prob_in_roi_k)
 
             # MC "ground truth" prob in roi
             mc_gt_prob_in_roi_k = empirical_prob_in_region(test_traj_data[k], roi)
             mc_gt_prob_in_roi.append(mc_gt_prob_in_roi_k)
+            print(f" - Evaluation: {prob_in_roi_k:.3f} / MC ground truth evaluation: {mc_gt_prob_in_roi_k:.3f}")
 
             n_mixands.append(p_curr.n_mixands())
             density_gmms.append(p_curr)

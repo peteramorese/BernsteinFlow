@@ -3,6 +3,7 @@ benchmarks/
 sync_mozart.sh
 nohup.out
 *.swp
+.env
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

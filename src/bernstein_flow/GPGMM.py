@@ -41,6 +41,12 @@ class GMModel:
             component_integrals = norm.cdf(region.maxes, loc=mean, scale=np.sqrt(cov)) - norm.cdf(region.mins, loc=mean, scale=np.sqrt(cov))
             prob_mass += weight * np.prod(component_integrals)
         return prob_mass
+    
+    def make_cov_diag(self):
+        """
+        Convert the covariance matrices to diagonal form
+        """
+        self.covariances = [np.diag(cov) if len(cov.shape) > 1 else cov for cov in self.covariances]
 
 
 def fit_gmm(X, n_components=1, covariance_type='diag', random_state=None):

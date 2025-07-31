@@ -46,19 +46,19 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 1000
+    n_traj = 500
     n_test_traj = 10000
 
     # Number of training epochs
     n_epochs_init = 1000
-    n_epochs_tran = 150
+    n_epochs_tran = 200
 
     # Time horizon
     training_timesteps = 10
     timesteps = 10
 
     # Region of integration
-    roi = Rectangle(mins=[0.0, 0.0], maxes=[2.0, 2.0])
+    roi = Rectangle(mins=[-1.0, 1.0], maxes=[-1.0, 1.0])
 
     def init_state_sampler():
         return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
@@ -67,7 +67,6 @@ if __name__ == "__main__":
     test_traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_test_traj)
 
     # Moment match the GDT to all of the data over the whole horizon
-    #gdt = GaussianDistTransform(means=np.array([0.0, 0.0]), variances=[0.3, 1.0])
     gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[2.2, 2.2])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
@@ -98,7 +97,7 @@ if __name__ == "__main__":
     # Create initial state and transition models
     transformer_degrees = [20, 20]
     conditioner_degrees = [20, 20]
-    init_cond_deg_incr = [30] * len(conditioner_degrees)
+    init_cond_deg_incr = None #[30] * len(conditioner_degrees)
     init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=init_cond_deg_incr, device=device)
 
     tran_cond_deg_incr = None #[5] * len(conditioner_degrees)

@@ -64,6 +64,8 @@ def propagate_gpgmm_wsasos(belief : GMModel, transition_p : MultivariateGPModel,
     return wsasos.wsasos_split_and_propagate(belief, transition_p)
 
 def propagate_grid_gmm(belief : GMModel, transition_p : MultivariateGPModel, bounds : list, resolution = 10):
+    belief = copy.deepcopy(belief)
+    belief.make_cov_diag()
     domain = Rectangle(mins=np.array(bounds[::2]), maxes=np.array(bounds[1::2]))
     diag_vector = (np.array(bounds[1::2]) - np.array(bounds[::2])) / resolution
 
