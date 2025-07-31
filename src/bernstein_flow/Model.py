@@ -157,9 +157,10 @@ class BernsteinFlowModel(torch.nn.Module):
         if self.constrained:
             input_dim = self.input_dims[i]
 
+            #print("input dim: ", input_dim)
             # Reshape to coefficient tensor
             tensor_shape = self.degrees[:input_dim+1] + 1
-            tensor_shape[i] -= 1
+            tensor_shape[input_dim] -= 1
             coeff_tensor = param_vec.reshape(tuple(tensor_shape))
             constrained_coeffs = self.degrees[i] * coeff_tensor / torch.clamp(coeff_tensor.sum(dim=i, keepdim=True), min=1e-4)
 

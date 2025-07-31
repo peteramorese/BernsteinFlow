@@ -75,10 +75,10 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=True)
 
     # Create initial state and transition models
-    degrees = [10, 10]
+    degrees = [20, 20]
     init_state_model = BernsteinFlowModel(dim=dim, degrees=degrees, dtype=DTYPE, device=device)
 
-    degrees = [10, 10]
+    degrees = [20, 20]
     cond_degrees = [10, 10]
     transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, degrees=degrees, conditional_degrees=cond_degrees, dtype=DTYPE, device=device)
 
