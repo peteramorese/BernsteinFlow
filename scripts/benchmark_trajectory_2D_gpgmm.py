@@ -62,7 +62,8 @@ if __name__ == "__main__":
     timesteps = 10
 
     # Region of integration
-    roi = Rectangle(mins=[0.0, 0.0], maxes=[2.0, 2.0])
+    #roi = Rectangle(mins=[0.0, 0.0], maxes=[2.0, 2.0])
+    roi = Rectangle(mins=[-1.0, 1.0], maxes=[-1.0, 1.0])
 
     def init_state_sampler():
         return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
