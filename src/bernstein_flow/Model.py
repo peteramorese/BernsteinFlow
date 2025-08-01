@@ -44,6 +44,46 @@ def bernstein_basis_functions(dim : int, degrees : list[int], coefficients : tor
     
     return basis_funcs
 
+def sparse_projection_cg(A, b, max_iter=1000, tol=1e-6):
+    """
+    Detailed CG implementation with comments
+    """
+    # Step 1: Set up the normal equations A^T A x = A^T b
+    AtA = torch.sparse.mm(A.t(), A)  # n×n sparse matrix
+    Atb = torch.sparse.mm(A.t(), b.unsqueeze(1)).squeeze()  # n×1 vector
+    
+    # Step 2: Initialize CG iteration
+    x = torch.zeros_like(Atb)  # Initial guess: x₀ = 0
+    r = Atb.clone()  # Initial residual: r₀ = Aᵀb - (AᵀA)x₀ = Aᵀb
+    p = r.clone()    # Initial search direction: p₀ = r₀
+    
+    residual_norms = []
+    
+    for i in range(max_iter):
+        # Step 3: Compute step size α
+        Ap = torch.sparse.mm(AtA, p.unsqueeze(1)).squeeze()  # (AᵀA)p
+        r_dot_r = torch.dot(r, r)
+        alpha = r_dot_r / torch.dot(p, Ap)  # α = rᵀr / pᵀ(AᵀA)p
+        
+        # Step 4: Update solution and residual
+        x = x + alpha * p           # x_{k+1} = x_k + α p_k
+        r_new = r - alpha * Ap      # r_{k+1} = r_k - α (AᵀA)p_k
+        
+        # Step 5: Check convergence
+        residual_norm = torch.norm(r_new)
+        residual_norms.append(residual_norm.item())
+        
+        if residual_norm < tol:
+            print(f"Converged in {i+1} iterations")
+            break
+        
+        # Step 6: Compute new search direction
+        beta = torch.dot(r_new, r_new) / r_dot_r  # β = r_{k+1}ᵀr_{k+1} / r_kᵀr_k
+        p = r_new + beta * p        # p_{k+1} = r_{k+1} + β p_k
+        r = r_new
+    
+    return x, residual_norms
+
 class BernsteinFlowModel(torch.nn.Module):
     def __init__(self, dim : int, degrees : list[int], layers : int = 1, deg_incr : list[int] = None, device = None, dtype = torch.float32):
         """
@@ -98,7 +138,11 @@ class BernsteinFlowModel(torch.nn.Module):
                 deg_incr_shape = [og_shape + deg_incr[i] for og_shape in original_shape]
                 deg_incr_matrix_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape).A
 
-                self.register_buffer(f"deg_incr_{i}", torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
+                #self.register_buffer(f"deg_incr_{i}", torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
+                dense_di_mat = torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device)
+                #dense_mpsi_mat = torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)
+                sparse_di_mat = dense_di_mat.to_sparse_coo()
+                self.register_buffer(f"deg_incr_{i}", sparse_di_mat)
                 self.register_buffer(f"mpsi_{i}", torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device))
         
         self.input_dims = list(range(dim))
@@ -133,7 +177,7 @@ class BernsteinFlowModel(torch.nn.Module):
                     next_layer_input.append(y_i)
                 layer_input = torch.vstack(next_layer_input).t()
         return density
-
+    
     def get_constrained_coeff_tensor(self, i : int, layer_i : int = 0):
 
         # Unconstrained
@@ -155,33 +199,57 @@ class BernsteinFlowModel(torch.nn.Module):
         #    print("NORMALIZER NEGATIVE")
         #    assert False
         input_dim = self.input_dims[i]
-        if self.constrained:
+        #if self.constrained:
 
-            #print("input dim: ", input_dim)
-            # Reshape to coefficient tensor
-            tensor_shape = self.degrees[:input_dim+1] + 1
-            tensor_shape[input_dim] -= 1
-            coeff_tensor = param_vec.reshape(tuple(tensor_shape))
-            constrained_coeffs = self.degrees[input_dim] * coeff_tensor / torch.clamp(coeff_tensor.sum(dim=input_dim, keepdim=True), min=1e-4)
+        #print("input dim: ", input_dim)
+        # Reshape to coefficient tensor
+        tensor_shape = self.degrees[:input_dim+1] + 1
+        tensor_shape[input_dim] -= 1
+        coeff_tensor = param_vec.reshape(tuple(tensor_shape))
+        #print("min normalizer: ", torch.min(coeff_tensor.sum(dim=input_dim, keepdim=True)).item())
+        #normalizing_coeffs = self.degrees[input_dim] / coeff_tensor.sum(dim=input_dim, keepdim=True)
+        
+        
+        di = getattr(self, f"deg_incr_{i}")
+        raised_deg_param_vec = torch.sparse.mm(di, param_vec.unsqueeze(1))
+        tensor_shape = self.degrees[:input_dim+1] + torch.tensor(self.deg_incr[:input_dim+1]) + 1
+        tensor_shape[input_dim] -= 1
+        coeff_tensor = raised_deg_param_vec.reshape(tuple(tensor_shape))
+        normalizing_coeffs = (self.degrees[input_dim] + self.deg_incr[input_dim]) / torch.clamp(coeff_tensor.sum(dim=input_dim, keepdim=False), min=1e-12).unsqueeze(dim=input_dim)
 
-        else:
-            # Reshape to raised degree coefficient tensor
-            deg_incr_mat = getattr(self, f"deg_incr_{i}")
-            mpsi = getattr(self, f"mpsi_{i}")
-            #print("Deg incr mat shape: ", deg_incr_mat.shape, " param vec shape: ", param_vec.shape)
-            raised_deg_param_vec = deg_incr_mat @ param_vec
-            original_shape = raised_deg_param_vec.shape
-            tensor_shape = self.degrees[:input_dim+1] + torch.tensor(self.deg_incr[:input_dim+1]) + 1
-            tensor_shape[input_dim] -= 1
-            coeff_tensor = raised_deg_param_vec.reshape(tuple(tensor_shape))
-            constrained_coeffs = (self.degrees[input_dim] + self.deg_incr[input_dim]) * coeff_tensor / torch.clamp(coeff_tensor.sum(dim=input_dim, keepdim=True), min=1e-12)
-            constrained_coeffs = constrained_coeffs.reshape(original_shape)
 
-            orig_deg_params = mpsi @ constrained_coeffs.reshape(-1)
+        constrained_coeffs = coeff_tensor * normalizing_coeffs
 
-            tensor_shape = self.degrees[:input_dim+1] + 1
-            tensor_shape[input_dim] -= 1
-            constrained_coeffs = orig_deg_params.reshape(tuple(tensor_shape))
+        #di = getattr(self, f"deg_incr_{i}")
+        #raised_deg_param_vec = torch.sparse.mm(di, param_vec.unsqueeze(1))
+        #minv = torch.min(raised_deg_param_vec)
+        #if minv < 0.0:
+        #    print("min raised deg: ", minv)
+        #    input("...")
+
+        #else:
+        #    # Reshape to raised degree coefficient tensor
+        #    #deg_incr_mat = getattr(self, f"deg_incr_{i}")
+        #    di = getattr(self, f"deg_incr_{i}")
+        #    mpsi = getattr(self, f"mpsi_{i}")
+        #    #print("Deg incr mat shape: ", deg_incr_mat.shape, " param vec shape: ", param_vec.shape)
+        #    #print("param vec shape: ", param_vec.shape, " di shape: ", di.shape)
+        #    raised_deg_param_vec = torch.sparse.mm(di, param_vec.unsqueeze(1))
+        #    #raised_deg_param_vec = deg_incr_mat @ param_vec
+        #    original_shape = raised_deg_param_vec.shape
+        #    tensor_shape = self.degrees[:input_dim+1] + torch.tensor(self.deg_incr[:input_dim+1]) + 1
+        #    tensor_shape[input_dim] -= 1
+        #    coeff_tensor = raised_deg_param_vec.reshape(tuple(tensor_shape))
+        #    constrained_coeffs = (self.degrees[input_dim] + self.deg_incr[input_dim]) * coeff_tensor / torch.clamp(coeff_tensor.sum(dim=input_dim, keepdim=True), min=1e-12)
+        #    constrained_coeffs = constrained_coeffs.reshape(original_shape)
+
+        #    #orig_deg_params = mpsi @ constrained_coeffs.reshape(-1)
+        #    #orig_deg_params = torch.linalg.lstsq(di, constrained_coeffs.reshape(-1)).solution.squeeze()
+        #    orig_deg_params = mpsi @ constrained_coeffs.reshape(-1)
+
+        #    tensor_shape = self.degrees[:input_dim+1] + 1
+        #    tensor_shape[input_dim] -= 1
+        #    constrained_coeffs = orig_deg_params.reshape(tuple(tensor_shape))
 
         #constrained_coeffs = self.degrees[i] * torch.nn.functional.softmax(coeff_tensor, dim=i)
 
