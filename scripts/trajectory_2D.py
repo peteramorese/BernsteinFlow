@@ -102,12 +102,12 @@ if __name__ == "__main__":
     # Train the models
     init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
     print("Training initial state model...")
-    optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init)
+    optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, proj_tol=1e-4, proj_min_thresh=1e-3)
     print("Done training initial state model \n")
 
     print("Training transition model...")
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran, proj_tol=1e-4, proj_min_thresh=1e-3)
     print("Done training transition model \n")
 
     #interactive_transformer_plot(transition_model, dim, cond_dim=dim, dtype=DTYPE)    

@@ -251,7 +251,9 @@ if __name__ == "__main__":
     new_shape = tuple(np.array(p_bern.shape()) + 4)
     tf = bernstein_raised_degree_tf(p_bern.shape(), new_shape)
     A = bernstein_raised_degree_tf(p_bern.shape(), new_shape).A
+    print("issp: ", sp.issparse(A))
     A_dense = bernstein_raised_degree_tf(p_bern.shape(), new_shape, sparse=False).A
+    print("issp: ", sp.issparse(A_dense))
     print("eq: ", np.allclose(A.toarray(), A_dense))
 
     p_bern_raised = apply_transformation(p_bern, tf)

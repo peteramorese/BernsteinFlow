@@ -26,7 +26,7 @@ if __name__ == "__main__":
     n_data = 2000
 
     # Number of training epochs
-    n_epochs = 10
+    n_epochs = 100
 
     #gdt = GaussianDistTransform(mean=[0.5, 0.25], variances=[1.0, 0.5])
 
@@ -72,7 +72,7 @@ if __name__ == "__main__":
 
     # Create model
     degrees = [10, 10]
-    deg_incr = [10, 10]
+    deg_incr = None #[40, 40]
     model = BernsteinFlowModel(dim=dim, degrees=degrees, layers=1, dtype=DTYPE, deg_incr=deg_incr)
 
 

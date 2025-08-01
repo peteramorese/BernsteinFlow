@@ -8,6 +8,7 @@ import time
 import sys
 import gc
 from scipy.sparse.linalg import cg, LinearOperator
+from scipy.sparse import issparse
 
 from .Polynomial import Polynomial, Basis, decasteljau_composition
 from .HyperProjection import bernstein_raised_degree_tf
@@ -46,7 +47,7 @@ def bernstein_basis_functions(dim : int, degrees : list[int], coefficients : tor
     
     return basis_funcs
 
-def sparse_cg_projection(A : torch.Tensor, vec : torch.Tensor):
+def cg_projection(A : torch.Tensor, vec : torch.Tensor):
     sparse = A.is_sparse
     def matvec(x : np.ndarray):
         x_tch = torch.from_numpy(x).to(dtype=A.dtype, device=A.device).unsqueeze(1)
@@ -58,7 +59,7 @@ def sparse_cg_projection(A : torch.Tensor, vec : torch.Tensor):
             product = A.t() @ A @ x_tch
         return product.cpu().numpy()
     
-    At_b = torch.sparse.mm(A.t(), vec).cpu().numpy()
+    At_b = torch.sparse.mm(A.t(), vec).cpu().numpy() if sparse else torch.mv(A.t(), vec).cpu().numpy()
 
     lin_op = LinearOperator(shape=(A.shape[1], A.shape[1]), matvec=matvec, dtype=np.float64)
     x_np, info = cg(lin_op, b=At_b)
@@ -67,7 +68,7 @@ def sparse_cg_projection(A : torch.Tensor, vec : torch.Tensor):
 
 
 class BernsteinFlowModel(torch.nn.Module):
-    def __init__(self, dim : int, degrees : list[int], layers : int = 1, deg_incr : list[int] = None, device = None, dtype = torch.float32):
+    def __init__(self, dim : int, degrees : list[int], layers : int = 1, deg_incr : list[int] = None, device = None, dtype = torch.float32, sparse_di=True):
         """
         Create a BFM simple density estimation model
 
@@ -115,25 +116,35 @@ class BernsteinFlowModel(torch.nn.Module):
         
             if self.deg_incr is not None:
 
-                # Create the MPSI matrix based on the shape transformation of the bernstein polynomial
                 original_shape = (tf_deriv_degrees + 1).tolist()
                 deg_incr_shape = [og_shape + deg_incr[i] for og_shape in original_shape]
-                deg_incr_matrix_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape).A
+                di_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape, sparse=sparse_di).A
+                print("DI size: ", di_np.shape)
+                di_np_sparse = issparse(di_np)
 
-                #self.register_buffer(f"deg_incr_{i}", torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
-                dense_di_mat = torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device)
-                n_zeros = torch.sum(dense_di_mat == 0).item()
-                sparsity = n_zeros / dense_di_mat.numel()
-                print(f"DI matrix sparsity {sparsity * 100:.2f}%")
-                #dense_mpsi_mat = torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)
-                #if sparsity > 0.7:
-                if sparsity > 0.1:
-                    print("Using sparse matrix for dimension ", i)
-                    sparse_di_mat = dense_di_mat.to_sparse_coo()
+
+                if di_np_sparse:
+                    di_np_coo = di_np.tocoo()
+                    values = torch.FloatTensor(di_np_coo.data)
+                    indices = torch.LongTensor(np.vstack((di_np_coo.row, di_np_coo.col)))
+                    shape = torch.Size(di_np_coo.shape)
+                    sparse_di_mat = torch.sparse_coo_tensor(indices=indices, values=values, size=shape).to(dtype=self.dtype, device=self.device)
+                    #print("   sparse di mat shape: ", sparse_di_mat.shape)
                     self.register_buffer(f"deg_incr_{i}", sparse_di_mat)
                 else:
-                    print("Using dense matrix for dimension ", i)
-                    self.register_buffer(f"deg_incr_{i}", dense_di_mat)
+                    dense_di_mat = torch.from_numpy(di_np).to(dtype=self.dtype, device=self.device)
+                    n_zeros = torch.sum(dense_di_mat == 0).item()
+                    sparsity = n_zeros / dense_di_mat.numel()
+                    print(f"DI matrix sparsity {sparsity * 100:.2f}%")
+                    #dense_mpsi_mat = torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)
+                    if sparsity > 0.7:
+                        print("Using sparse matrix for dimension ", i)
+                        sparse_di_mat = dense_di_mat.to_sparse_coo()
+                        self.register_buffer(f"deg_incr_{i}", sparse_di_mat)
+                    else:
+                        print("Using dense matrix for dimension ", i)
+                        self.register_buffer(f"deg_incr_{i}", dense_di_mat)
+
                 #self.register_buffer(f"mpsi_{i}", torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device))
         
         self.input_dims = list(range(dim))
@@ -201,13 +212,15 @@ class BernsteinFlowModel(torch.nn.Module):
         #normalizing_coeffs = self.degrees[input_dim] / coeff_tensor.sum(dim=input_dim, keepdim=True)
         
         
-        di = getattr(self, f"deg_incr_{i}")
-        raised_deg_param_vec = torch.sparse.mm(di, param_vec.unsqueeze(1)) if di.is_sparse else di @ param_vec.unsqueeze(1)
-        tensor_shape = self.degrees[:input_dim+1] + torch.tensor(self.deg_incr[:input_dim+1]) + 1
-        tensor_shape[input_dim] -= 1
-        coeff_tensor = raised_deg_param_vec.reshape(tuple(tensor_shape))
-        normalizing_coeffs = (self.degrees[input_dim] + self.deg_incr[input_dim]) / torch.clamp(coeff_tensor.sum(dim=input_dim, keepdim=False), min=1e-12).unsqueeze(dim=input_dim)
-
+        if self.constrained:
+            normalizing_coeffs = self.degrees[input_dim] / coeff_tensor.sum(dim=input_dim, keepdim=True)
+        else:
+            di = getattr(self, f"deg_incr_{i}")
+            raised_deg_param_vec = torch.sparse.mm(di, param_vec.unsqueeze(1)) if di.is_sparse else di @ param_vec.unsqueeze(1)
+            tensor_shape = self.degrees[:input_dim+1] + torch.tensor(self.deg_incr[:input_dim+1]) + 1
+            tensor_shape[input_dim] -= 1
+            coeff_tensor = raised_deg_param_vec.reshape(tuple(tensor_shape))
+            normalizing_coeffs = (self.degrees[input_dim] + self.deg_incr[input_dim]) / torch.clamp(coeff_tensor.sum(dim=input_dim, keepdim=False), min=1e-12).unsqueeze(dim=input_dim)
 
         constrained_coeffs = coeff_tensor * normalizing_coeffs
 
@@ -356,13 +369,14 @@ class BernsteinFlowModel(torch.nn.Module):
                             #const_params = self.get_constrained_coeff_tensor(i, layer_i=0).reshape(-1)
                             #rd_params = deg_incr_mat @ const_params.reshape(-1)
                             #print("))))))))) min raised deg params: ", torch.min(rd_params).item())
-                            #break
+                            break
 
                         # Clamp raised degree parameters, then project back to original degree
-                        raised_deg_params = torch.clamp(raised_deg_params, min=(min_thresh + tol))
+                        print(f"Projection iteration {iter + 1} / {max_iterations}. Min value: {torch.min(raised_deg_params)} (clamp: {min_thresh + iter * tol}, thresh: {min_thresh})")
+                        raised_deg_params = torch.clamp(raised_deg_params, min=(min_thresh + iter * tol))
                         #params_test = getattr(self, f"mpsi_{i}") @ raised_deg_params
                         #print("raised deg params shape: " , raised_deg_params.shape)
-                        params = sparse_cg_projection(di, raised_deg_params)
+                        params = cg_projection(di, raised_deg_params)
                         #print("params test size: ", params_test, " params size: ", params)
                         #print("err vs mpsi:", torch.max(params_test - params))
                         #input("...")
@@ -443,7 +457,16 @@ class BernsteinFlowModel(torch.nn.Module):
 
 
 class ConditionalBernsteinFlowModel(BernsteinFlowModel):
-    def __init__(self, dim : int, conditional_dim : int, degrees : list[int], conditional_degrees : list[int], layers : int = 1, deg_incr : list[int] = None, cond_deg_incr : list[int] = None, device = None, dtype = torch.float32):
+    def __init__(self, dim : int, 
+                 conditional_dim : int, 
+                 degrees : list[int], 
+                 conditional_degrees : list[int], 
+                 layers : int = 1, 
+                 deg_incr : list[int] = None, 
+                 cond_deg_incr : list[int] = None, 
+                 device = None, 
+                 dtype = torch.float32, 
+                 sparse_di=True):
         """
         Conditional flow model for p(x | y). The data must be supplied IN THE FORM [y, x] to evaluation/training
         """
@@ -472,9 +495,7 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
         # Parameters
         self.layers = torch.nn.ModuleList([torch.nn.ParameterList() for _ in range(self.n_layers)])
         for i in range(dim):
-            #print("degrees: ", self.degrees)
             tf_deriv_degrees = self.degrees[:i + 1 + self.cond_dim].clone()
-            #print("tf deriv degrees:", tf_deriv_degrees)
             tf_deriv_degrees[i + self.cond_dim] -= 1
 
             poly_size = torch.prod(tf_deriv_degrees + 1).item()
@@ -485,29 +506,34 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
         
             if self.deg_incr is not None:
 
-                # Create the MPSI matrix based on the shape transformation of the bernstein polynomial
                 original_shape = (tf_deriv_degrees + 1).tolist()
                 deg_incr_shape = [og_shape + self.deg_incr[i] for og_shape in original_shape]
-                #print("OG shape: ", original_shape, " incr shape: ", deg_incr_shape)
-                #input("...")
                 deg_incr_matrix_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape).A
-                print("Degree increase matrix size: ", deg_incr_matrix_np.shape)
+                di_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape, sparse=sparse_di).A
+                print("DI size: ", di_np.shape)
+                di_np_sparse = issparse(di_np)
 
-                dense_di_mat = torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device)
-                n_zeros = torch.sum(dense_di_mat == 0).item()
-                sparsity = n_zeros / dense_di_mat.numel()
-                print(f"DI matrix sparsity {sparsity * 100:.2f}%")
-                #dense_mpsi_mat = torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)
-                if sparsity > 0.7:
-                    print("Using sparse matrix for dimension ", i)
-                    sparse_di_mat = dense_di_mat.to_sparse_coo()
+                if di_np_sparse:
+                    di_np_coo = di_np.tocoo()
+                    values = torch.FloatTensor(di_np_coo.data)
+                    indices = torch.LongTensor(np.vstack((di_np_coo.row, di_np_coo.col)))
+                    shape = torch.Size(di_np_coo.shape)
+                    sparse_di_mat = torch.sparse_coo_tensor(indices=indices, values=values, size=shape).to(dtype=self.dtype, device=self.device)
+                    #print("   sparse di mat shape: ", sparse_di_mat.shape)
                     self.register_buffer(f"deg_incr_{i}", sparse_di_mat)
-                    del dense_di_mat
-                    gc.collect()
                 else:
-                    print("Using dense matrix for dimension ", i)
-                    self.register_buffer(f"deg_incr_{i}", dense_di_mat)
-                self.register_buffer(f"mpsi_{i}", torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device))
+                    dense_di_mat = torch.from_numpy(di_np).to(dtype=self.dtype, device=self.device)
+                    n_zeros = torch.sum(dense_di_mat == 0).item()
+                    sparsity = n_zeros / dense_di_mat.numel()
+                    print(f"DI matrix sparsity {sparsity * 100:.2f}%")
+                    #dense_mpsi_mat = torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)
+                    if sparsity > 0.7:
+                        print("Using sparse matrix for dimension ", i)
+                        sparse_di_mat = dense_di_mat.to_sparse_coo()
+                        self.register_buffer(f"deg_incr_{i}", sparse_di_mat)
+                    else:
+                        print("Using dense matrix for dimension ", i)
+                        self.register_buffer(f"deg_incr_{i}", dense_di_mat)
 
                 #self.register_buffer(f"deg_incr_{i}", torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
                 #self.register_buffer(f"mpsi_{i}", torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)) # Left psuedo-inverse
