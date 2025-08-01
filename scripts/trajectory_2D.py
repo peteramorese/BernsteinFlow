@@ -61,6 +61,7 @@ if __name__ == "__main__":
 
 
     #input("Continue to training...")
+    cpu_device = torch.device("cpu")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     #device = "cpu"
     print("device: ", device)
@@ -83,6 +84,15 @@ if __name__ == "__main__":
                                           device=device, 
                                           deg_incr=deg_incr)
 
+    print(f"Created init state model with {init_state_model.n_parameters()} parameters")
+
+    # Train the Init model
+    init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
+    print("Training initial state model...")
+    optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, proj_tol=1e-4, proj_min_thresh=1e-3)
+    print("Done training initial state model \n")
+    init_state_model = init_state_model.to(device=cpu_device)
+
     degrees = [10, 10]
     cond_degrees = [10, 10]
     deg_incr = [5, 5]
@@ -96,14 +106,7 @@ if __name__ == "__main__":
                                                      deg_incr=deg_incr, 
                                                      cond_deg_incr=cond_deg_incr)
 
-    print(f"Created init state model with {init_state_model.n_parameters()} parameters")
     print(f"Created transition model with {transition_model.n_parameters()} parameters")
-
-    # Train the models
-    init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
-    print("Training initial state model...")
-    optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, proj_tol=1e-4, proj_min_thresh=1e-3)
-    print("Done training initial state model \n")
 
     print("Training transition model...")
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)

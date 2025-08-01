@@ -148,7 +148,7 @@ class BernsteinFlowModel(torch.nn.Module):
                 #self.register_buffer(f"mpsi_{i}", torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device))
         
         self.input_dims = list(range(dim))
-
+    
     
     def n_parameters(self):
         n_params = 0
