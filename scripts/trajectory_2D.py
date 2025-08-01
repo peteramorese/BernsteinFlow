@@ -28,11 +28,11 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 2000
+    n_traj = 1000
 
     # Number of training epochs
-    n_epochs_init = 100
-    n_epochs_tran = 50
+    n_epochs_init = 1000
+    n_epochs_tran = 100
 
     # Time horizon
     training_timesteps = 10
@@ -76,8 +76,8 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=True)
 
     # Create initial state and transition models
-    degrees = [15, 15]
-    deg_incr = [10, 10]
+    degrees = [20, 20]
+    deg_incr = [40, 40]
     init_state_model = BernsteinFlowModel(dim=dim, 
                                           degrees=degrees, 
                                           dtype=DTYPE, 
@@ -94,7 +94,7 @@ if __name__ == "__main__":
     init_state_model = init_state_model.to(device=cpu_device)
 
     degrees = [20, 20]
-    cond_degrees = [10, 10]
+    cond_degrees = [15, 15]
     deg_incr = [10, 10]
     cond_deg_incr = [0, 0]
     transition_model = ConditionalBernsteinFlowModel(dim=dim, 

@@ -85,6 +85,7 @@ if __name__ == "__main__":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
         device = torch.device("cpu")
+    cpu_device = torch.device("cpu")
 
     # Create data loader
     U0_data_torch = torch.tensor(U0_data, dtype=DTYPE)
@@ -96,25 +97,39 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=use_gpu)
 
     # Create initial state and transition models
-    transformer_degrees = [20, 20]
-    conditioner_degrees = [20, 20]
-    init_cond_deg_incr = [50] * len(conditioner_degrees)
-    init_state_model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=init_cond_deg_incr, device=device)
-
-    tran_cond_deg_incr = None #[5] * len(conditioner_degrees)
-    transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, dtype=DTYPE, conditioner_deg_incr=tran_cond_deg_incr, device=device)
+    degrees_i = [20, 20]
+    deg_incr_i = [40, 40]
+    init_state_model = BernsteinFlowModel(dim=dim, 
+                                          degrees=degrees_i, 
+                                          dtype=DTYPE, 
+                                          device=device, 
+                                          deg_incr=deg_incr_i)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
-    print(f"Created transition model with {transition_model.n_parameters()} parameters")
 
-    # Train the models
+    # Train the Init model
     init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
-    
     print("Training initial state model...")
     start = time.time()
-    optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, log_buffer_size=30)
+    optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, proj_tol=1e-4, proj_min_thresh=1e-3)
     init_train_time = time.time() - start
     print("Done training initial state model \n")
+    init_state_model = init_state_model.to(device=cpu_device)
+
+    degrees_t = [20, 20]
+    cond_degrees_t = [15, 15]
+    deg_incr_t = [10, 10]
+    cond_deg_incr_t = [0, 0]
+    transition_model = ConditionalBernsteinFlowModel(dim=dim, 
+                                                     conditional_dim=dim, 
+                                                     degrees=degrees_t, 
+                                                     conditional_degrees=cond_degrees_t, 
+                                                     dtype=DTYPE, 
+                                                     device=device, 
+                                                     deg_incr=deg_incr_t, 
+                                                     cond_deg_incr=cond_deg_incr_t)
+
+    print(f"Created transition model with {transition_model.n_parameters()} parameters")
 
     print("Training transition model...")
     start = time.time()
@@ -183,10 +198,12 @@ if __name__ == "__main__":
     benchmark_fields["training_timesteps"] = training_timesteps
     benchmark_fields["timesteps"] = timesteps
     benchmark_fields["device"] = device.type
-    benchmark_fields["transformer_degrees"] = transformer_degrees
-    benchmark_fields["conditioner_degrees"] = conditioner_degrees
-    benchmark_fields["init_cond_deg_incr"] = init_cond_deg_incr
-    benchmark_fields["tran_cond_deg_incr"] = tran_cond_deg_incr
+    benchmark_fields["init_degrees"] = degrees_i
+    benchmark_fields["init_deg_incr"] = deg_incr_i
+    benchmark_fields["tran_degrees"] = degrees_t
+    benchmark_fields["tran_deg_incr"] = deg_incr_t
+    benchmark_fields["tran_cond_degrees"] = cond_degrees_t
+    benchmark_fields["tran_cond_deg_incr"] = cond_deg_incr_t
     benchmark_fields["init_model_params"] = init_state_model.n_parameters()
     benchmark_fields["tran_model_params"] = transition_model.n_parameters()
     benchmark_fields["init_train_time"] = init_train_time
