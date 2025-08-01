@@ -31,7 +31,7 @@ if __name__ == "__main__":
     n_traj = 2000
 
     # Number of training epochs
-    n_epochs_init = 500
+    n_epochs_init = 100
     n_epochs_tran = 50
 
     # Time horizon
@@ -93,10 +93,10 @@ if __name__ == "__main__":
     print("Done training initial state model \n")
     init_state_model = init_state_model.to(device=cpu_device)
 
-    degrees = [10, 10]
+    degrees = [20, 20]
     cond_degrees = [10, 10]
-    deg_incr = [5, 5]
-    cond_deg_incr = [5, 5]
+    deg_incr = [10, 10]
+    cond_deg_incr = [0, 0]
     transition_model = ConditionalBernsteinFlowModel(dim=dim, 
                                                      conditional_dim=dim, 
                                                      degrees=degrees, 

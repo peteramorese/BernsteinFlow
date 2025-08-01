@@ -117,7 +117,7 @@ class BernsteinFlowModel(torch.nn.Module):
             if self.deg_incr is not None:
 
                 original_shape = (tf_deriv_degrees + 1).tolist()
-                deg_incr_shape = [og_shape + deg_incr[i] for og_shape in original_shape]
+                deg_incr_shape = [og_shape + self.deg_incr[j] for j, og_shape in enumerate(original_shape)]
                 di_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape, sparse=sparse_di).A
                 print("DI size: ", di_np.shape)
                 di_np_sparse = issparse(di_np)
@@ -499,6 +499,7 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
             tf_deriv_degrees[i + self.cond_dim] -= 1
 
             poly_size = torch.prod(tf_deriv_degrees + 1).item()
+            print("poly size: ", i, " : ", poly_size)
 
             for param_list in self.layers:
                 unconstrained_param_mat = torch.nn.Parameter(torch.rand(poly_size, dtype=self.dtype, device=self.device)) 
@@ -507,8 +508,10 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
             if self.deg_incr is not None:
 
                 original_shape = (tf_deriv_degrees + 1).tolist()
-                deg_incr_shape = [og_shape + self.deg_incr[i] for og_shape in original_shape]
-                deg_incr_matrix_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape).A
+                print("og shape: " ,original_shape)
+                print("deg incr: ", self.deg_incr)
+                deg_incr_shape = [og_shape + self.deg_incr[j] for j, og_shape in enumerate(original_shape)]
+                print("incr shape: " ,deg_incr_shape)
                 di_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape, sparse=sparse_di).A
                 print("DI size: ", di_np.shape)
                 di_np_sparse = issparse(di_np)
