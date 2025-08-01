@@ -72,7 +72,7 @@ if __name__ == "__main__":
 
     # Create model
     degrees = [10, 10]
-    deg_incr = [40, 40]
+    deg_incr = [20, 20]
     model = BernsteinFlowModel(dim=dim, degrees=degrees, layers=1, dtype=DTYPE, deg_incr=deg_incr)
 
 
