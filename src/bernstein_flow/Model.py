@@ -7,6 +7,7 @@ import numpy as np
 import time
 import sys
 import gc
+from scipy.sparse.linalg import cg, LinearOperator
 
 from .Polynomial import Polynomial, Basis, decasteljau_composition
 from .HyperProjection import bernstein_raised_degree_tf
@@ -45,45 +46,25 @@ def bernstein_basis_functions(dim : int, degrees : list[int], coefficients : tor
     
     return basis_funcs
 
-def sparse_projection_cg(A, b, max_iter=1000, tol=1e-6):
-    """
-    Detailed CG implementation with comments
-    """
-    # Step 1: Set up the normal equations A^T A x = A^T b
-    AtA = torch.sparse.mm(A.t(), A)  # n×n sparse matrix
-    Atb = torch.sparse.mm(A.t(), b.unsqueeze(1)).squeeze()  # n×1 vector
+def sparse_cg_projection(A : torch.Tensor, vec : torch.Tensor):
+    sparse = A.is_sparse
+    def matvec(x : np.ndarray):
+        x_tch = torch.from_numpy(x).to(dtype=A.dtype, device=A.device).unsqueeze(1)
+        #product = torch.sparse.mm(A, x_tch)
+        if sparse:
+            y = torch.sparse.mm(A, x_tch)
+            product = torch.sparse.mm(A.t(), y)
+        else:
+            product = A.t() @ A @ x_tch
+        return product.cpu().numpy()
     
-    # Step 2: Initialize CG iteration
-    x = torch.zeros_like(Atb)  # Initial guess: x₀ = 0
-    r = Atb.clone()  # Initial residual: r₀ = Aᵀb - (AᵀA)x₀ = Aᵀb
-    p = r.clone()    # Initial search direction: p₀ = r₀
-    
-    residual_norms = []
-    
-    for i in range(max_iter):
-        # Step 3: Compute step size α
-        Ap = torch.sparse.mm(AtA, p.unsqueeze(1)).squeeze()  # (AᵀA)p
-        r_dot_r = torch.dot(r, r)
-        alpha = r_dot_r / torch.dot(p, Ap)  # α = rᵀr / pᵀ(AᵀA)p
-        
-        # Step 4: Update solution and residual
-        x = x + alpha * p           # x_{k+1} = x_k + α p_k
-        r_new = r - alpha * Ap      # r_{k+1} = r_k - α (AᵀA)p_k
-        
-        # Step 5: Check convergence
-        residual_norm = torch.norm(r_new)
-        residual_norms.append(residual_norm.item())
-        
-        if residual_norm < tol:
-            print(f"Converged in {i+1} iterations")
-            break
-        
-        # Step 6: Compute new search direction
-        beta = torch.dot(r_new, r_new) / r_dot_r  # β = r_{k+1}ᵀr_{k+1} / r_kᵀr_k
-        p = r_new + beta * p        # p_{k+1} = r_{k+1} + β p_k
-        r = r_new
-    
-    return x, residual_norms
+    At_b = torch.sparse.mm(A.t(), vec).cpu().numpy()
+
+    lin_op = LinearOperator(shape=(A.shape[1], A.shape[1]), matvec=matvec, dtype=np.float64)
+    x_np, info = cg(lin_op, b=At_b)
+
+    return torch.from_numpy(x_np).to(dtype=A.dtype, device=A.device).unsqueeze(1)
+
 
 class BernsteinFlowModel(torch.nn.Module):
     def __init__(self, dim : int, degrees : list[int], layers : int = 1, deg_incr : list[int] = None, device = None, dtype = torch.float32):
@@ -145,14 +126,15 @@ class BernsteinFlowModel(torch.nn.Module):
                 sparsity = n_zeros / dense_di_mat.numel()
                 print(f"DI matrix sparsity {sparsity * 100:.2f}%")
                 #dense_mpsi_mat = torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)
-                if sparsity > 0.7:
+                #if sparsity > 0.7:
+                if sparsity > 0.1:
                     print("Using sparse matrix for dimension ", i)
                     sparse_di_mat = dense_di_mat.to_sparse_coo()
                     self.register_buffer(f"deg_incr_{i}", sparse_di_mat)
                 else:
                     print("Using dense matrix for dimension ", i)
                     self.register_buffer(f"deg_incr_{i}", dense_di_mat)
-                self.register_buffer(f"mpsi_{i}", torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device))
+                #self.register_buffer(f"mpsi_{i}", torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device))
         
         self.input_dims = list(range(dim))
 
@@ -351,22 +333,22 @@ class BernsteinFlowModel(torch.nn.Module):
             loss = -log_density.mean() + penalty
             return loss
 
-    
+
     def feasible_projection(self, max_iterations=50, tol=1e-2, min_thresh=1e-2):
         # Only project if model is unconstrained
         if not self.constrained:
             with torch.no_grad():
                 for i in range(self.dim):
-                    deg_incr_mat = getattr(self, f"deg_incr_{i}")
-                    params = self.layers[0][i].detach().clone()
+                    di = getattr(self, f"deg_incr_{i}")
+                    params = self.layers[0][i].detach().clone().unsqueeze(1)
                     feasible = False
 
                     #params_nonpos = torch.any(params < 0)
                     for iter in range(max_iterations):
-                        raised_deg_params = deg_incr_mat @ params
+                        raised_deg_params = torch.sparse.mm(di, params)
                         #print(" -- i: ", i, " Raised deg params min val iter: ", iter, " : ", torch.min(raised_deg_params))
                         if torch.all(raised_deg_params >= min_thresh):
-                            self.layers[0][i].copy_(params)
+                            self.layers[0][i].copy_(params.squeeze())
                             feasible = True
 
                             #print("((((((((( min raised deg params b4: ", torch.min(raised_deg_params).item())
@@ -374,11 +356,16 @@ class BernsteinFlowModel(torch.nn.Module):
                             #const_params = self.get_constrained_coeff_tensor(i, layer_i=0).reshape(-1)
                             #rd_params = deg_incr_mat @ const_params.reshape(-1)
                             #print("))))))))) min raised deg params: ", torch.min(rd_params).item())
-                            break
+                            #break
 
                         # Clamp raised degree parameters, then project back to original degree
                         raised_deg_params = torch.clamp(raised_deg_params, min=(min_thresh + tol))
-                        params = getattr(self, f"mpsi_{i}") @ raised_deg_params
+                        #params_test = getattr(self, f"mpsi_{i}") @ raised_deg_params
+                        #print("raised deg params shape: " , raised_deg_params.shape)
+                        params = sparse_cg_projection(di, raised_deg_params)
+                        #print("params test size: ", params_test, " params size: ", params)
+                        #print("err vs mpsi:", torch.max(params_test - params))
+                        #input("...")
                         #print("raised deg params: ", raised_deg_params)
                         #print("infeasible params: ", params)
                         #input("...")
@@ -386,7 +373,7 @@ class BernsteinFlowModel(torch.nn.Module):
                         #params = torch.clamp(params, min=1e-6)
                         #self.layers[0][i].copy_(params)
 
-                        raised_deg_params = deg_incr_mat @ params
+                        raised_deg_params = torch.sparse.mm(di, params)
                         min_val = torch.min(raised_deg_params).item()
                         print(f"Cound not find feasible projection for transformer {i} after {max_iterations} iterations. Min raised degree param {min_val} is below {min_thresh}")
                         #input("...")
