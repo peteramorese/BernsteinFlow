@@ -62,7 +62,7 @@ def cg_projection(A : torch.Tensor, vec : torch.Tensor):
     At_b = torch.sparse.mm(A.t(), vec).cpu().numpy() if sparse else torch.mv(A.t(), vec).cpu().numpy()
 
     lin_op = LinearOperator(shape=(A.shape[1], A.shape[1]), matvec=matvec, dtype=np.float64)
-    x_np, info = cg(lin_op, b=At_b)
+    x_np, info = cg(lin_op, b=At_b, maxiter=50)
 
     return torch.from_numpy(x_np).to(dtype=A.dtype, device=A.device).unsqueeze(1)
 
@@ -180,7 +180,8 @@ class BernsteinFlowModel(torch.nn.Module):
                 layer_input = torch.vstack(next_layer_input).t()
         return density
     
-    def get_constrained_coeff_tensor(self, i : int, layer_i : int = 0):
+    
+    def get_constrained_coeff_tensor(self, i : int, layer_i : int = 0, project_no_grad=False):
 
         # Unconstrained
         param_vec = self.layers[layer_i][i]        
@@ -217,13 +218,19 @@ class BernsteinFlowModel(torch.nn.Module):
         else:
             di = getattr(self, f"deg_incr_{i}")
             raised_deg_param_vec = torch.sparse.mm(di, param_vec.unsqueeze(1)) if di.is_sparse else di @ param_vec.unsqueeze(1)
-            tensor_shape = self.degrees[:input_dim+1] + torch.tensor(self.deg_incr[:input_dim+1]) + 1
-            tensor_shape[input_dim] -= 1
-            coeff_tensor = raised_deg_param_vec.reshape(tuple(tensor_shape))
+            di_tensor_shape = self.degrees[:input_dim+1] + torch.tensor(self.deg_incr[:input_dim+1]) + 1
+            di_tensor_shape[input_dim] -= 1
+            coeff_tensor = raised_deg_param_vec.reshape(tuple(di_tensor_shape))
             normalizing_coeffs = (self.degrees[input_dim] + self.deg_incr[input_dim]) / torch.clamp(coeff_tensor.sum(dim=input_dim, keepdim=False), min=1e-12).unsqueeze(dim=input_dim)
+
 
         constrained_coeffs = coeff_tensor * normalizing_coeffs
 
+        if not self.constrained and project_no_grad:
+            with torch.no_grad():
+                constrained_coeffs_vec = constrained_coeffs.reshape(di.shape[0], 1).detach()
+                constrained_coeffs_vec = cg_projection(di, constrained_coeffs_vec)
+                return constrained_coeffs_vec.reshape(tuple(tensor_shape))
         #di = getattr(self, f"deg_incr_{i}")
         #raised_deg_param_vec = torch.sparse.mm(di, param_vec.unsqueeze(1))
         #minv = torch.min(raised_deg_param_vec)
@@ -286,7 +293,7 @@ class BernsteinFlowModel(torch.nn.Module):
             layer_i_tf_derivs = []
             layer_i_tfs = []
             for i in range(self.dim):
-                tf_deriv_coeffs = self.get_constrained_coeff_tensor(i, layer_i=layer_i).detach().clone()
+                tf_deriv_coeffs = self.get_constrained_coeff_tensor(i, layer_i=layer_i, project_no_grad=True)
                 layer_i_tf_derivs.append(Polynomial(tf_deriv_coeffs, basis=Basis.BERN, dtype=dtype))
 
                 if self.n_layers > 1:
@@ -452,7 +459,39 @@ class BernsteinFlowModel(torch.nn.Module):
         antiderivative_coeffs[tuple(slice_obj)] = sum
 
         return antiderivative_coeffs / (deg + 1)
-    
+
+    #def _project_di_params(self, i : int, di_params : torch.Tensor, max_iterations=50, tol=1e-2, min_thresh=1e-2):
+    #    with torch.no_grad():
+    #        di = getattr(self, f"deg_incr_{i}")
+    #        raised_deg_params = di_params.detach().clone()
+    #        params = cg_projection(di, raised_deg_params)
+    #        for iter in range(max_iterations):
+    #            #print(" -- i: ", i, " Raised deg params min val iter: ", iter, " : ", torch.min(raised_deg_params))
+    #            if torch.all(raised_deg_params >= min_thresh):
+    #                return params, True
+
+    #            # Clamp raised degree parameters, then project back to original degree
+    #            print(f"Projection iteration {iter + 1} / {max_iterations}. Min value: {torch.min(raised_deg_params)} (clamp: {min_thresh + iter * tol}, thresh: {min_thresh})")
+    #            raised_deg_params = torch.clamp(raised_deg_params, min=(min_thresh + iter * tol))
+    #            #params_test = getattr(self, f"mpsi_{i}") @ raised_deg_params
+    #            #print("raised deg params shape: " , raised_deg_params.shape)
+    #            params = cg_projection(di, raised_deg_params)
+    #            di_params = torch.sparse.mm(di, params)
+    #            #print("params test size: ", params_test, " params size: ", params)
+    #            #print("err vs mpsi:", torch.max(params_test - params))
+    #            #input("...")
+    #            #print("raised deg params: ", raised_deg_params)
+    #            #print("infeasible params: ", params)
+    #            #input("...")
+    #        if not feasible:
+    #            #params = torch.clamp(params, min=1e-6)
+    #            #self.layers[0][i].copy_(params)
+
+    #            raised_deg_params = torch.sparse.mm(di, params)
+    #            min_val = torch.min(raised_deg_params).item()
+    #            print(f"Cound not find feasible projection for transformer {i} after {max_iterations} iterations. Min raised degree param {min_val} is below {min_thresh}")
+    #            #input("...")
+    #            return False
 
 
 

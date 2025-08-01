@@ -28,11 +28,11 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 2000
+    n_traj = 20
 
     # Number of training epochs
-    n_epochs_init = 500
-    n_epochs_tran = 50
+    n_epochs_init = 100
+    n_epochs_tran = 5
 
     # Time horizon
     training_timesteps = 10
@@ -76,8 +76,8 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=True)
 
     # Create initial state and transition models
-    degrees = [15, 15]
-    deg_incr = [10, 10]
+    degrees = [10, 10]
+    deg_incr = [13, 13]
     init_state_model = BernsteinFlowModel(dim=dim, 
                                           degrees=degrees, 
                                           dtype=DTYPE, 
@@ -160,8 +160,10 @@ if __name__ == "__main__":
 
 
     # Compute the propagated polynomials
+    print("b4 get")
     init_model_tfs = init_state_model.get_density_factor_polys(dtype=np.float128)
     trans_model_tfs = transition_model.get_density_factor_polys(dtype=np.float128)
+    print("af get")
 
     p_init = poly_product_bernstein_direct(init_model_tfs)
     p_transition = poly_product_bernstein_direct(trans_model_tfs)
