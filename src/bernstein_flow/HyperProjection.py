@@ -4,6 +4,7 @@ from functools import reduce
 import matplotlib.pyplot as plt
 from scipy.linalg import qr
 from scipy.optimize import linprog
+import scipy.sparse as sp
 
 from .Polynomial import Polynomial, Basis
 
@@ -22,7 +23,7 @@ class PolynomialTransformation:
     def vector_length(poly_shape : tuple[int, ...]):
         return np.prod(poly_shape)
 
-def bernstein_raised_degree_tf(pre_shape, post_shape):
+def bernstein_raised_degree_tf(pre_shape, post_shape, sparse=True):
     if len(pre_shape) != len(post_shape):
         raise ValueError("pre_shape and post_shape must have the same length d.")
 
@@ -34,17 +35,34 @@ def bernstein_raised_degree_tf(pre_shape, post_shape):
         if m < n:
             raise ValueError(f"Axis {axis}: target degree m={m} must exceed n={n}.")
         elif m == n: 
-            U = np.eye(n + 1)
+            if sparse:
+                U = sp.eye(n + 1, format='coo')
+            else:
+                U = np.eye(n + 1)
         else:
-            U = np.zeros((m+1, n+1), dtype=float)
-            for i in range(m+1):
-                # Only j up to min(i,n)
-                for j in range(min(i, n)+1):
-                    # And i-j <= m-n automatically holds since i <= m
-                    U[i, j] = comb(n, j) * comb(m-n, i-j) / comb(m, i)
+            if sparse:
+                data, row_ind, col_ind = [], [], []
+                r = m - n  # The degree increase
+                for i in range(m + 1):
+                    # Determine the range of j for non-zero entries: max(0, i-r) <= j <= min(i, n)
+                    start_j = max(0, i - r)
+                    end_j = min(i, n)
+                    for j in range(start_j, end_j + 1):
+                        val = comb(n, j) * comb(r, i - j) / comb(m, i)
+                        data.append(val)
+                        row_ind.append(i)
+                        col_ind.append(j)
+                U = sp.coo_matrix((data, (row_ind, col_ind)), shape=(m + 1, n + 1))
+            else:
+                U = np.zeros((m+1, n+1), dtype=float)
+                for i in range(m+1):
+                    # Only j up to min(i,n)
+                    for j in range(min(i, n)+1):
+                        # And i-j <= m-n automatically holds since i <= m
+                        U[i, j] = comb(n, j) * comb(m-n, i-j) / comb(m, i)
         U_matrices.append(U)
     # Kronecker together: U1 ⊗ U2 ⊗ ... ⊗ Ud
-    A = reduce(lambda X, Y: np.kron(X, Y), U_matrices)
+    A = reduce(lambda X, Y: sp.kron(X, Y, format='csr'), U_matrices) if sparse else reduce(lambda X, Y: np.kron(X, Y), U_matrices) 
     return PolynomialTransformation(A, pre_shape=pre_shape, post_shape=post_shape, pre_basis=Basis.BERN, post_basis=Basis.BERN)
 
 def apply_transformation(p : Polynomial, tf : PolynomialTransformation):
@@ -155,6 +173,8 @@ if __name__ == "__main__":
     new_shape = (120,)
 
     A = bernstein_raised_degree_tf(original_shape, new_shape).A
+    A_dense = bernstein_raised_degree_tf(original_shape, new_shape, sparse=False).A
+    print("eq: ", np.allclose(A.toarray(), A_dense))
 
 
 
@@ -230,6 +250,9 @@ if __name__ == "__main__":
 
     new_shape = tuple(np.array(p_bern.shape()) + 4)
     tf = bernstein_raised_degree_tf(p_bern.shape(), new_shape)
+    A = bernstein_raised_degree_tf(p_bern.shape(), new_shape).A
+    A_dense = bernstein_raised_degree_tf(p_bern.shape(), new_shape, sparse=False).A
+    print("eq: ", np.allclose(A.toarray(), A_dense))
 
     p_bern_raised = apply_transformation(p_bern, tf)
 
