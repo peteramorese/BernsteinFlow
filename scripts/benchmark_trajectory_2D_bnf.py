@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
     # Time horizon
     training_timesteps = 10
-    timesteps = 10
+    timesteps = 15
 
     # Region of integration
     roi = Rectangle(mins=[-1.0, -1.0], maxes=[1.0, 1.0])

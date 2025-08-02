@@ -43,8 +43,8 @@ if __name__ == "__main__":
     grid_resolution = 20
 
     # System model
-    #system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
-    system = BistableOscillator(dt=0.1, a=1.0, d=1.0, cov_scale=0.03)
+    system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
+    #system = BistableOscillator(dt=0.1, a=1.0, d=1.0, cov_scale=0.03)
 
     # Dimension
     dim = system.dim()
@@ -54,11 +54,11 @@ if __name__ == "__main__":
     n_test_traj = 10000
 
     # Number of training epochs
-    n_epochs_tran = 150
+    n_epochs_tran = 50
 
     # Time horizon
     training_timesteps = 10
-    timesteps = 10
+    timesteps = 15
 
     # Region of integration
     roi = Rectangle(mins=[0.0, 0.0], maxes=[2.0, 2.0])
@@ -223,7 +223,7 @@ if __name__ == "__main__":
             json.dump(benchmark_fields, f, indent=4)
 
     def grid():
-        density_gmms = [init_state_model]
+        density_gmms = [init_state_model.make_diagonal()]
         n_mixands = [init_state_model.n_mixands()]
         prop_times = []
         allhs = []

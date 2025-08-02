@@ -46,7 +46,7 @@ if __name__ == "__main__":
     n_data = 2000
 
     # Number of training epochs
-    n_epochs = 500
+    n_epochs = 1000
 
     X_data, _ = make_moons(n_data, noise=0.05)
     test_X_data, _ = make_moons(n_data, noise=0.05)
@@ -77,22 +77,21 @@ if __name__ == "__main__":
     U_data_torch = torch.tensor(U_data, dtype=DTYPE)
     test_X_data_torch = torch.tensor(test_X_data, dtype=DTYPE)
     dataset = TensorDataset(U_data_torch)
-    dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
 
     # Create model
     degree_increases = [0, 10, 20, 40, 80, 160, 300]
-    transformer_degrees = [8, 6]
-    conditioner_degrees = [6, 6]
+    degrees = [10, 10]
     allhs = []
     training_times = []
     for incr in degree_increases: 
-        cond_deg_incr = [incr] * len(conditioner_degrees)
-        model = BernsteinFlowModel(dim=dim, transformer_degrees=transformer_degrees, conditioner_degrees=conditioner_degrees, layers=2, dtype=DTYPE, conditioner_deg_incr=cond_deg_incr)
+        deg_incr = [incr] * 2
+        model = BernsteinFlowModel(dim=dim, degrees=degrees, layers=1, dtype=DTYPE, deg_incr=deg_incr)
 
         # Train
         start = time.time()
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-        optimize(model, dataloader, optimizer, epochs=n_epochs)
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
+        optimize(model, dataloader, optimizer, epochs=n_epochs, train_with_hard_constraint=False, proj_max_iterations=100, proj_tol=1e-4, proj_min_thresh=1e-3)
         training_times.append(time.time() - start)
 
         # Evaluate
@@ -107,8 +106,7 @@ if __name__ == "__main__":
     benchmark_fields["dimension"] = dim
     benchmark_fields["n_data"] = n_data
     benchmark_fields["n_epochs"] = n_epochs
-    benchmark_fields["transformer_degrees"] = transformer_degrees
-    benchmark_fields["conditioner_degrees"] = conditioner_degrees
+    benchmark_fields["degrees"] = degrees
     benchmark_fields["cond_deg_incrs"] = degree_increases
     benchmark_fields["training_times"] = training_times
     benchmark_fields["average_log_likelihood"] = allhs
