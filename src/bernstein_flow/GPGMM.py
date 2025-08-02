@@ -42,6 +42,9 @@ class GMModel:
             prob_mass += weight * np.prod(component_integrals)
         return prob_mass
 
+    def make_diagonal(self):
+        new_covariances = [np.diag(cov) for cov in self.covariances]
+        return GMModel(self.means, new_covariances, self.weights)
 
 def fit_gmm(X, n_components=1, covariance_type='diag', random_state=None):
     X = np.asarray(X)
