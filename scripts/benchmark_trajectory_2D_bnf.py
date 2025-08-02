@@ -54,8 +54,8 @@ if __name__ == "__main__":
     n_epochs_tran = 150
 
     # Time horizon
-    training_timesteps = 10
-    timesteps = 10
+    training_timesteps = 12
+    timesteps = 12
 
     # Region of integration
     roi = Rectangle(mins=[-1.0, -1.0], maxes=[1.0, 1.0])
