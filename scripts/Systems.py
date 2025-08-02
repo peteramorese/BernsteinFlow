@@ -138,6 +138,7 @@ class VanDerPol(DiscreteTimeStochasticSystem):
 
         self.dt = dt
         self.mu = mu
+        self.cov = covariance
 
     def next_state(self, x : np.ndarray, v : np.ndarray):
         x1, x2 = x
@@ -148,6 +149,45 @@ class VanDerPol(DiscreteTimeStochasticSystem):
         x2_next = x2 + self.dt * dx2
 
         return np.array([x1_next, x2_next]) + v
+    
+    # Methods for matching GP model
+    def predict(self, x : np.ndarray):
+        x1, x2 = x.flatten()
+        dx1 = x2
+        dx2 = self.mu * (1 - x1**2) * x2 - x1
+
+        x1_next = x1 + self.dt * dx1
+        x2_next = x2 + self.dt * dx2
+
+        return np.array([x1_next, x2_next]), self.cov
+    
+    def jacobian(self, x : np.ndarray):
+        x1, x2 = x.flatten()
+        mu = self.mu
+        dt = self.dt
+
+        # Partial derivatives
+        dfdx1 = np.array([
+            [1,         dt],
+            [dt * (-2 * mu * x1 * x2 - 1), 1 + dt * mu * (1 - x1**2)]
+        ])
+
+        return dfdx1
+
+
+    def hessian_tensor(self, x : np.ndarray):
+        x1, x2 = x.flatten()
+        mu = self.mu
+        dt = self.dt
+
+        H = np.zeros((2, 2, 2))
+
+
+        H[1, 0, 0] = dt * (-2 * mu * x2)
+        H[1, 0, 1] = dt * (-2 * mu * x1)
+        H[1, 1, 0] = dt * (-2 * mu * x1)
+
+        return H
 
 class VanDerPolMN(DiscreteTimeStochasticSystem):
     def __init__(self, dt : float, mu : float = 1.0, covariance : np.ndarray = np.eye(2)):

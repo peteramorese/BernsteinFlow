@@ -3,11 +3,19 @@ import matplotlib.pyplot as plt
 import json
 
 
+#ag_dens_est_files = [
+#    ("BNF", "./benchmarks/trajectory_2D_bnf_2025y_07m_27d_04h_24m_04s/data.json"),
+#    ("EKF", "./benchmarks/trajectory_2D_ekf_2025y_07m_25d_18h_59m_47s/data.json"),
+#    ("Grid", "./benchmarks/trajectory_2D_grid_2025y_07m_25d_21h_23m_16s/data.json"),
+#]
 ag_dens_est_files = [
-    ("BNF", "./benchmarks/trajectory_2D_bnf_2025y_07m_27d_04h_24m_04s/data.json"),
-    ("EKF", "./benchmarks/trajectory_2D_ekf_2025y_07m_25d_18h_59m_47s/data.json"),
-    ("Grid", "./benchmarks/trajectory_2D_grid_2025y_07m_25d_21h_23m_16s/data.json"),
+    ("BNF", "./benchmarks/trajectory_2D_bnf_2025y_08m_01d_18h_50m_36s/data.json"),
+    ("Grid", "./benchmarks/trajectory_2D_TRUE_grid_2025y_08m_01d_14h_00m_30s/data.json"),
+    ("WSASOS", "./benchmarks/trajectory_2D_TRUE_wsasos_2025y_08m_01d_14h_01m_34s/data.json"),
+    ("EKF", "./benchmarks/trajectory_2D_TRUE_ekf_2025y_08m_01d_14h_00m_30s/data.json"),
 ]
+
+
 
 
 if __name__ == "__main__":
@@ -28,8 +36,9 @@ if __name__ == "__main__":
     for label, allh_values in allh_list:
         ax.plot(allh_values, label=label)
     
-    ax.set_xlabel("Timestep")
-    ax.set_ylabel("Average Test Log-Likelihood")
+    ax.set_xlabel("Timestep", fontsize=15)
+    ax.set_ylabel("Average Log-Likelihood", fontsize=15)
     ax.legend()
 
+    fig.savefig("./figures/data_plot.pdf")
     plt.show()
