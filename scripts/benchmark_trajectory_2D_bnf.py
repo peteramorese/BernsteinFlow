@@ -39,8 +39,8 @@ if __name__ == "__main__":
     benchmark_fields = dict()
 
     # System model
-    system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
-    #system = BistableOscillator(dt=0.1, a=1.0, d=1.0, cov_scale=0.03)
+    #system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
+    system = BistableOscillator(dt=0.1, a=1.0, d=1.0, cov_scale=0.03)
 
     # Dimension
     dim = system.dim()
@@ -54,8 +54,8 @@ if __name__ == "__main__":
     n_epochs_tran = 150
 
     # Time horizon
-    training_timesteps = 12
-    timesteps = 12
+    training_timesteps = 10
+    timesteps = 15
 
     # Region of integration
     roi = Rectangle(mins=[-1.0, -1.0], maxes=[1.0, 1.0])
