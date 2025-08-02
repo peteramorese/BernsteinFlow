@@ -58,7 +58,7 @@ if __name__ == "__main__":
     timesteps = 10
 
     # Region of integration
-    roi = Rectangle(mins=[0.0, 0.0], maxes=[2.0, 2.0])
+    roi = Rectangle(mins=[-1.0, -1.0], maxes=[1.0, 1.0])
 
     def init_state_sampler():
         return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
@@ -111,15 +111,15 @@ if __name__ == "__main__":
     init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
     print("Training initial state model...")
     start = time.time()
-    optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, proj_tol=1e-4, proj_min_thresh=1e-3)
+    optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, proj_max_iterations=200, proj_tol=5e-4, proj_min_thresh=1e-3)
     init_train_time = time.time() - start
     print("Done training initial state model \n")
     init_state_model = init_state_model.to(device=cpu_device)
 
     degrees_t = [20, 20]
-    cond_degrees_t = [15, 15]
-    deg_incr_t = [10, 10]
-    cond_deg_incr_t = [0, 0]
+    cond_degrees_t = [20, 20]
+    deg_incr_t = None #[0, 0]
+    cond_deg_incr_t = None #[0, 0]
     transition_model = ConditionalBernsteinFlowModel(dim=dim, 
                                                      conditional_dim=dim, 
                                                      degrees=degrees_t, 
@@ -134,7 +134,7 @@ if __name__ == "__main__":
     print("Training transition model...")
     start = time.time()
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran, log_buffer_size=30)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran, log_buffer_size=20, proj_max_iterations=200, proj_tol=5e-4, proj_min_thresh=1e-3)
     tran_train_time = time.time() - start
     print("Done training transition model \n")
 
