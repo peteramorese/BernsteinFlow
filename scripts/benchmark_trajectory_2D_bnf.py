@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
     # Time horizon
     training_timesteps = 10
-    timesteps = 15
+    timesteps = 12
 
     # Region of integration
     roi = Rectangle(mins=[-1.0, -1.0], maxes=[1.0, 1.0])
@@ -97,8 +97,8 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=use_gpu)
 
     # Create initial state and transition models
-    degrees_i = [2, 2]
-    deg_incr_i = [4, 4]
+    degrees_i = [25, 25]
+    deg_incr_i = [10, 10]
     init_state_model = BernsteinFlowModel(dim=dim, 
                                           degrees=degrees_i, 
                                           dtype=DTYPE, 
@@ -116,8 +116,8 @@ if __name__ == "__main__":
     print("Done training initial state model \n")
     init_state_model = init_state_model.to(device=cpu_device)
 
-    degrees_t = [2, 2]
-    cond_degrees_t = [2, 2]
+    degrees_t = [25, 25]
+    cond_degrees_t = [25, 25]
     deg_incr_t = None #[0, 0]
     cond_deg_incr_t = None #[0, 0]
     transition_model = ConditionalBernsteinFlowModel(dim=dim, 
