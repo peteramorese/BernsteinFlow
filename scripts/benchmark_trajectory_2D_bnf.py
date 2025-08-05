@@ -98,7 +98,7 @@ if __name__ == "__main__":
 
     # Create initial state and transition models
     degrees_i = [15, 15]
-    deg_incr_i = [10, 10]
+    deg_incr_i = None #[10, 10]
     init_state_model = BernsteinFlowModel(dim=dim, 
                                           degrees=degrees_i, 
                                           dtype=DTYPE, 
