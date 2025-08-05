@@ -82,8 +82,6 @@ if __name__ == "__main__":
         n_mixands_ekf = [init_state_model.n_mixands()]
         prop_times_ekf = []
         allhs_ekf = []
-        #prob_in_roi = []
-        #mc_gt_prob_in_roi = []
         for k in range(1, timesteps):
             start = time.time()
             p_curr = propagate_gpgmm_ekf(density_gmms_ekf[k-1], transition_model)
@@ -94,14 +92,6 @@ if __name__ == "__main__":
             allh = avg_log_likelihood(test_traj_data[k], lambda x : p_curr.density(x))
             print(f" - Average log likelihood: {allh:.3f}")
             allhs_ekf.append(allh)
-
-            ## Compute prob in roi
-            #prob_in_roi_k = p_curr.integrate(roi)
-            #prob_in_roi.append(prob_in_roi_k)
-
-            ## MC "ground truth" prob in roi
-            #mc_gt_prob_in_roi_k = empirical_prob_in_region(test_traj_data[k], roi)
-            #mc_gt_prob_in_roi.append(mc_gt_prob_in_roi_k)
 
             n_mixands_ekf.append(p_curr.n_mixands())
             density_gmms_ekf.append(p_curr)
@@ -128,8 +118,6 @@ if __name__ == "__main__":
         benchmark_fields["n_mixands"] = n_mixands_ekf
         benchmark_fields["prop_times"] = prop_times_ekf
         benchmark_fields["average_log_likelihood"] = allhs_ekf
-        #benchmark_fields["prob_in_roi"] = prob_in_roi
-        #benchmark_fields["mc_gt_prob_in_roi"] = mc_gt_prob_in_roi
 
         experiment_name = f"trajectory_2D_TRUE_ekf_{curr_date_time}"
 
@@ -145,8 +133,6 @@ if __name__ == "__main__":
         n_mixands_wsasos = [init_state_model.n_mixands()]
         prop_times_wsasos = []
         allhs_wsasos = []
-        #prob_in_roi = []
-        #mc_gt_prob_in_roi = []
         for k in range(1, timesteps):
             start = time.time()
             p_curr = propagate_gpgmm_wsasos(density_gmms_wsasos[k-1], transition_model)
@@ -158,14 +144,6 @@ if __name__ == "__main__":
             allh = avg_log_likelihood(test_traj_data[k], lambda x : p_curr.density(x))
             print(f" - Average log likelihood: {allh:.3f}")
             allhs_wsasos.append(allh)
-
-            ## Compute prob in roi
-            #prob_in_roi_k = p_curr.integrate(roi)
-            #prob_in_roi.append(prob_in_roi_k)
-
-            ## MC "ground truth" prob in roi
-            #mc_gt_prob_in_roi_k = empirical_prob_in_region(test_traj_data[k], roi)
-            #mc_gt_prob_in_roi.append(mc_gt_prob_in_roi_k)
 
             n_mixands_wsasos.append(p_curr.n_mixands())
             density_gmms_wsasos.append(p_curr)
@@ -195,8 +173,6 @@ if __name__ == "__main__":
         benchmark_fields["n_mixands"] = n_mixands_wsasos
         benchmark_fields["prop_times"] = prop_times_wsasos
         benchmark_fields["average_log_likelihood"] = allhs_wsasos
-        #benchmark_fields["prob_in_roi"] = prob_in_roi
-        #benchmark_fields["mc_gt_prob_in_roi"] = mc_gt_prob_in_roi
 
         experiment_name = f"trajectory_2D_TRUE_wsasos_{curr_date_time}"
 
@@ -212,8 +188,6 @@ if __name__ == "__main__":
         n_mixands = [init_state_model.n_mixands()]
         prop_times = []
         allhs = []
-        prob_in_roi = []
-        mc_gt_prob_in_roi = []
         for k in range(1, timesteps):
             start = time.time()
             p_curr = propagate_grid_gmm(density_gmms[k-1], transition_model, bounds=x_bounds, resolution=grid_resolution)
@@ -224,14 +198,6 @@ if __name__ == "__main__":
             allh = avg_log_likelihood(test_traj_data[k], lambda x : p_curr.density(x))
             print(f" - Average log likelihood: {allh:.3f}")
             allhs.append(allh)
-
-            # Compute prob in roi
-            prob_in_roi_k = p_curr.integrate(roi)
-            prob_in_roi.append(prob_in_roi_k)
-
-            # MC "ground truth" prob in roi
-            mc_gt_prob_in_roi_k = empirical_prob_in_region(test_traj_data[k], roi)
-            mc_gt_prob_in_roi.append(mc_gt_prob_in_roi_k)
 
             n_mixands.append(p_curr.n_mixands())
             density_gmms.append(p_curr)
@@ -255,8 +221,6 @@ if __name__ == "__main__":
         benchmark_fields["n_mixands"] = n_mixands
         benchmark_fields["prop_times"] = prop_times
         benchmark_fields["average_log_likelihood"] = allhs
-        benchmark_fields["prob_in_roi"] = prob_in_roi
-        benchmark_fields["mc_gt_prob_in_roi"] = mc_gt_prob_in_roi
         benchmark_fields["grid_resolution"] = grid_resolution
 
         experiment_name = f"trajectory_2D_TRUE_grid_{curr_date_time}"

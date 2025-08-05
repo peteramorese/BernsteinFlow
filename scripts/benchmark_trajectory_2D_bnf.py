@@ -152,8 +152,6 @@ if __name__ == "__main__":
     prop_times = []
     mc_aucs = []
     allhs = []
-    prob_in_roi = []
-    mc_gt_prob_in_roi = []
     for k in range(1, timesteps):
         start = time.time()
         p_curr = propagate_bfm([density_polynomials[k-1]], [p_transition])
@@ -165,16 +163,6 @@ if __name__ == "__main__":
         x_allh = avg_log_likelihood(test_traj_data[k], lambda x : gdt.x_density(x, p_curr))
         print(f" - Average log likelihood: {x_allh:.3f}")
         allhs.append(x_allh)
-
-        # Compute prob in roi
-        prob_in_roi_k = integrate(p_curr, u_roi)
-        prob_in_roi.append(prob_in_roi_k)
-
-        # MC "ground truth" prob in roi
-        mc_gt_prob_in_roi_k = empirical_prob_in_region(test_traj_data[k], roi)
-        mc_gt_prob_in_roi.append(mc_gt_prob_in_roi_k)
-
-        print(f" - Evaluation: {prob_in_roi_k:.3f} / MC ground truth evaluation: {mc_gt_prob_in_roi_k:.3f}")
 
         density_polynomials.append(p_curr)
 
@@ -211,9 +199,6 @@ if __name__ == "__main__":
     benchmark_fields["prop_times"] = prop_times
     benchmark_fields["mc_auc"] = mc_aucs
     benchmark_fields["average_log_likelihood"] = allhs
-    benchmark_fields["prob_in_roi"] = prob_in_roi
-    benchmark_fields["mc_gt_prob_in_roi"] = mc_gt_prob_in_roi
-
 
 
     experiment_name = f"trajectory_2D_bnf_{curr_date_time}"

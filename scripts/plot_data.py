@@ -32,17 +32,19 @@ import json
 #    ("BNF (d=30)", "./benchmarks/trajectory_2D_bnf_2025y_07m_28d_20h_45m_17s/data.json", {"linestyle":'-', "color":'black'}),
 #]
 
-nag_bnf_deg_files = [
+ag_bnf_deg_files = [
     ("BNF (d=10)", "./benchmarks/trajectory_2D_bnf_2025y_08m_02d_08h_07m_42s/data.json", {"linestyle":'-', "color":'cyan'}),
+    ("BNF (d=15)", "./benchmarks_backup/trajectory_2D_bnf_2025y_08m_04d_20h_24m_47s/data.json", {"linestyle":'-', "color":'darkturquoise'}),
     ("BNF (d=20)", "./benchmarks_backup/trajectory_2D_bnf_2025y_08m_01d_21h_23m_27s/data.json", {"linestyle":'-', "color":'blue'}),
-    ("BNF (d=25)", "./benchmarks_backup/trajectory_2D_bnf_2025y_08m_02d_04h_00m_43s/data.json", {"linestyle":'-', "color":'blue'}),
+    ("BNF (d=25)", "./benchmarks_backup/trajectory_2D_bnf_2025y_08m_02d_04h_00m_43s/data.json", {"linestyle":'-', "color":'darkslategrey'}),
     ("BNF (d=30)", "./benchmarks/trajectory_2D_bnf_2025y_07m_27d_04h_24m_04s/data.json", {"linestyle":'-', "color":'black'}),
 ]
 
 nag_bnf_deg_files = [
     ("BNF (d=10)", "./benchmarks/trajectory_2D_bnf_2025y_08m_02d_08h_12m_59s/data.json", {"linestyle":'-', "color":'cyan'}),
+    ("BNF (d=15)", "./benchmarks/trajectory_2D_bnf_2025y_08m_05d_03h_14m_38s/data.json", {"linestyle":'-', "color":'darkturquoise'}),
     ("BNF (d=20)", "./benchmarks_backup/trajectory_2D_bnf_2025y_08m_01d_23h_28m_44s/data.json", {"linestyle":'-', "color":'blue'}),
-    ("BNF (d=25)", "./benchmarks_backup/trajectory_2D_bnf_2025y_08m_04d_17h_06m_53s/data.json", {"linestyle":'-', "color":'blue'}),
+    ("BNF (d=25)", "./benchmarks_backup/trajectory_2D_bnf_2025y_08m_04d_17h_06m_53s/data.json", {"linestyle":'-', "color":'darkslategrey'}),
     ("BNF (d=30)", "./benchmarks/trajectory_2D_bnf_2025y_07m_28d_20h_45m_17s/data.json", {"linestyle":'-', "color":'black'}),
 ]
 
@@ -52,7 +54,8 @@ nag_bnf_deg_files = [
 
 if __name__ == "__main__":
 
-    filenames = ag_dens_est_files
+    #filenames = ag_bnf_deg_files
+    filenames = nag_bnf_deg_files
 
     allh_list = []
     for label, file, settings in filenames:
