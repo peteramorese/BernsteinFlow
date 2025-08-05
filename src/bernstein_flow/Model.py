@@ -13,59 +13,6 @@ from scipy.sparse import issparse
 from .Polynomial import Polynomial, Basis, decasteljau_composition
 from .HyperProjection import bernstein_raised_degree_tf
 
-def bernstein_basis_functions(dim : int, degrees : list[int], coefficients : torch.Tensor = None, scale : float = 1.0):
-    """
-    Returns a list of lambdified multivariate Bernstein basis functions and their multi-indices.
-    
-    Args:
-        dim (int): number of variables (dimension)
-        degree (int): Bernstein polynomial degree in each variable
-        coefficients (torch.Tensor): optional coefficients for the basis functions (flattened)
-    
-    Returns:
-        basis_funcs (List[Callable]): List of lambdified basis functions compatible with torch
-        multi_indices (List[Tuple[int]]): Corresponding multi-indices for each basis function
-        x_syms (Tuple[sympy.Symbol]): Tuple of sympy symbols (x0, x1, ..., xd-1)
-    """
-    x_syms = symbols(f'x0:{dim}')
-    degree_ranges = [range(deg + 1) for deg in degrees]
-    multi_indices = list(itertools.product(*degree_ranges))
-    
-    basis_funcs = []
-    for flat_idx, alpha in enumerate(multi_indices):
-        B = 1
-        for i in range(dim):
-            coeff = float(math.comb(degrees[i], alpha[i]))
-            B *= coeff * x_syms[i]**alpha[i] * (1 - x_syms[i])**(degrees[i] - alpha[i])
-        
-        # Incorporate scale/coefficients
-        B *= scale
-        if coefficients is not None:
-            B *= coefficients[flat_idx]
-
-        basis_funcs.append(lambdify(x_syms, B, modules='torch'))
-    
-    return basis_funcs
-
-def cg_projection(A : torch.Tensor, vec : torch.Tensor):
-    sparse = A.is_sparse
-    def matvec(x : np.ndarray):
-        x_tch = torch.from_numpy(x).to(dtype=A.dtype, device=A.device).unsqueeze(1)
-        #product = torch.sparse.mm(A, x_tch)
-        if sparse:
-            y = torch.sparse.mm(A, x_tch)
-            product = torch.sparse.mm(A.t(), y)
-        else:
-            product = A.t() @ A @ x_tch
-        return product.cpu().numpy()
-    
-    At_b = torch.sparse.mm(A.t(), vec).cpu().numpy() if sparse else torch.mv(A.t(), vec).cpu().numpy()
-
-    lin_op = LinearOperator(shape=(A.shape[1], A.shape[1]), matvec=matvec, dtype=np.float64)
-    x_np, info = cg(lin_op, b=At_b, maxiter=50)
-
-    return torch.from_numpy(x_np).to(dtype=A.dtype, device=A.device).unsqueeze(1)
-
 
 class BernsteinFlowModel(torch.nn.Module):
     def __init__(self, dim : int, degrees : list[int], layers : int = 1, deg_incr : list[int] = None, device = None, dtype = torch.float32, sparse_di=True):
@@ -74,12 +21,12 @@ class BernsteinFlowModel(torch.nn.Module):
 
         Args:
             dim : dimension of the support
-            transformer_degrees : dim-length list of degrees for each transformer
-            conditioner_degrees : dim-length list of degrees for each conditioner
+            degrees : dim-length list of degrees for each dimension (applied to all components of g)
             layers : number of compositional layers to use. If `layers == 1`, avoids using compositional operations
-            conditioner_deg_incr : degree increase applied to each conditioner to increase model expressiveness. Slows down training, but does not affect complexity of final polynomial
+            deg_incr : degree increase for each dimension. If None, avoids using deg incr training
             device : device to store tensors on
             dtype : data type of tensors
+            sparse_di : force degree-increase matrices to be stored in sparse format
         """
         super().__init__()
 
@@ -119,7 +66,6 @@ class BernsteinFlowModel(torch.nn.Module):
                 original_shape = (tf_deriv_degrees + 1).tolist()
                 deg_incr_shape = [og_shape + self.deg_incr[j] for j, og_shape in enumerate(original_shape)]
                 di_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape, sparse=sparse_di).A
-                print("DI size: ", di_np.shape)
                 di_np_sparse = issparse(di_np)
 
 
@@ -129,14 +75,12 @@ class BernsteinFlowModel(torch.nn.Module):
                     indices = torch.LongTensor(np.vstack((di_np_coo.row, di_np_coo.col)))
                     shape = torch.Size(di_np_coo.shape)
                     sparse_di_mat = torch.sparse_coo_tensor(indices=indices, values=values, size=shape).to(dtype=self.dtype, device=self.device)
-                    #print("   sparse di mat shape: ", sparse_di_mat.shape)
                     self.register_buffer(f"deg_incr_{i}", sparse_di_mat)
                 else:
                     dense_di_mat = torch.from_numpy(di_np).to(dtype=self.dtype, device=self.device)
                     n_zeros = torch.sum(dense_di_mat == 0).item()
                     sparsity = n_zeros / dense_di_mat.numel()
                     print(f"DI matrix sparsity {sparsity * 100:.2f}%")
-                    #dense_mpsi_mat = torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)
                     if sparsity > 0.7:
                         print("Using sparse matrix for dimension ", i)
                         sparse_di_mat = dense_di_mat.to_sparse_coo()
@@ -144,8 +88,6 @@ class BernsteinFlowModel(torch.nn.Module):
                     else:
                         print("Using dense matrix for dimension ", i)
                         self.register_buffer(f"deg_incr_{i}", dense_di_mat)
-
-                #self.register_buffer(f"mpsi_{i}", torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device))
         
         self.input_dims = list(range(dim))
     
@@ -165,11 +107,10 @@ class BernsteinFlowModel(torch.nn.Module):
                 tf_val = self.transformer_deriv(x, i, layer_i=0)
                 density *= tf_val
         else:
-            assert False, "Not implemented"
+            raise NotImplementedError()
             layer_input = x
             for layer_i in range(len(self.layers)):
                 next_layer_input = []
-                #print("layer input bounds: ", torch.min(layer_input).item(), torch.max(layer_input).item())
                 for i in range(self.dim):
                     tf_val = self.transformer_deriv(layer_input, i, layer_i=layer_i)
                     density *= tf_val
@@ -190,32 +131,17 @@ class BernsteinFlowModel(torch.nn.Module):
             # Make each coefficient positive to ensure invertibility
             param_vec = torch.nn.functional.softplus(param_vec)
 
-        #deg_incr_mat = getattr(self, f"deg_incr_{i}")
-        #rd_params = deg_incr_mat @ param_vec
-        #print("--------- min deg raise: ", torch.min(deg_incr_mat).item())
-        #print("--------- min raised deg params: ", torch.min(rd_params).item())
-
-
-        # Ensure that the antiderivative's range is [0, 1] by ensuring that all coefficients along the antiderivative axis add to the required value
-        #print("Min normalizer: ", torch.min(torch.clamp(coeff_tensor.sum(dim=i, keepdim=True), min=1e-6)).item())
-        #if torch.min(torch.clamp(coeff_tensor.sum(dim=i, keepdim=True), min=1e-12)).item() < 0.0:
-        #    print("NORMALIZER NEGATIVE")
-        #    assert False
         input_dim = self.input_dims[i]
-        #if self.constrained:
 
-        #print("input dim: ", input_dim)
-        # Reshape to coefficient tensor
         tensor_shape = self.degrees[:input_dim+1] + 1
         tensor_shape[input_dim] -= 1
         coeff_tensor = param_vec.reshape(tuple(tensor_shape))
-        #print("min normalizer: ", torch.min(coeff_tensor.sum(dim=input_dim, keepdim=True)).item())
-        #normalizing_coeffs = self.degrees[input_dim] / coeff_tensor.sum(dim=input_dim, keepdim=True)
         
         
         if self.constrained:
             normalizing_coeffs = self.degrees[input_dim] / coeff_tensor.sum(dim=input_dim, keepdim=True)
         else:
+            # Perform normalization in the raised degree space for better numerical stability
             di = getattr(self, f"deg_incr_{i}")
             raised_deg_param_vec = torch.sparse.mm(di, param_vec.unsqueeze(1)) if di.is_sparse else di @ param_vec.unsqueeze(1)
             di_tensor_shape = self.degrees[:input_dim+1] + torch.tensor(self.deg_incr[:input_dim+1]) + 1
@@ -231,44 +157,6 @@ class BernsteinFlowModel(torch.nn.Module):
                 constrained_coeffs_vec = constrained_coeffs.reshape(di.shape[0], 1).detach()
                 constrained_coeffs_vec = cg_projection(di, constrained_coeffs_vec)
                 return constrained_coeffs_vec.reshape(tuple(tensor_shape))
-        #di = getattr(self, f"deg_incr_{i}")
-        #raised_deg_param_vec = torch.sparse.mm(di, param_vec.unsqueeze(1))
-        #minv = torch.min(raised_deg_param_vec)
-        #if minv < 0.0:
-        #    print("min raised deg: ", minv)
-        #    input("...")
-
-        #else:
-        #    # Reshape to raised degree coefficient tensor
-        #    #deg_incr_mat = getattr(self, f"deg_incr_{i}")
-        #    di = getattr(self, f"deg_incr_{i}")
-        #    mpsi = getattr(self, f"mpsi_{i}")
-        #    #print("Deg incr mat shape: ", deg_incr_mat.shape, " param vec shape: ", param_vec.shape)
-        #    #print("param vec shape: ", param_vec.shape, " di shape: ", di.shape)
-        #    raised_deg_param_vec = torch.sparse.mm(di, param_vec.unsqueeze(1))
-        #    #raised_deg_param_vec = deg_incr_mat @ param_vec
-        #    original_shape = raised_deg_param_vec.shape
-        #    tensor_shape = self.degrees[:input_dim+1] + torch.tensor(self.deg_incr[:input_dim+1]) + 1
-        #    tensor_shape[input_dim] -= 1
-        #    coeff_tensor = raised_deg_param_vec.reshape(tuple(tensor_shape))
-        #    constrained_coeffs = (self.degrees[input_dim] + self.deg_incr[input_dim]) * coeff_tensor / torch.clamp(coeff_tensor.sum(dim=input_dim, keepdim=True), min=1e-12)
-        #    constrained_coeffs = constrained_coeffs.reshape(original_shape)
-
-        #    #orig_deg_params = mpsi @ constrained_coeffs.reshape(-1)
-        #    #orig_deg_params = torch.linalg.lstsq(di, constrained_coeffs.reshape(-1)).solution.squeeze()
-        #    orig_deg_params = mpsi @ constrained_coeffs.reshape(-1)
-
-        #    tensor_shape = self.degrees[:input_dim+1] + 1
-        #    tensor_shape[input_dim] -= 1
-        #    constrained_coeffs = orig_deg_params.reshape(tuple(tensor_shape))
-
-        #constrained_coeffs = self.degrees[i] * torch.nn.functional.softmax(coeff_tensor, dim=i)
-
-        #params = constrained_coeffs.reshape(-1)
-        #rd_params = deg_incr_mat @ params
-        #print("+++++++++ min raised deg params: ", torch.min(rd_params).item())
-
-
         return constrained_coeffs
 
     def transformer_deriv(self, x : torch.Tensor, i : int, layer_i : int = 0):
@@ -307,11 +195,10 @@ class BernsteinFlowModel(torch.nn.Module):
         if self.n_layers == 1:
             return decomposed_tf_derivs[0]
         else:
-            assert False, "Not implemented"
+            raise NotImplementedError()
             factors = decomposed_tf_derivs[0]
             input_polynomial_vec = decomposed_tfs[0]
             for layer_i in range(1, self.n_layers):
-                #prev_layer_vector = factors[(layer_i-1)*self.dim:(layer_i)*self.dim]
                 curr_layer_tf_derivs = decomposed_tf_derivs[layer_i]
                 for i, p in enumerate(curr_layer_tf_derivs):
                     print("p dim: ", p.dim(), " l q vec: ", len(input_polynomial_vec[:i+1]))
@@ -323,7 +210,6 @@ class BernsteinFlowModel(torch.nn.Module):
                     curr_layer_tfs = decomposed_tfs[layer_i]
                     for i, p in enumerate(curr_layer_tfs):
                         print("p dim: ", p.dim(), " l q vec: ", len(input_polynomial_vec[:i+1]))
-                        #print("q dims: ", [q.dim() for q in prev_layer_vector[:i+1]])
                         input_polynomial_vec[i] = decasteljau_composition(p, input_polynomial_vec[:i+1])
             return factors
 
@@ -342,13 +228,9 @@ class BernsteinFlowModel(torch.nn.Module):
             for i in range(self.dim):
                 deg_incr_mat = getattr(self, f"deg_incr_{i}")
                 params = self.layers[0][i]
-                #print("min params: ", torch.min(params).item())
                 raised_deg_params = deg_incr_mat @ params
-                #print("min rd params: ", torch.min(raised_deg_params).item())
                 violation = torch.clamp(-raised_deg_params, min=0.0)
-                #print("violatioon: ", torch.sum(violation))
                 penalty += torch.sum(violation**2 + violation)
-                #input("...")
 
             loss = -log_density.mean() + penalty
             return loss
@@ -363,41 +245,22 @@ class BernsteinFlowModel(torch.nn.Module):
                     params = self.layers[0][i].detach().clone().unsqueeze(1)
                     feasible = False
 
-                    #params_nonpos = torch.any(params < 0)
                     for iter in range(max_iterations):
                         raised_deg_params = torch.sparse.mm(di, params)
-                        #print(" -- i: ", i, " Raised deg params min val iter: ", iter, " : ", torch.min(raised_deg_params))
                         if torch.all(raised_deg_params >= min_thresh):
                             self.layers[0][i].copy_(params.squeeze())
                             feasible = True
-
-                            #print("((((((((( min raised deg params b4: ", torch.min(raised_deg_params).item())
-                            ##const_params = self.layers[0][i].detach().clone()
-                            #const_params = self.get_constrained_coeff_tensor(i, layer_i=0).reshape(-1)
-                            #rd_params = deg_incr_mat @ const_params.reshape(-1)
-                            #print("))))))))) min raised deg params: ", torch.min(rd_params).item())
                             break
 
                         # Clamp raised degree parameters, then project back to original degree
                         print(f"Projection iteration {iter + 1} / {max_iterations}. Min value: {torch.min(raised_deg_params)} (clamp: {min_thresh + iter * tol}, thresh: {min_thresh})")
                         raised_deg_params = torch.clamp(raised_deg_params, min=(min_thresh + iter * tol))
-                        #params_test = getattr(self, f"mpsi_{i}") @ raised_deg_params
-                        #print("raised deg params shape: " , raised_deg_params.shape)
                         params = cg_projection(di, raised_deg_params)
-                        #print("params test size: ", params_test, " params size: ", params)
-                        #print("err vs mpsi:", torch.max(params_test - params))
-                        #input("...")
-                        #print("raised deg params: ", raised_deg_params)
-                        #print("infeasible params: ", params)
-                        #input("...")
                     if not feasible:
-                        #params = torch.clamp(params, min=1e-6)
-                        #self.layers[0][i].copy_(params)
 
                         raised_deg_params = torch.sparse.mm(di, params)
                         min_val = torch.min(raised_deg_params).item()
                         print(f"Cound not find feasible projection for transformer {i} after {max_iterations} iterations. Min raised degree param {min_val} is below {min_thresh}")
-                        #input("...")
                         return False
         return True
     
@@ -406,7 +269,6 @@ class BernsteinFlowModel(torch.nn.Module):
             raise ValueError("Model was not given degree increase")
         deg_incr_mat = getattr(self, f"deg_incr_{i}")
         with torch.no_grad():
-            #params = self.layers[layer_i][i].detach().clone()
             params = self.get_constrained_coeff_tensor(i, layer_i=layer_i).reshape(-1)
         raised_deg_params = deg_incr_mat @ params
 
@@ -460,40 +322,6 @@ class BernsteinFlowModel(torch.nn.Module):
 
         return antiderivative_coeffs / (deg + 1)
 
-    #def _project_di_params(self, i : int, di_params : torch.Tensor, max_iterations=50, tol=1e-2, min_thresh=1e-2):
-    #    with torch.no_grad():
-    #        di = getattr(self, f"deg_incr_{i}")
-    #        raised_deg_params = di_params.detach().clone()
-    #        params = cg_projection(di, raised_deg_params)
-    #        for iter in range(max_iterations):
-    #            #print(" -- i: ", i, " Raised deg params min val iter: ", iter, " : ", torch.min(raised_deg_params))
-    #            if torch.all(raised_deg_params >= min_thresh):
-    #                return params, True
-
-    #            # Clamp raised degree parameters, then project back to original degree
-    #            print(f"Projection iteration {iter + 1} / {max_iterations}. Min value: {torch.min(raised_deg_params)} (clamp: {min_thresh + iter * tol}, thresh: {min_thresh})")
-    #            raised_deg_params = torch.clamp(raised_deg_params, min=(min_thresh + iter * tol))
-    #            #params_test = getattr(self, f"mpsi_{i}") @ raised_deg_params
-    #            #print("raised deg params shape: " , raised_deg_params.shape)
-    #            params = cg_projection(di, raised_deg_params)
-    #            di_params = torch.sparse.mm(di, params)
-    #            #print("params test size: ", params_test, " params size: ", params)
-    #            #print("err vs mpsi:", torch.max(params_test - params))
-    #            #input("...")
-    #            #print("raised deg params: ", raised_deg_params)
-    #            #print("infeasible params: ", params)
-    #            #input("...")
-    #        if not feasible:
-    #            #params = torch.clamp(params, min=1e-6)
-    #            #self.layers[0][i].copy_(params)
-
-    #            raised_deg_params = torch.sparse.mm(di, params)
-    #            min_val = torch.min(raised_deg_params).item()
-    #            print(f"Cound not find feasible projection for transformer {i} after {max_iterations} iterations. Min raised degree param {min_val} is below {min_thresh}")
-    #            #input("...")
-    #            return False
-
-
 
 class ConditionalBernsteinFlowModel(BernsteinFlowModel):
     def __init__(self, dim : int, 
@@ -538,7 +366,6 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
             tf_deriv_degrees[i + self.cond_dim] -= 1
 
             poly_size = torch.prod(tf_deriv_degrees + 1).item()
-            print("poly size: ", i, " : ", poly_size)
 
             for param_list in self.layers:
                 unconstrained_param_mat = torch.nn.Parameter(torch.rand(poly_size, dtype=self.dtype, device=self.device)) 
@@ -547,12 +374,8 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
             if self.deg_incr is not None:
 
                 original_shape = (tf_deriv_degrees + 1).tolist()
-                print("og shape: " ,original_shape)
-                print("deg incr: ", self.deg_incr)
                 deg_incr_shape = [og_shape + self.deg_incr[j] for j, og_shape in enumerate(original_shape)]
-                print("incr shape: " ,deg_incr_shape)
                 di_np = bernstein_raised_degree_tf(original_shape, deg_incr_shape, sparse=sparse_di).A
-                print("DI size: ", di_np.shape)
                 di_np_sparse = issparse(di_np)
 
                 if di_np_sparse:
@@ -561,14 +384,12 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
                     indices = torch.LongTensor(np.vstack((di_np_coo.row, di_np_coo.col)))
                     shape = torch.Size(di_np_coo.shape)
                     sparse_di_mat = torch.sparse_coo_tensor(indices=indices, values=values, size=shape).to(dtype=self.dtype, device=self.device)
-                    #print("   sparse di mat shape: ", sparse_di_mat.shape)
                     self.register_buffer(f"deg_incr_{i}", sparse_di_mat)
                 else:
                     dense_di_mat = torch.from_numpy(di_np).to(dtype=self.dtype, device=self.device)
                     n_zeros = torch.sum(dense_di_mat == 0).item()
                     sparsity = n_zeros / dense_di_mat.numel()
                     print(f"DI matrix sparsity {sparsity * 100:.2f}%")
-                    #dense_mpsi_mat = torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)
                     if sparsity > 0.7:
                         print("Using sparse matrix for dimension ", i)
                         sparse_di_mat = dense_di_mat.to_sparse_coo()
@@ -577,9 +398,6 @@ class ConditionalBernsteinFlowModel(BernsteinFlowModel):
                         print("Using dense matrix for dimension ", i)
                         self.register_buffer(f"deg_incr_{i}", dense_di_mat)
 
-                #self.register_buffer(f"deg_incr_{i}", torch.from_numpy(deg_incr_matrix_np).to(dtype=self.dtype, device=self.device))
-                #self.register_buffer(f"mpsi_{i}", torch.from_numpy(np.linalg.pinv(deg_incr_matrix_np)).to(dtype=self.dtype, device=self.device)) # Left psuedo-inverse
-        
         self.input_dims = list(range(conditional_dim, conditional_dim + dim))
 
 
@@ -625,7 +443,6 @@ def optimize(model, data_loader : DataLoader, optimizer, epochs=100, train_with_
         total_loss = 0.0
         for x_batch in data_loader:
             x_batch = x_batch[0].to(next(model.parameters()).device)
-            #print("x_batch device: ",x_batch.device) 
             loss = train_step(model, x_batch, optimizer, hard_constraint=train_with_hard_constraint)
             total_loss += loss
         avg_loss = total_loss / len(data_loader)
