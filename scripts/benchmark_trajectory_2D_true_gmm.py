@@ -38,7 +38,7 @@ if __name__ == "__main__":
 
     benchmark_fields = dict()
 
-    max_mixands = 5000
+    max_mixands = 4000
     max_time = 2000
     grid_resolution = 20
 
@@ -58,7 +58,7 @@ if __name__ == "__main__":
 
     # Time horizon
     training_timesteps = 10
-    timesteps = 10
+    timesteps = 15
 
     # Region of integration
     roi = Rectangle(mins=[0.0, 0.0], maxes=[2.0, 2.0])
@@ -151,6 +151,7 @@ if __name__ == "__main__":
             start = time.time()
             p_curr = propagate_gpgmm_wsasos(density_gmms_wsasos[k-1], transition_model)
             prop_times_wsasos.append(time.time() - start)
+            n_mixands = p_curr.n_mixands()
             print(f"Computed p(x{k}) (WSASOS) in {prop_times_wsasos[-1]:.2f} seconds. Number of components: ", p_curr.n_mixands())
 
             # Compute the log likelihood
@@ -169,7 +170,7 @@ if __name__ == "__main__":
             n_mixands_wsasos.append(p_curr.n_mixands())
             density_gmms_wsasos.append(p_curr)
 
-            if (density_gmms_wsasos[-1].n_mixands() > max_mixands) or (prop_times_wsasos[-1] > max_time):
+            if (p_curr.n_mixands() > max_mixands) or (prop_times_wsasos[-1] > max_time):
                 break
 
         # WSASOS
