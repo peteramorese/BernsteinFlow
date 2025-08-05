@@ -158,7 +158,7 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
     if k == 0:
         raise ValueError("trajectory_data must be a non-empty list")
 
-    scatter_size = 8
+    scatter_size = 15
     all_data = np.vstack(trajectory_data)
 
     if bounds is not None:

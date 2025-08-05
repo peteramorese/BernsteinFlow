@@ -39,8 +39,8 @@ if __name__ == "__main__":
     benchmark_fields = dict()
 
     # System model
-    #system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
-    system = BistableOscillator(dt=0.1, a=1.0, d=1.0, cov_scale=0.03)
+    system = VanDerPol(dt=0.3, mu=0.9, covariance=0.1 * np.eye(2))
+    #system = BistableOscillator(dt=0.1, a=1.0, d=1.0, cov_scale=0.03)
 
     # Dimension
     dim = system.dim()
@@ -50,8 +50,8 @@ if __name__ == "__main__":
     n_test_traj = 10000
 
     # Number of training epochs
-    n_epochs_init = 3000
-    n_epochs_tran = 150
+    n_epochs_init = 2#3000
+    n_epochs_tran = 2#150
 
     # Time horizon
     training_timesteps = 10
@@ -97,8 +97,8 @@ if __name__ == "__main__":
     Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=use_gpu)
 
     # Create initial state and transition models
-    degrees_i = [20, 20]
-    deg_incr_i = [40, 40]
+    degrees_i = [2, 2]
+    deg_incr_i = [4, 4]
     init_state_model = BernsteinFlowModel(dim=dim, 
                                           degrees=degrees_i, 
                                           dtype=DTYPE, 
@@ -116,8 +116,8 @@ if __name__ == "__main__":
     print("Done training initial state model \n")
     init_state_model = init_state_model.to(device=cpu_device)
 
-    degrees_t = [20, 20]
-    cond_degrees_t = [20, 20]
+    degrees_t = [2, 2]
+    cond_degrees_t = [2, 2]
     deg_incr_t = None #[0, 0]
     cond_deg_incr_t = None #[0, 0]
     transition_model = ConditionalBernsteinFlowModel(dim=dim, 

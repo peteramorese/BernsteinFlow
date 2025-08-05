@@ -46,13 +46,13 @@ if __name__ == "__main__":
     n_data = 2000
 
     # Number of training epochs
-    n_epochs = 1000
+    n_epochs = 400
 
     X_data, _ = make_moons(n_data, noise=0.05)
     test_X_data, _ = make_moons(n_data, noise=0.05)
     #X_data, _ = make_circles(n_data, noise=0.1, factor=0.4)
 
-    gdt = GaussianDistTransform.moment_match_data(X_data, variance_pads=[0.5] * dim)
+    gdt = GaussianDistTransform.moment_match_data(X_data, variance_pads=[0.0] * dim)
     
     U_data = gdt.X_to_U(X_data)
 
@@ -80,7 +80,7 @@ if __name__ == "__main__":
     dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
 
     # Create model
-    degree_increases = [0, 10, 20, 40, 80, 160, 300]
+    degree_increases = [0, 10, 20, 40, 80]
     degrees = [10, 10]
     allhs = []
     training_times = []

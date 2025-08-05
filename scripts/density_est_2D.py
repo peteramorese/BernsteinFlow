@@ -26,40 +26,48 @@ if __name__ == "__main__":
     n_data = 2000
 
     # Number of training epochs
-    n_epochs = 100
+    n_epochs = 1000
 
     #gdt = GaussianDistTransform(mean=[0.5, 0.25], variances=[1.0, 0.5])
 
-    means = [[-1.5, -1.5], [1.5, 1.5]]
-    covariances = [torch.eye(dim)*1.5, torch.eye(dim)*0.5]
-    #X_data = sample_modal_gaussian(n_data, means=means, covariances=covariances, weights=[.3, .7])
+    means = [[-2, -2], [2, 2], [-2, 2]]
+    covariances = [torch.eye(dim)*1.5, torch.eye(dim)*0.5, torch.eye(dim)*0.5]
+    X_data = sample_modal_gaussian(n_data, means=means, covariances=covariances, weights=[.4, .3, 0.3])
+    X_data_test = sample_modal_gaussian(n_data, means=means, covariances=covariances, weights=[.4, .3, 0.3])
 
-    X_data, _ = make_moons(n_data, noise=0.05)
-    X_data_test, _ = make_moons(n_data, noise=0.05)
+    #X_data, _ = make_moons(n_data, noise=0.05)
+    #X_data_test, _ = make_moons(n_data, noise=0.05)
     #X_data, _ = make_circles(n_data, noise=0.1, factor=0.4)
 
-    gdt = GaussianDistTransform.moment_match_data(X_data, variance_pads=[0.5] * dim)
+    #gdt = GaussianDistTransform.moment_match_data(X_data, variance_pads=[0.0] * dim)
+
+    #gdt = GaussianDistTransform(means=[0.0, 2.0], variances=[2.0, 2.0])
+    gdt = GaussianDistTransform.moment_match_data(X_data, variance_pads=[0.0] * dim)
     U_data = gdt.X_to_U(X_data)
     U_data_test = gdt.X_to_U(X_data_test)
 
-    fig, axes = plt.subplots(2, 2)
-    fig.set_figheight(9)
-    fig.set_figwidth(9)
-    for ax in axes.flat:
+    #fig, axes = plt.subplots(2, 2)
+    figs = [plt.figure() for _ in range(4)]
+    axes = [fig.gca() for fig in figs]
+    #fig.set_figheight(9)
+    #fig.set_figwidth(9)
+    for ax in axes:
+        ax.set_xticks([])
+        ax.set_yticks([])
         ax.set_aspect('equal')
 
-    plot_data_2D(axes[0, 0], X_data)
-    axes[0, 0].set_xlabel("x0")
-    axes[0, 0].set_ylabel("x1")
-    axes[0, 0].set_title("Data")
+    plot_data_2D(axes[0], X_data)
+    #axes[0].set_xlabel("x0")
+    #axes[0].set_ylabel("x1")
+    #axes[0].set_title("Data")
 
 
-    plot_data_2D(axes[0, 1], U_data)
-    axes[0, 1].set_xlim((0, 1))
-    axes[0, 1].set_ylim((0, 1))
-    axes[0, 1].set_xlabel("u0")
-    axes[0, 1].set_ylabel("u1")
-    axes[0, 1].set_title("Erf-space Data")
+    plot_data_2D(axes[1], U_data)
+    axes[1].set_xlim((0, 1))
+    axes[1].set_ylim((0, 1))
+    #axes[1].set_xlabel("u0")
+    #axes[1].set_ylabel("u1")
+    #axes[1].set_title("Erf-space Data")
 
     #plt.show(block=False)
     #input("Continue to training...")
@@ -71,7 +79,7 @@ if __name__ == "__main__":
     dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
 
     # Create model
-    degrees = [10, 10]
+    degrees = [15, 15]
     deg_incr = None #[40, 40]
     model = BernsteinFlowModel(dim=dim, degrees=degrees, layers=1, dtype=DTYPE, deg_incr=deg_incr)
 
@@ -113,35 +121,35 @@ if __name__ == "__main__":
         #print("Min raised deg params: ", [torch.min(raised_deg_params[i]) for i in range(model.dim)])
 
 
-    bounds = axes[0, 0].get_xlim() + axes[0, 0].get_ylim()
+    bounds = axes[0].get_xlim() + axes[0].get_ylim()
     X0, X1, Z_x = grid_eval(model_x_eval, bounds, resolution=100, dtype=DTYPE)
-    plot_density_2D(axes[1, 0], X0, X1, Z_x)
-    axes[1, 0].set_xlabel("x0")
-    axes[1, 0].set_ylabel("x1")
-    axes[1, 0].set_title("Feature-space PDF")
+    plot_density_2D(axes[2], X0, X1, Z_x)
+    #axes[2].set_xlabel("x0")
+    #axes[2].set_ylabel("x1")
+    #axes[2].set_title("Feature-space PDF")
 
     u_bounds = [0.0, 1.0, 0.0, 1.0]
     U0, U1, Z_u = grid_eval(model_u_eval, u_bounds, resolution=100, dtype=DTYPE)
-    plot_density_2D(axes[1, 1], U0, U1, Z_u)
-    axes[1, 1].set_xlabel("u0")
-    axes[1, 1].set_ylabel("u1")
-    axes[1, 1].set_title("Erf-space PDF")
+    plot_density_2D(axes[3], U0, U1, Z_u)
+    #axes[3].set_xlabel("u0")
+    #axes[3].set_ylabel("u1")
+    #axes[3].set_title("Erf-space PDF")
 
 
-    fig2 = plt.figure()
-    ax3d_x = fig2.add_subplot(131, projection='3d')
-    plot_density_2D_surface(ax3d_x, X0, X1, Z_x)
-    ax3d_x.set_xlabel("x0")
-    ax3d_x.set_ylabel("x1")
-    ax3d_x.set_zlabel("p(x)")
-    ax3d_x.set_title("Feature-space PDF")
+    #fig2 = plt.figure()
+    #ax3d_x = fig2.add_subplot(131, projection='3d')
+    #plot_density_2D_surface(ax3d_x, X0, X1, Z_x)
+    #ax3d_x.set_xlabel("x0")
+    #ax3d_x.set_ylabel("x1")
+    #ax3d_x.set_zlabel("p(x)")
+    #ax3d_x.set_title("Feature-space PDF")
 
-    ax3d_u = fig2.add_subplot(132, projection='3d')
-    plot_density_2D_surface(ax3d_u, U0, U1, Z_u)
-    ax3d_u.set_xlabel("u0")
-    ax3d_u.set_ylabel("u1")
-    ax3d_u.set_zlabel("p(u)")
-    ax3d_u.set_title("Erf-space PDF")
+    #ax3d_u = fig2.add_subplot(132, projection='3d')
+    #plot_density_2D_surface(ax3d_u, U0, U1, Z_u)
+    #ax3d_u.set_xlabel("u0")
+    #ax3d_u.set_ylabel("u1")
+    #ax3d_u.set_zlabel("p(u)")
+    #ax3d_u.set_title("Erf-space PDF")
 
     # DEBUG
     #raised_deg_params = [model.get_raised_degree_params(i) for i in range(model.dim)]
@@ -167,22 +175,23 @@ if __name__ == "__main__":
     #print("raised values: ", p_prod_raised(x))
 
 
-    u_bounds = [0.0, 1.0, 0.0, 1.0]
-    ax3d_u = fig2.add_subplot(133, projection='3d')
-    plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : p_prod(u), u_bounds, dtype=np.float128))
-    #plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : sum([p_prod(u) for p_prod in p_prod_terms]), u_bounds, dtype=np.float128))
-    ax3d_u.set_xlabel("u0")
-    ax3d_u.set_ylabel("u1")
-    ax3d_u.set_zlabel("p(u)")
-    ax3d_u.set_title("Composed Polynomial Erf-space PDF")
+    #u_bounds = [0.0, 1.0, 0.0, 1.0]
+    #ax3d_u = fig2.add_subplot(133, projection='3d')
+    #plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : p_prod(u), u_bounds, dtype=np.float128))
+    ##plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : sum([p_prod(u) for p_prod in p_prod_terms]), u_bounds, dtype=np.float128))
+    #ax3d_u.set_xlabel("u0")
+    #ax3d_u.set_ylabel("u1")
+    #ax3d_u.set_zlabel("p(u)")
+    #ax3d_u.set_title("Composed Polynomial Erf-space PDF")
 
 
     ## Plot transformers
-    interactive_transformer_plot(model, dim, dtype=DTYPE)
+    #interactive_transformer_plot(model, dim, dtype=DTYPE)
     ##fig3, axes, sliders = interactive_transformer_plot(model, dim, dtype=DTYPE)
 
     #fig.savefig("./figures/density_est_2D.png")
 
-
+    for i, fig in enumerate(figs):
+        fig.savefig(f"./figures/fig_{i}.pdf")
 
     plt.show()
