@@ -201,7 +201,6 @@ class VanDerPolMN(DiscreteTimeStochasticSystem):
         """
         def noise():
             return stats.multivariate_normal.rvs(mean=np.ones(2), cov=covariance)
-            #return stats.beta.rvs(a=2, b=2, loc=0.5, scale=scale, size=2)
 
         super().__init__(dim=2, v_dist=noise)
 
@@ -235,8 +234,6 @@ class LotkaVolterra(DiscreteTimeStochasticSystem):
         def v_dist():
             v_pop = stats.multivariate_normal.rvs(mean=np.zeros(2), cov=covariance)
             return v_pop
-            #v_alpha = stats.beta.rvs(a=2, b=5, loc=0.7, scale=np.sqrt(alpha_scale))
-            #return np.append(v_pop, v_alpha)
         
         super().__init__(dim=2, v_dist=v_dist)
 
@@ -260,7 +257,6 @@ class BistableOscillator(DiscreteTimeStochasticSystem):
 
         n_components = 2
         means = [np.array([0.0, 0.0]), 0.5 * np.array([1.0, 1.0])]
-        #means = [np.array([0.5, 0.5]), 2.0 * np.array([1.2, 1.2])]
         covariances = [cov_scale * np.array([[1.0, 0.2], [0.2, 1.0]]), cov_scale * np.array([[1.0, -0.2], [-0.2, 1.0]])]
         def v_dist():
             component = np.random.choice(n_components, size=1, p=[0.6, 0.4])[0]

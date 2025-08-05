@@ -40,14 +40,13 @@ if __name__ == "__main__":
 
     def init_state_sampler():
         mode = np.random.randint(0, 2)
-        #return float(mode) * norm.rvs(loc=np.array([1.0]), scale = 1.2) + (1.0 - float(mode)) * norm.rvs(loc=np.array([-1.0]), scale = 1.2)
         return float(mode) * norm.rvs(loc=np.array([1.5]), scale = 0.5) + (1.0 - float(mode)) * norm.rvs(loc=np.array([-1.5]), scale = 0.5)
 
 
     io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-10.0], region_uppers=[10.0])
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
-    #interactive_state_distribution_plot_1D(traj_data, bins=60)
+    #interactive_state_distribution_plot_1D(traj_data, bins=60) # To visualize the MC samples
 
     # Moment match the GDT to all of the data over the whole horizon
     gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[0.2])
@@ -63,51 +62,6 @@ if __name__ == "__main__":
     U0_data = gdt.X_to_U(X0_data) # Initial state data
     Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data 
     Up_io_data = np.hstack([gdt.X_to_U(io_data[:, :dim]), gdt.X_to_U(io_data[:, dim:])])
-    #Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data 
-
-    #fig = plt.figure()
-    ##plot_data_2D(fig.gca(), Up_io_data)
-    #plot_data_2D(fig.gca(), Up_data)
-
-    #def plot_conditional_histograms(u_up_data : np.ndarray, n_intervals = 10, bins=30):
-    #    u = u_up_data[:, 0]
-    #    up = u_up_data[:, 1]
-
-    #    # Define bin edges for x intervals
-    #    x_edges = np.linspace(0.01, 0.99, n_intervals + 1)
-
-    #    fig, axes = plt.subplots(1, n_intervals, sharey=True)
-
-    #    if n_intervals == 1:
-    #        axes = [axes]  # ensure it's iterable
-
-    #    for i in range(n_intervals):
-    #        u_min, u_max = x_edges[i], x_edges[i+1]
-    #        mask = (u >= u_min) & (u < u_max) if i < n_intervals - 1 else (u >= u_min) & (u <= u_max)
-    #        up_subset = up[mask]
-
-    #        ax = axes[i]
-    #        ax.hist(up_subset, bins=bins, density=True, alpha=0.7, color='skyblue', edgecolor='black')
-    #        ax.set_title(f'{u_min:.2f} < u < {u_max:.2f}')
-    #        ax.set_xlabel('y') 
-
-    #        Up = np.linspace(0.01, 0.99, 100).reshape(-1, 1)
-    #        u_mid = (u_min + u_max) / 2
-    #        x_mid = gdt.u_to_x(u_mid)
-    #        def true_xp_density(xp):
-    #            return system.transition_likelihood(x_mid * np.ones_like(xp), xp)
-    #        Z_true = gdt.u_density(Up, true_xp_density)
-    #        ax.plot(Up, Z_true, color='green', linestyle='--')
-
-    #        if i == 0:
-    #            ax.set_ylabel('Density')
-
-    #    plt.tight_layout()
-    #    #plt.show()
-    #plot_conditional_histograms(Up_io_data, 9)
-    #plt.show()
-
-    #input("Continue to training...")
 
     # Create data loader
     U0_data_torch = torch.tensor(U0_data, dtype=DTYPE)
@@ -126,12 +80,8 @@ if __name__ == "__main__":
 
     degrees = [40]
     cond_degrees = [40]
-    deg_incr = [40]
-    cond_deg_incr = [40]
-    #degrees = [10, 8]
-    #cond_degrees = [10, 6]
-    #deg_incr = [10, 9]
-    #cond_deg_incr = [10, 9]
+    deg_incr = [20]
+    cond_deg_incr = [20]
     transition_model = ConditionalBernsteinFlowModel(dim=dim, conditional_dim=dim, degrees=degrees, conditional_degrees=cond_degrees, dtype=DTYPE, deg_incr=deg_incr, cond_deg_incr=cond_deg_incr)
 
     print(f"Created init state model with {init_state_model.n_parameters()} parameters")
@@ -148,44 +98,10 @@ if __name__ == "__main__":
     optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran)
     print("Done training transition model \n")
 
-    #c_alphas = [transition_model.get_constrained_parameters(i) for i in range(dim)]
-    #print("c alpha shapes: ", [alpha.shape for alpha in c_alphas])
-    #c_alphas_min_max = [(torch.min(alpha).item(), torch.max(alpha).item()) for alpha in c_alphas]
-    #print("trans model coeff min and max: ", c_alphas_min_max)
 
-    #cond_u_fcn = model_u_eval_fcn(transition_model)
-    #U0, U1, Z = grid_eval(cond_u_fcn, [0.0, 1.0, 0.0, 1.0])
-    #fig2 = plt.figure()
-    #ax3d_u = fig2.add_subplot(121, projection='3d')
-    #plot_density_2D_surface(ax3d_u, U0, U1, Z)
-    #ax3d_u.set_xlabel("u0")
-    #ax3d_u.set_ylabel("u1")
-    #ax3d_u.set_zlabel("p(u)")
-    #ax3d_u.set_title("Erf-space PDF")
-    #plt.show()
-
-    #interactive_transformer_plot(transition_model, dim, cond_dim=dim, dtype=DTYPE)    
-    #input("...")
-
-    #u_curr = torch.linspace(0.0, 1.0, 100, dtype=DTYPE)
-    #for u in u_curr:
-    #    def true_xp_density(xp):
-    #        return torch.from_numpy(system.transition_likelihood(x_slice.numpy() * np.ones_like(xp), xp))
-    #def system_trans_xp_density(x_xp : np.ndarray):
-    #    return torch.from_numpy(system.transition_likelihood(x_xp[:, 0], x_xp[:, 1]))
-    #U, Up, Z = grid_eval(system_trans_density, [0.0, 1.0, 0.0, 1.0], resolution=100)
-    #fig, axes = plt.subplots(1, 2)
-    #plot_density_2D(axes[0], U, Up, Z)
-
-    #model_u_eval = model_u_eval_fcn(transition_model)
-    #U, Up, Z = grid_eval(model_u_eval, [0.0, 1.0, 0.0, 1.0], resolution=100, dtype=DTYPE)
-    #plot_density_2D(axes[1], U, Up, Z)
-    #plt.show()
-
+    # Visualize transition distribution
     init_model_tfs = init_state_model.get_density_factor_polys()
-
     p_init = poly_product(init_model_tfs)
-
     n_slices = 9 
     u_slices = torch.linspace(0.1, 0.9, 2 * n_slices, dtype=DTYPE)
     fig, axes = plt.subplots(2, n_slices)
@@ -227,48 +143,6 @@ if __name__ == "__main__":
         pdf_samples = gdt.u_density(up_samples, true_xp_density)
         print(f"u = {u_slice} mc true AUC: ", np.mean(pdf_samples))
 
-        #Z_true_weighted = init_density.numpy() * Z_true
-        #ax.plot(Y, Z_true_weighted, color='blue', linestyle=':')
-    #plt.show()
-
-
-    #fig, axes = plt.subplots(2, 2)
-    #fig.set_figheight(9)
-    #fig.set_figwidth(9)
-    #for ax in axes.flat:
-    #    ax.set_aspect('equal')
-
-    #plot_data(axes[0, 0], X0_data)
-    #axes[0, 0].set_xlabel("x0")
-    #axes[0, 0].set_ylabel("x1")
-    #axes[0, 0].set_title("Data")
-
-    #U_data = gdt.X_to_U(X0_data)
-
-    #plot_data(axes[0, 1], U_data)
-    #axes[0, 1].set_xlim((0, 1))
-    #axes[0, 1].set_ylim((0, 1))
-    #axes[0, 1].set_xlabel("u0")
-    #axes[0, 1].set_ylabel("u1")
-    #axes[0, 1].set_title("Erf-space Data")
-
-    #model_x_eval = model_x_eval_fcn(init_state_model, gdt)
-    #model_u_eval = model_u_eval_fcn(init_state_model)
-
-    #bounds = axes[0, 0].get_xlim() + axes[0, 0].get_ylim()
-    #X0, X1, Z_x = grid_eval(model_x_eval, bounds, resolution=100)
-    #plot_density(axes[1, 0], X0, X1, Z_x)
-    #axes[1, 0].set_xlabel("x0")
-    #axes[1, 0].set_ylabel("x1")
-    #axes[1, 0].set_title("Feature-space PDF")
-
-    #u_bounds = [0.0, 1.0, 0.0, 1.0]
-    #U0, U1, Z_u = grid_eval(model_u_eval, u_bounds, resolution=100)
-    #plot_density(axes[1, 1], U0, U1, Z_u)
-    #axes[1, 1].set_xlabel("u0")
-    #axes[1, 1].set_ylabel("u1")
-    #axes[1, 1].set_title("Erf-space PDF")
-
 
 
     # Compute the propagated polynomials
@@ -306,44 +180,5 @@ if __name__ == "__main__":
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
     interactive_state_distribution_plot_1D(u_traj_data, pdf_plotter, bins=60)
-
-    
-
-
-
-
-
-    ## Plot the density estimate
-    #bounds = axes[0, 0].get_xlim() + axes[0, 0].get_ylim()
-    #X0, X1, Z_x = evaluate_x_density_on_grid(model, gdt, bounds, resolution=100)
-    #plot_density(axes[1, 0], X0, X1, Z_x)
-    #axes[1, 0].set_xlabel("x0")
-    #axes[1, 0].set_ylabel("x1")
-    #axes[1, 0].set_title("Feature-space PDF")
-
-    #U0, U1, Z_u = evaluate_u_density_on_grid(model, resolution=100)
-    #plot_density(axes[1, 1], U0, U1, Z_u)
-    #axes[1, 1].set_xlabel("u0")
-    #axes[1, 1].set_ylabel("u1")
-    #axes[1, 1].set_title("Erf-space PDF")
-
-
-    #fig2 = plt.figure()
-    #ax3d_x = fig2.add_subplot(121, projection='3d')
-    #plot_density_surface(ax3d_x, X0, X1, Z_x)
-    #ax3d_x.set_xlabel("x0")
-    #ax3d_x.set_ylabel("x1")
-    #ax3d_x.set_zlabel("p(x)")
-    #ax3d_x.set_title("Feature-space PDF")
-
-    #ax3d_u = fig2.add_subplot(122, projection='3d')
-    #plot_density_surface(ax3d_u, X0, X1, Z_u)
-    #ax3d_u.set_xlabel("u0")
-    #ax3d_u.set_ylabel("u1")
-    #ax3d_u.set_zlabel("p(u)")
-    #ax3d_u.set_title("Erf-space PDF")
-
-    ## Plot transformers
-    #fig3, axes, sliders = create_interactive_transformer_plot(model, dim)
 
     plt.show()

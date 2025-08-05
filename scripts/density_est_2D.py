@@ -37,40 +37,32 @@ if __name__ == "__main__":
 
     #X_data, _ = make_moons(n_data, noise=0.05)
     #X_data_test, _ = make_moons(n_data, noise=0.05)
-    #X_data, _ = make_circles(n_data, noise=0.1, factor=0.4)
 
-    #gdt = GaussianDistTransform.moment_match_data(X_data, variance_pads=[0.0] * dim)
+    #X_data, _ = make_circles(n_data, noise=0.1, factor=0.4)
+    #X_data_test, _ = make_circles(n_data, noise=0.1, factor=0.4)
+
+    # Test different Omega functions
 
     #gdt = GaussianDistTransform(means=[0.0, 2.0], variances=[2.0, 2.0])
     gdt = GaussianDistTransform.moment_match_data(X_data, variance_pads=[0.0] * dim)
+
     U_data = gdt.X_to_U(X_data)
     U_data_test = gdt.X_to_U(X_data_test)
 
-    #fig, axes = plt.subplots(2, 2)
     figs = [plt.figure() for _ in range(4)]
     axes = [fig.gca() for fig in figs]
-    #fig.set_figheight(9)
-    #fig.set_figwidth(9)
     for ax in axes:
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_aspect('equal')
 
     plot_data_2D(axes[0], X_data)
-    #axes[0].set_xlabel("x0")
-    #axes[0].set_ylabel("x1")
-    #axes[0].set_title("Data")
 
 
     plot_data_2D(axes[1], U_data)
     axes[1].set_xlim((0, 1))
     axes[1].set_ylim((0, 1))
-    #axes[1].set_xlabel("u0")
-    #axes[1].set_ylabel("u1")
-    #axes[1].set_title("Erf-space Data")
 
-    #plt.show(block=False)
-    #input("Continue to training...")
 
     # Create data loader
     U_data_torch = torch.tensor(U_data, dtype=DTYPE)
@@ -84,23 +76,6 @@ if __name__ == "__main__":
     model = BernsteinFlowModel(dim=dim, degrees=degrees, layers=1, dtype=DTYPE, deg_incr=deg_incr)
 
 
-    ## DEBUG DECASTELJAU
-    #c1 = model.get_constrained_coeff_tensor(0)
-    #p1 = Polynomial(c1, basis=Basis.BERN)
-    #c2 = model.get_constrained_coeff_tensor(1)
-    #p2 = Polynomial(c2, basis=Basis.BERN)
-    #x = np.random.rand(10, p2.dim())
-    #print("p np eval: ", p2(x))
-    ##print("p np eval: ", p1(x[:,0].reshape(-1, 1)) * p2(x))
-    ##print("p tc eval: ", model.decasteljau_torch(c2, torch.tensor(x, dtype=DTYPE)))
-    ##print("p tc fwd: ", model.forward(torch.tensor(x, dtype=DTYPE)))
-
-    #raised_deg_params = [model.get_raised_degree_params(i) for i in range(model.dim)]
-    #raised_deg_polys = [Polynomial(params, basis=Basis.BERN) for params in raised_deg_params]
-    #print("p raised eval: ", raised_deg_polys[1](x))
-    #input("...")
-
-
 
     print("Number of parameters in model: ", model.n_parameters())
 
@@ -108,7 +83,6 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
     optimize(model, dataloader, optimizer, epochs=n_epochs, train_with_hard_constraint=False, proj_max_iterations=100, proj_tol=1e-4, proj_min_thresh=1e-3)
     print("Test NLL: ", model.nll_loss(U_data_test_torch))
-    #optimize(model, dataloader, optimizer, epochs=n_epochs, hard_constraint=True)
 
     # Plot the density estimate
     model_x_eval = model_x_eval_fcn(model, gdt, dtype=DTYPE)
@@ -117,24 +91,17 @@ if __name__ == "__main__":
     for i in range(dim):
         params = model.get_constrained_coeff_tensor(i)
         print("Params min: ", torch.min(params).item())
-    #    raised_deg_params = [model.get_raised_degree_params(i) for i in range(model.dim)]
-        #print("Min raised deg params: ", [torch.min(raised_deg_params[i]) for i in range(model.dim)])
 
 
     bounds = axes[0].get_xlim() + axes[0].get_ylim()
     X0, X1, Z_x = grid_eval(model_x_eval, bounds, resolution=100, dtype=DTYPE)
     plot_density_2D(axes[2], X0, X1, Z_x)
-    #axes[2].set_xlabel("x0")
-    #axes[2].set_ylabel("x1")
-    #axes[2].set_title("Feature-space PDF")
 
     u_bounds = [0.0, 1.0, 0.0, 1.0]
     U0, U1, Z_u = grid_eval(model_u_eval, u_bounds, resolution=100, dtype=DTYPE)
     plot_density_2D(axes[3], U0, U1, Z_u)
-    #axes[3].set_xlabel("u0")
-    #axes[3].set_ylabel("u1")
-    #axes[3].set_title("Erf-space PDF")
 
+    # 3D Plots of density
 
     #fig2 = plt.figure()
     #ax3d_x = fig2.add_subplot(131, projection='3d')
@@ -151,45 +118,10 @@ if __name__ == "__main__":
     #ax3d_u.set_zlabel("p(u)")
     #ax3d_u.set_title("Erf-space PDF")
 
-    # DEBUG
-    #raised_deg_params = [model.get_raised_degree_params(i) for i in range(model.dim)]
-    #print("params dim: ", [params.ndim for params in raised_deg_params])
-    #raised_deg_polys = [Polynomial(params, basis=Basis.BERN) for params in raised_deg_params]
 
     p_list = model.get_density_factor_polys(dtype=np.float128)
-    #print("p_list dtype: ", p_list[0].coeffs.dtype)
-    #split_factors = stable_split_factors(p_list, mag_range = 6)
-    #print("split factors dtype: ", split_factors[0][0].coeffs.dtype)
-    #p_prod_terms = split_factor_poly_product(split_factors)
-    #print("p_prod terms shape: ", [p_prod.shape() for p_prod in p_prod_terms])
-    #print("p_prod shape: ", p_prod.shape())
 
     p_prod = poly_product_bernstein_direct(p_list)
-    print("MC AUC: ", mc_auc(p_prod, n_samples=10000))
-
-    # DEBUG
-    #p_prod_raised = poly_product_bernstein_direct(raised_deg_polys)
-
-    #x = np.random.rand(10, p_prod.dim())
-    #print("orig values: ", p_prod(x))
-    #print("raised values: ", p_prod_raised(x))
-
-
-    #u_bounds = [0.0, 1.0, 0.0, 1.0]
-    #ax3d_u = fig2.add_subplot(133, projection='3d')
-    #plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : p_prod(u), u_bounds, dtype=np.float128))
-    ##plot_density_2D_surface(ax3d_u, *grid_eval(lambda u : sum([p_prod(u) for p_prod in p_prod_terms]), u_bounds, dtype=np.float128))
-    #ax3d_u.set_xlabel("u0")
-    #ax3d_u.set_ylabel("u1")
-    #ax3d_u.set_zlabel("p(u)")
-    #ax3d_u.set_title("Composed Polynomial Erf-space PDF")
-
-
-    ## Plot transformers
-    #interactive_transformer_plot(model, dim, dtype=DTYPE)
-    ##fig3, axes, sliders = interactive_transformer_plot(model, dim, dtype=DTYPE)
-
-    #fig.savefig("./figures/density_est_2D.png")
 
     for i, fig in enumerate(figs):
         fig.savefig(f"./figures/fig_{i}.pdf")

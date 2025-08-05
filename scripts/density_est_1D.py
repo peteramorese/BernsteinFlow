@@ -38,26 +38,8 @@ if __name__ == "__main__":
 
     gdt = GaussianDistTransform.moment_match_data(X_data, variance_pads=[0.5] * dim)
 
-    #fig, axes = plt.subplots(1, 2)
-    #fig.set_figheight(9)
-    #fig.set_figwidth(9)
-    #for ax in axes.flat:
-        #ax.set_aspect('equal')
-
-    #plot_data_1D(axes[0], X_data, bins=30)
-    #axes[0].set_xlabel("x0")
-    #axes[0].set_ylabel("density")
-    #axes[0].set_title("Data")
 
     U_data = gdt.X_to_U(X_data)
-
-    #plot_data_1D(axes[1], U_data, bins=30)
-    #axes[1].set_xlabel("u0")
-    #axes[1].set_ylabel("u-denstiy")
-    #axes[1].set_title("Erf-space Data")
-
-    #plt.show(block=False)
-    #input("Continue to training...")
 
     # Create data loader
     U_data_torch = torch.tensor(U_data, dtype=DTYPE)
@@ -89,9 +71,7 @@ if __name__ == "__main__":
 
 
     p_list = model.get_density_factor_polys(dtype=np.float128)
-    print("n factors: ", len(p_list))
     p_prod = poly_product_bernstein_direct(p_list)
-    print("p_prod shape: ", p_prod.shape())
 
     Z_poly = p_prod(U.reshape(-1, 1))
     plot_density_1D(axes[1], U, Z_poly)

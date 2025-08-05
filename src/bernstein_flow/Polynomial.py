@@ -154,35 +154,25 @@ def decasteljau(p : Polynomial, x : np.ndarray):
 
     # Iterate over each of the 'd' dimensions to apply De Casteljau's algorithm.
     for i in range(d):
-        #print("i: ", i)
-        #print("current coeffs: ", current_coeffs)
         t = x[:, i]
-        #print("t: ", t)
         view_shape = [batch_size] + [1] * (d - i)
-        #print("view shape: ", view_shape)
         t = t.reshape(*view_shape) 
-        #print("t reshaped: ", t)
 
         degree = degrees[i]
 
-        #print("current coeffs pre slice:  ", current_coeffs[:, :-1, ...])
-        #print("current coeffs post slice: ", current_coeffs[:, 1:, ...])
 
         # Apply the De Casteljau recurrence 'degree' times.
 
-        #print("current_coeffs shape: ", current_coeffs.shape)
         for _ in range(degree):
             current_coeffs = (
                 (1 - t) * current_coeffs[:, :-1, ...] +
                 t * current_coeffs[:, 1:, ...]
             )
 
-        #print("current_coeffs shape af: ", current_coeffs.shape)
         # After reducing a dimension, its size becomes 1. We squeeze it out
         # before processing the next dimension, unless it's the last one.
         if i < d - 1:
             current_coeffs = np.squeeze(current_coeffs, axis=1)
-        #input("...")
 
     return np.squeeze(current_coeffs)
 
@@ -201,11 +191,9 @@ def decasteljau_composition(p : Polynomial, q_vec : list[Polynomial], stable : b
 
     current_coeffs = p.ten()
 
-    #print("current coeffs b4 ", current_coeffs)
     # Replace each current coeffs with a degree-0 Bernstein polynomial
     to_polynomial_type = np.frompyfunc(lambda c : Polynomial(np.array(c).reshape((1,) * d), basis=Basis.BERN, stable=stable), 1, 1)
     current_coeffs = to_polynomial_type(current_coeffs)
-    #print("current coeffs af ", current_coeffs)
 
     for i in range(d):
         t_poly = q_vec[i]
@@ -213,18 +201,10 @@ def decasteljau_composition(p : Polynomial, q_vec : list[Polynomial], stable : b
 
         degree =  degrees[i]
 
-        #print("current_coeffs shape: ", current_coeffs.shape)
         for _ in range(degree):
-            #print("1-t type ", type(one_minus_t_poly), " current_coeffs slice type: ", current_coeffs[:-1, ...].dtype)
             first_term = np.vectorize(lambda p : one_minus_t_poly * p)(current_coeffs[:-1, ...])
             second_term = np.vectorize(lambda p : t_poly * p)(current_coeffs[1:, ...])
             current_coeffs = first_term + second_term
-            #current_coeffs = (
-            #    one_minus_t_poly * current_coeffs[:-1, ...] +
-            #    t_poly * current_coeffs[1:, ...]
-            #)
-        
-        #print("current_coeffs shape after: ", current_coeffs.shape)
         if i < d - 1:
             current_coeffs = np.squeeze(current_coeffs, axis=0)
 
@@ -414,17 +394,10 @@ def poly_product_bernstein_direct(p_list : list[Polynomial]):
         A_w = p_ten * pre_weight_A
         B_w = q_ten * pre_weight_B
 
-        #if dtype == np.float128:
-        #    product = direct_nd_convolve(A_w, B_w)
-        #else:
-        #    product = convolve(A_w, B_w, mode='full', method='direct')
-        #print("convs dtype b4: ", A_w.dtype)
         product = convolve(A_w, B_w, mode='full', method='direct')
-        #print("product_dtype af: ", product.dtype)
 
         post_weight = _create_d_separable_tensor(lambda dim, s : 1.0 / comb(product.shape[dim] - 1, s), product.shape, dtype=dtype)
         product *= post_weight
-        #print("product dtype: " ,product.dtype, " poly dtype: ", Polynomial(product, basis=Basis.BERN, stable=True).coeffs.dtype)
         return Polynomial(product, basis=Basis.BERN, stable=True)
     
     prod = p_list[0]
@@ -524,7 +497,6 @@ def stable_split_factors(p_list : list[Polynomial], mag_range : float = 6.0):
     basis = p_list[0].basis()
     dtype = p_list[0].coeffs.dtype
     factor_list = [] 
-    #is_np = isinstance(p_list[0].ten(), np.ndarray)
     for p in p_list:
         p_ten = p.ten()
         p_ten_abs = np.abs(p_ten)
@@ -541,10 +513,6 @@ def stable_split_factors(p_list : list[Polynomial], mag_range : float = 6.0):
         factor_list.append(summands)
     
     return factor_list
-    
-    #product_terms = [poly_product(factors) for factors in product(*factor_list)]
-    
-    #return [Polynomial(term, basis=p_list[0].basis()) for term in product_terms]
     
 def marginal(p : Polynomial, dims : set[int], stable : bool = False):
     """
@@ -628,7 +596,6 @@ def mc_auc(p : Polynomial, n_samples : int, region : Rectangle = None):
     return np.mean(p_evals) * vol
 
 ################## Utility helper functions ##################
-
 
 def _create_d_separable_tensor(index_fcn, shape, dtype=np.float64):
     g_vectors = [np.array([index_fcn(d, i) for i in range(shape[d])], dtype=dtype) for d in range(len(shape))]
@@ -722,74 +689,6 @@ def _direct_nd_convolve(A: np.ndarray, B: np.ndarray):
 
 if __name__ == "__main__":
 
-    #p_bern_1 = Polynomial(torch.randn(4,3,4,5), basis=Basis.BERN)
-    #p_mono = bernstein_to_monomial(p_bern)
-
-    #x = torch.rand(10, 4)
-    #p_bern_eval = p_bern(x)
-    #p_mono_eval = p_mono(x)
-    #print("Bernstein eval: \n", p_bern_eval)
-    #print("Monomial eval: \n", p_mono_eval)
-
-    #p = Polynomial(np.exp(np.random.uniform(low=-5, high=22, size=(4, 4))), basis=Basis.BERN)
-    #q = Polynomial(np.exp(np.random.uniform(low=-5, high=22, size=(4, 4, 5))), basis=Basis.BERN)
-    #p = Polynomial(np.random.uniform(low=-5, high=12, size=(4, 4)), basis=Basis.BERN)
-    #q = Polynomial(np.random.uniform(low=-5, high=12, size=(4, 4, 7)), basis=Basis.BERN)
-
-    #prod_fft = poly_product([p, q])
-    #prod_direct = poly_product_bernstein_direct([p, q])
-
-    #x = np.random.rand(5, 3)
-    #print("Prod FFT:    ", prod_fft(x))
-    #print("Prod Direct: ", prod_direct(x))
-    #print("True:        ", p(x[:, :2]) * q(x))
-
-    #split = stable_split_factors([p, q], mag_range=2.0)
-
-    #prod = poly_product([p, q])
-    #stable_prod = split_factor_poly_product(split)
-
-    #x = np.random.rand(5, 2)
-    #print("prod: ", prod(x))
-    #print("prod sep: ", sum(sprod(x) for sprod in stable_prod))
-
-
-    #p = Polynomial(np.array([[1, 2], [3, 4.5]]), basis=Basis.BERN)
-
-    #dtype = np.float128
-    #p = Polynomial(np.random.uniform(low=0, high=1, size=(3, 4, 3)).astype(dtype), basis=Basis.BERN)
-
-    #mc = mc_auc(p, 10000)
-    #analytical = marginal(p, dims = list(range(p.dim())))
-
-    #print("mc: ", mc)
-    #print("analytical: ", analytical)
-
-    #dtype = np.float128
-    #p = Polynomial(np.random.uniform(low=0, high=1, size=(3, 4, 3)).astype(dtype), basis=Basis.BERN)
-    #q1 = Polynomial(np.random.uniform(low=0, high=1, size=(4, 6, 3)).astype(dtype), basis = Basis.BERN)
-    #q2 = Polynomial(np.random.uniform(low=0, high=1, size=(3, 8, 3)).astype(dtype), basis = Basis.BERN)
-    #q3 = Polynomial(np.random.uniform(low=0, high=1, size=(9, 4, 7)).astype(dtype), basis = Basis.BERN)
-
-    ##q1 = Polynomial(np.array([[4, 3], [4, 5]]), basis = Basis.BERN)
-    ##q2 = Polynomial(np.array([[7, 6, 5], [-1, 2, -2]]), basis = Basis.BERN)
-
-    #x = np.random.rand(5, 3)
-
-    #y1 = q1(x)
-    #y2 = q2(x)
-    #y3 = q3(x)
-
-    #combined_y = np.vstack([y1, y2, y3]).T
-    ##combined_y = np.vstack([y1, y2]).T
-    #true_val = p(combined_y)
-
-    #composed_p = decasteljau_composition(p, [q1, q2, q3], stable=True)
-    #print("composed p shape: ",composed_p.shape()) 
-    ##composed_p = decasteljau_composition(p, [q1, q2])
-
-    #print("true val:         ", true_val)
-    #print("composed p value: " ,composed_p(x))
 
     q_bern = Polynomial(np.random.uniform(low=-10, high=10, size=(3, 8, 7)), basis=Basis.BERN)
     q_mono = bernstein_to_monomial(q_bern)
@@ -801,50 +700,3 @@ if __name__ == "__main__":
     print("mono result: ", integ_result_mono) 
     print("bern result: ", integ_result_bern) 
     print("mc result: ", mc_auc(q_mono, n_samples = 10000, region=r)) 
-
-    #print(poly_sum([p, q], stable=False).ten())
-    #print(poly_sum([p, q], stable=True).ten())
-
-    #print("old prod: ", p_prod_old(x))
-
-    #tch_prod = poly_product([p_bern_1_tch, p_bern_2_tch])
-    #np_prod = poly_product([p_bern_1_np, p_bern_2_np])
-    #print(np.max(np.abs(tch_prod.ten().numpy() - np_prod.ten())))
-
-    #p_tch = Polynomial(torch.randn(4,3,4,5), basis=Basis.BERN)
-    #p_np = Polynomial(p_tch.ten().numpy(), basis=Basis.BERN)
-    #x = torch.rand(5, 4)
-    #print("tch: ", decasteljau(p_tch, x))
-    #print("np:  ", decasteljau(p_np, x.numpy()))
-
-    #p_bern_tch = Polynomial(torch.randn(2, 2), basis=Basis.BERN)
-    #p_bern_np = Polynomial(p_bern_tch.ten().numpy(), basis=Basis.BERN)
-
-    #p_mono_tch = bernstein_to_monomial(p_bern_tch)
-    #print(p_mono_tch.ten())
-    #p_mono_np = bernstein_to_monomial(p_bern_np)
-    #print(p_mono_np.ten())
-    #x = torch.rand(5, 2)
-    #print("tch: ", p_mono_tch(x))
-    #print("np:  ", p_mono_np(x.numpy()))
-
-    #p_bern_tch_a = monomial_to_bernstein(p_mono_tch)
-    #p_bern_np_a = monomial_to_bernstein(p_mono_np)
-    #print("tch: ", p_bern_tch_a(x))
-    #print("np:  ", p_bern_np_a(x.numpy()))
-
-    #p = Polynomial(np.exp(np.random.randint(1, 10, (4, 4))), basis=Basis.MONO)
-    #q = Polynomial(np.exp(np.random.randint(1, 10, (4, 4))), basis=Basis.MONO)
-    #print("p : \n", p.ten())
-    #print("q : \n", q.ten())
-    #print("")
-    #factors = stable_split_factors([p, q], mag_range=2.0)
-    #for f in factors[0]:
-    #    print("p term: \n", f.ten().astype(int))
-    #print("")
-    #print("Sum of p terms: \n", sum([f.ten() for f in factors[0]]).astype(int))
-    #print("")
-    #for f in factors[1]:
-    #    print("q term: \n", f.ten().astype(int))
-    #print("")
-    #print("Sum of q terms: \n", sum([f.ten() for f in factors[1]]).astype(int))
