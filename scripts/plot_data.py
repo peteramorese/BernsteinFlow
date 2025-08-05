@@ -34,7 +34,7 @@ import json
 
 ag_bnf_deg_files = [
     ("BNF (d=10)", "./benchmarks/trajectory_2D_bnf_2025y_08m_02d_08h_07m_42s/data.json", {"linestyle":'-', "color":'cyan'}),
-    ("BNF (d=15)", "./benchmarks/trajectory_2D_bnf_2025y_08m_05d_03h_27m_08s/data.json", {"linestyle":'-', "color":'darkturquoise'}),
+    ("BNF (d=15)", "./benchmarks_backup/trajectory_2D_bnf_2025y_08m_04d_21h_24m_17s/data.json", {"linestyle":'-', "color":'darkturquoise'}),
     ("BNF (d=20)", "./benchmarks_backup/trajectory_2D_bnf_2025y_08m_01d_21h_23m_27s/data.json", {"linestyle":'-', "color":'blue'}),
     ("BNF (d=25)", "./benchmarks_backup/trajectory_2D_bnf_2025y_08m_02d_04h_00m_43s/data.json", {"linestyle":'-', "color":'darkslategrey'}),
     ("BNF (d=30)", "./benchmarks/trajectory_2D_bnf_2025y_07m_27d_04h_24m_04s/data.json", {"linestyle":'-', "color":'black'}),
