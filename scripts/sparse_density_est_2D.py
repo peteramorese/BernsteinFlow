@@ -26,7 +26,7 @@ if __name__ == "__main__":
     n_data = 2000
 
     # Number of training epochs
-    n_epochs = 200
+    n_epochs = 100
 
     #gdt = GaussianDistTransform(mean=[0.5, 0.25], variances=[1.0, 0.5])
 
@@ -35,15 +35,15 @@ if __name__ == "__main__":
     #X_data = sample_modal_gaussian(n_data, means=means, covariances=covariances, weights=[.4, .3, 0.3])
     #X_data_test = sample_modal_gaussian(n_data, means=means, covariances=covariances, weights=[.4, .3, 0.3])
 
-    #X_data, _ = make_moons(n_data, noise=0.05)
-    #X_data_test, _ = make_moons(n_data, noise=0.05)
-    X_data, _ = make_circles(n_data, noise=0.1, factor=0.5)
-    X_data_test, _ = make_circles(n_data, noise=0.1, factor=0.5)
+    X_data, _ = make_moons(n_data, noise=0.15)
+    X_data_test, _ = make_moons(n_data, noise=0.15)
+    #X_data, _ = make_circles(n_data, noise=0.1, factor=0.5)
+    #X_data_test, _ = make_circles(n_data, noise=0.1, factor=0.5)
 
     #gdt = GaussianDistTransform.moment_match_data(X_data, variance_pads=[0.0] * dim)
 
     #gdt = GaussianDistTransform(means=[0.0, 2.0], variances=[2.0, 2.0])
-    gdt = GaussianDistTransform.moment_match_data(X_data, variance_pads=[0.0] * dim)
+    gdt = GaussianDistTransform.moment_match_data(X_data, variance_pads=[0.5] * dim)
     U_data = gdt.X_to_U(X_data)
     U_data_test = gdt.X_to_U(X_data_test)
 
@@ -78,7 +78,7 @@ if __name__ == "__main__":
     dataloader = DataLoader(dataset, batch_size=128, shuffle=True)
 
     # Create model
-    model = SparseBetaModel(dim=dim, n_components=300, max_degree=60)
+    model = SparseBetaModel(dim=dim, n_components=60, max_degree=60)
 
     # Train
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
@@ -106,7 +106,22 @@ if __name__ == "__main__":
     #axes[3].set_title("Erf-space PDF")
 
 
+    sparse_bernie = model.create_sparse_bern_poly()
+    f = plt.figure()
+    ax = f.gca()
+    ax.set_aspect('equal')
+    U0, U1, Z_poly = grid_eval(sparse_bernie, u_bounds, resolution=100, dtype=DTYPE)
+    plot_density_2D(ax, U0, U1, Z_poly)
 
+    with torch.no_grad():
+        A_bnd, B_bnd, norm_weights = model.get_constrained_parameters()
+        print("Model alphas: \n", A_bnd)
+        print("Model Coeffs: \n", norm_weights)
+
+    print("Bernie idx   : \n", sparse_bernie.idx)
+    print("Bernie coeffs: \n", sparse_bernie.coeffs)
+    auc = mc_auc(sparse_bernie, n_samples=10000)
+    print("Bernie auc: ", auc)
     #for i, fig in enumerate(figs):
     #    fig.savefig(f"./figures/fig_{i}.pdf")
 

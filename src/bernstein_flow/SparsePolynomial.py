@@ -20,18 +20,22 @@ class SparseBernsteinPolynomial:
         assert degrees.shape == indices.shape
         assert coeffs.ndim == 1 and coeffs.shape[0] == indices.shape[0]
         self.coeffs = coeffs
-        self.n_components, self.dim = indices.shape
         self.idx = indices
         self.deg = degrees
         self.stable = stable
 
+    def dim(self):
+        return self.idx.shape[1]
+
+    def n_components(self):
+        return len(self.coeffs)
     
     def __call__(self, x : np.ndarray):
         batch_size, d = x.shape 
 
-        assert d == self.dim, "Dimension of x does not match polynoial dimension"
+        assert d == self.dim(), "Dimension of x does not match polynomial dimension"
 
-        log_basis_total = np.zeros((batch_size, self.n_components))
+        log_basis_total = np.zeros((batch_size, self.n_components()))
 
         for i in range(d):
             idx_i = self.idx[:, i][None, :]
@@ -52,7 +56,7 @@ class SparseBernsteinPolynomial:
     
     def __mul__(self, other):
         if isinstance(other, SparseBernsteinPolynomial):
-            assert other.dim == self.dim, "Dimensions do not match"
+            assert other.dim() == self.dim(), "Dimensions do not match"
 
             return self.multiply(other) 
         else:
@@ -64,10 +68,11 @@ class SparseBernsteinPolynomial:
         Multiply two sparse Bernstein polynomials.
         Returns the combination product (terms are not consolidated automatically)
         """
-        assert self.dim == other.dim, "Polynomial dimensions must match"
+        assert self.dim() == other.dim, "Polynomial dimensions must match"
 
-        Ka, d = self.n_components, self.dim
-        Kb = other.n_components
+        #Ka, d = self.n_components(), self.dim
+        #Kb = other.n_components
+        d = self.dim()
 
         # Shapes: (Ka, d) and (Kb, d) → (Ka, Kb, d)
         idx_a = self.idx[:, None, :]  # (Ka, 1, d)
@@ -114,7 +119,26 @@ class SparseBernsteinPolynomial:
         
         keep_dims = [i for i in range(self.dim) if i not in dims]
         return SparseBernsteinPolynomial(new_coeffs, self.idx[:, keep_dims], self.deg[:, keep_dims], stable=self.stable)
+    
+    def canonicalize(self):
+        """
+        Combine terms that have the same (indices, degrees) by summing coefficients.
+        Returns a new SparseBernsteinPolynomial.
+        """
+        # Concatenate idx and deg into a (n_components, 2*dim) integer matrix
+        keys = np.hstack([self.idx, self.deg])
 
+        unique_keys, inverse = np.unique(keys, axis=0, return_inverse=True)
+
+        new_coeffs = np.zeros(len(unique_keys), dtype=self.coeffs.dtype)
+        np.add.at(new_coeffs, inverse, self.coeffs.ravel())
+
+        # Recover idx and deg from unique_keys
+        new_keys_arr = np.array(unique_keys, dtype=int)
+        new_idx = new_keys_arr[:, :self.dim]
+        new_deg = new_keys_arr[:, self.dim:]
+
+        return SparseBernsteinPolynomial(new_coeffs, new_idx, new_deg, stable=self.stable)
 
 def integrate(p : Polynomial, region : Rectangle, stable : bool = False):
     assert p.dim() == region.m, "Region must have the same dimension as the polynomial being integrated"
@@ -152,39 +176,50 @@ def mc_auc(p : Polynomial, n_samples : int, region : Rectangle = None):
 if __name__ == "__main__":
 
     coeffs = np.array([3.5, 9.2, -1.8])
-    idx = np.array([[4,5,6], [9, 4, 3], [8, 2, 5]])
+    #idx = np.array([[4,5,6], [9, 4, 3], [8, 2, 5]])
+    idx = np.array([[4,5,6], [4, 5, 6], [8, 2, 5]])
     deg = np.array([[10, 10, 10], [10, 10, 10], [12, 8, 9]])
     
     p_sparse = SparseBernsteinPolynomial(coeffs, idx, deg)
+
+    print("c: ", p_sparse.coeffs)
+    print("i: ", p_sparse.idx)
+    print("d: ", p_sparse.deg)
     
-    coeffs_dense_1 = np.zeros(deg[0] + 1)
-    coeffs_dense_1[*idx[0]] = coeffs[0]
-    coeffs_dense_1[*idx[1]] = coeffs[1]
-    p_dense_1 = Polynomial(coeffs_dense_1, basis=Basis.BERN)
+    p_sparse = p_sparse.canonicalize()
 
-    coeffs_dense_2 = np.zeros(deg[2] + 1)
-    coeffs_dense_2[*idx[2]] = coeffs[2]
-    p_dense_2 = Polynomial(coeffs_dense_2, basis=Basis.BERN)
-
-
-    coeffs = np.array([6.5, 4.2, -2.8, 1.1])
-    idx = np.array([[4,5,6], [9, 4, 3], [8, 2, 5], [0, 5, 4]])
-    deg = np.array([[10, 10, 10], [10, 10, 10], [12, 8, 9], [12, 8, 9]])
+    print("c: ", p_sparse.coeffs)
+    print("i: ", p_sparse.idx)
+    print("d: ", p_sparse.deg)
     
-    q_sparse = SparseBernsteinPolynomial(coeffs, idx, deg)
+    #coeffs_dense_1 = np.zeros(deg[0] + 1)
+    #coeffs_dense_1[*idx[0]] = coeffs[0]
+    #coeffs_dense_1[*idx[1]] = coeffs[1]
+    #p_dense_1 = Polynomial(coeffs_dense_1, basis=Basis.BERN)
+
+    #coeffs_dense_2 = np.zeros(deg[2] + 1)
+    #coeffs_dense_2[*idx[2]] = coeffs[2]
+    #p_dense_2 = Polynomial(coeffs_dense_2, basis=Basis.BERN)
+
+
+    #coeffs = np.array([6.5, 4.2, -2.8, 1.1])
+    #idx = np.array([[4,5,6], [9, 4, 3], [8, 2, 5], [0, 5, 4]])
+    #deg = np.array([[10, 10, 10], [10, 10, 10], [12, 8, 9], [12, 8, 9]])
     
-    coeffs_dense_1 = np.zeros(deg[0] + 1)
-    coeffs_dense_1[*idx[0]] = coeffs[0]
-    coeffs_dense_1[*idx[1]] = coeffs[1]
-    q_dense_1 = Polynomial(coeffs_dense_1, basis=Basis.BERN)
+    #q_sparse = SparseBernsteinPolynomial(coeffs, idx, deg)
+    
+    #coeffs_dense_1 = np.zeros(deg[0] + 1)
+    #coeffs_dense_1[*idx[0]] = coeffs[0]
+    #coeffs_dense_1[*idx[1]] = coeffs[1]
+    #q_dense_1 = Polynomial(coeffs_dense_1, basis=Basis.BERN)
 
-    coeffs_dense_2 = np.zeros(deg[2] + 1)
-    coeffs_dense_2[*idx[2]] = coeffs[2]
-    coeffs_dense_2[*idx[3]] = coeffs[3]
-    q_dense_2 = Polynomial(coeffs_dense_2, basis=Basis.BERN)
+    #coeffs_dense_2 = np.zeros(deg[2] + 1)
+    #coeffs_dense_2[*idx[2]] = coeffs[2]
+    #coeffs_dense_2[*idx[3]] = coeffs[3]
+    #q_dense_2 = Polynomial(coeffs_dense_2, basis=Basis.BERN)
 
 
-    x = np.random.rand(5, 3)
+    #x = np.random.rand(5, 3)
 
-    print("Sparse: ", (p_sparse * q_sparse)(x))
-    print("Dense: ", (p_dense_1(x) + p_dense_2(x)) * (q_dense_1(x) + q_dense_2(x)))
+    #print("Sparse: ", (p_sparse * q_sparse)(x))
+    #print("Dense: ", (p_dense_1(x) + p_dense_2(x)) * (q_dense_1(x) + q_dense_2(x)))
