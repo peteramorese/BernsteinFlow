@@ -124,13 +124,13 @@ def optimize(model, data_loader : DataLoader, optimizer, epochs=100, log_buffer_
 class ConditionalSparseBetaModel(torch.nn.Module):
     def __init__(self, dim : int, 
                  cond_dim : int,
-                 n_var_components : int, 
+                 nv : int, 
                  max_var_degree : int,
-                 n_factor_components : int,
+                 nf : int,
                  max_factor_degree : int,
-                 n_var_sub_components : int = 1,
+                 ns : int = 1,
                  factor_type = 'full',
-                 n_total_components : int = 1):
+                 nt : int = 1):
         
         """
         Conditional sparse beta mixture model for modeling p(y | x)
@@ -138,51 +138,69 @@ class ConditionalSparseBetaModel(torch.nn.Module):
         Args:
             dim : dimension of the support
             cond_dim : dimension of the conditioner variable
-            n_var_components : number of beta mixture components for the y density
+            nv : number of beta mixture components for the y density
             max_var_degree : maximum degree of each y density mixture component (controls max sharpness)
-            n_factor_components : number of conditional factor components (usually much lower than n_var_components for scalability)
-            n_var_sub_components : number of sub-mixture components for each weighting function. Defaults to 1, where each conditional factor
+            nf : number of conditional factor components (usually much lower than nv for scalability)
+            ns : number of sub-mixture components for each weighting function. Defaults to 1, where each conditional factor
                 function is assigned to only a single beta component
             max_factor_degree : maximum degree of conditional factor components
             factor_type : {'full', 'sliding' (TODO), 'stationary' (TODO)} structural constraint on the conditional factor components
-            n_total_components : number of total components, i.e. number of convex combinations of y-density mixture/x-conditional weight functions
+            nt : number of total components, i.e. number of convex combinations of y-density mixture/x-conditional weight functions
         """
         
         super().__init__()
 
         self.dim = dim
-        self.cond_dim = dim
+        self.cond_dim = cond_dim
 
-        self.n_var_components = n_var_components
-        self.n_var_sub_components = n_var_sub_components
+        self.nv = nv # Number of random variable (y) components
+        self.ns = ns # Number of random variable sub components
         self.max_var_degree = float(max_var_degree)
-        self.n_factor_components = n_factor_components
+        self.nf = nf
         self.max_factor_degree = max_factor_degree
         self.factor_type = factor_type # TODO
 
-        self.n_total_components = n_total_components
+        self.nt = nt # Number of total mixands
 
         # Alpha/Beta params for each total component
-        self.A_unconstrained = torch.nn.Parameter(torch.randn(self.n_var_components, self.n_var_sub_components, self.dim, self.n_total_components)) # Alpha values for density mixands
-        self.B_unconstrained = torch.nn.Parameter(torch.randn(self.n_var_components, self.n_var_sub_components, self.dim, self.n_total_components)) # Beta values for density mixands
-        self.var_sub_comp_weights = torch.nn.Parameter(torch.randn(self.n_var_components, self.n_var_sub_components, self.n_total_components)) # Fixed weights for each subcomponent mixture
+        self.A_unconstrained = torch.nn.Parameter(torch.randn(self.nv, self.ns, self.dim, self.nt)) # Alpha values for density mixands
+        self.B_unconstrained = torch.nn.Parameter(torch.randn(self.nv, self.ns, self.dim, self.nt)) # Beta values for density mixands
+        self.var_sub_comp_weights = torch.nn.Parameter(torch.randn(self.nv, self.ns, self.nt)) # Fixed weights for each subcomponent mixture
 
         # Alpha/Beta params for each factor function
-        self.Gamma_unconstrained = torch.nn.Parameter(torch.randn(self.n_factor_components, self.cond_dim, self.n_total_components)) # Alpha values for weight factors
-        self.Delta_unconstrained = torch.nn.Parameter(torch.randn(self.n_factor_components, self.cond_dim, self.n_total_components)) # Beta values for weight factors
-        self.factor_weights = torch.nn.Parameter(torch.randn(self.n_var_components, self.n_factor_components, self.n_total_components)) # Weights for each conditional factor
+        self.Gamma_unconstrained = torch.nn.Parameter(torch.randn(self.nf, self.cond_dim, self.nt)) # Alpha values for weight factors
+        self.Delta_unconstrained = torch.nn.Parameter(torch.randn(self.nf, self.cond_dim, self.nt)) # Beta values for weight factors
+        self.factor_weights = torch.nn.Parameter(torch.randn(self.nv, self.nf, self.nt)) # Weights for each conditional factor
 
-        self.total_comp_weights = torch.nn.Parameter(torch.randn(self.n_total_components))
+        self.total_comp_weights = torch.nn.Parameter(torch.randn(self.nt))
     
     def forward(self, x : torch.Tensor, y : torch.Tensor):
-        log_x = torch.log(x).unsqueeze(1)
-        log_1mx = torch.log(1 - x).unsqueeze(1) 
-        log_y = torch.log(y).unsqueeze(1)
-        log_1my = torch.log(1 - y).unsqueeze(1) 
+        log_x = torch.log(x)
+        log_1mx = torch.log(1 - x)
+        log_y = torch.log(y)
+        log_1my = torch.log(1 - y)
+
+        # Unsqueeze to the right shape (p, nv, ns, d, nt)
+        log_y = log_y[:, None, None, :, None]
+        log_1my = log_1my[:, None, None, :, None]
+
+        # Unsqueeze to the right shape (p, nf, dc, nt)
+        log_x = log_x[:, None, :, None]
+        log_1mx = log_1mx[:, None, :, None]
+
 
         A, B, Gamma, Delta, var_sub_comp_weights, factor_weights, total_comp_weights = self.get_constrained_parameters()
 
-        # Calculate the var components
+        # Unsqueeze to the right shape
+        A = A.unsqueeze(0)
+        B = B.unsqueeze(0)
+        Gamma = Gamma.unsqueeze(0)
+        Delta = Delta.unsqueeze(0)
+        var_sub_comp_weights = var_sub_comp_weights.unsqueeze(0)
+        factor_weights = factor_weights.unsqueeze(0)
+        total_comp_weights.unsqueeze(0)
+
+        # Calculate the evaluation of var basis functions at y
         log_var_component_per_dim = (
             (A - 1.0) * log_y +
             (B - 1.0) * log_1my +
@@ -191,14 +209,15 @@ class ConditionalSparseBetaModel(torch.nn.Module):
             torch.special.gammaln(A + B)
         )
 
-        log_var_component_density = torch.sum(log_var_component_per_dim, dim=2)
+        log_var_component_density = torch.sum(log_var_component_per_dim, dim=3) # Sum out d
         weighted_var_component_density = var_sub_comp_weights * torch.exp(log_var_component_density)
-        var_density = torch.sum(weighted_var_component_density, dim=1)
+        var_density = torch.sum(weighted_var_component_density, dim=2) # Sum out ns
 
         # Calculate the conditional weights
         log_max_factor_vals_per_dim = Gamma * torch.log(Gamma) + Delta * torch.log(Delta) - (Gamma + Delta) * torch.log(Gamma + Delta)
         log_max_factor_vals = torch.sum(log_max_factor_vals_per_dim, dim=2)
 
+        # Calculate the evaluation of the conditional basis functions at x
         log_factor_component_per_dim = (
             (Gamma - 1.0) * log_x +
             (Delta - 1.0) * log_1mx
@@ -207,10 +226,19 @@ class ConditionalSparseBetaModel(torch.nn.Module):
         log_factor_value = torch.sum(log_factor_component_per_dim, dim=2)
 
         # Normalize and weight the conditional factor value (divide by max value and multiply by weight)
-        log_factor_value = log_factor_value - log_max_factor_vals + factor_weights
+        log_factor_value = log_factor_value - log_max_factor_vals 
+        log_factor_value = log_factor_value.unsqueeze(1) # Add nv dimension
+        log_factor_value += factor_weights
 
         # Compute the product of all the conditional factors
-        log_cond_value = torch.sum(torch.log(1.0 - torch.exp(log_factor_value)), dim=2)
+        cond_weight = torch.prod(1.0 - torch.exp(log_factor_value), dim=2)
+
+        mixand_densities = torch.sum(cond_weight * var_density, dim=1)
+
+        # Weight all of the mixands and combine
+        density = torch.sum(total_comp_weights * mixand_densities, dim=1)
+
+        return density
 
 
     def get_constrained_parameters(self):
@@ -229,13 +257,6 @@ class ConditionalSparseBetaModel(torch.nn.Module):
 
         return A_b, B_b, Gamma_b, Delta_b, norm_var_sub_comp_weights, norm_ordered_factor_weights, norm_total_comp_weights
         
-        #log_max_factor_vals = np.zeros_like(Gamma_bounded, device=Gamma_bounded.device, dtype=Gamma_bounded.dtype)
-        #log_max_factor_vals = np.zeros(self.n_factor_components, self.n_total_components, device=Gamma_b.device, dtype=Gamma_b.dtype)
-
-        #log_max_factor_vals_per_dim = Gamma_b * torch.log(Gamma_b) + Delta_b * torch.log(Delta_b) - (Gamma_b + Delta_b) * torch.log(Gamma_b + Delta_b)
-        #log_max_factor_vals = torch.sum(log_max_factor_vals_per_dim, dim=2)
-        #max_factor_vals = torch.exp(log_max_factor_vals)
-
 
 #if __name__ == "__main__":
 #    model = SparseBetaModel(2, 60, max_degree=40)
