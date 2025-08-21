@@ -130,6 +130,99 @@ def interactive_transformer_plot(model, dim, cond_dim = 0, dtype = torch.float32
     
     return fig, axes, sliders
 
+def transition_distribution_plot(pdf_funcs, dim=1, y_range=(0, 1), x_range=(0, 1), num_points=100):
+    """
+    Visualize conditional pdfs p(y|x) with interactive sliders.
+
+    Parameters
+    ----------
+    pdf_funcs : list of callable
+        Each function must have signature f(y, x), where:
+        - y : array-like
+        - x : scalar (if dim=1) or 2-element array (if dim=2)
+        Returns density values for y.
+    dim : int
+        Dimension of x (1 or 2).
+    y_range : tuple
+        Range for y-axis plotting (ymin, ymax).
+    x_range : tuple or list of tuples
+        Range for x slider(s). For dim=1: (xmin, xmax).
+        For dim=2: [(x1min, x1max), (x2min, x2max)].
+    num_points : int
+        Number of y points for plotting.
+    """
+    if dim == 1:
+        y = np.linspace(y_range[0], y_range[1], num_points)
+    else:
+        y1 = np.linspace(y_range[0][0], y_range[0][1], num_points)
+        y2 = np.linspace(y_range[1][0], y_range[1][1], num_points)
+        Y1, Y2 = np.meshgrid(y1, y2)
+        y = np.stack([Y1, Y2], axis=-1)  # shape (num_points, num_points, 2)
+
+    fig, ax = plt.subplots()
+    plt.subplots_adjust(bottom=0.25 if dim==1 else 0.35)
+
+    # Initial x values
+    if dim == 1:
+        x0 = (x_range[0] + x_range[1]) / 2
+    else:
+        x0 = [ (rng[0] + rng[1]) / 2 for rng in x_range ]
+
+    # Plot initial pdfs
+    if dim == 1:
+        lines = []
+        for f in pdf_funcs:
+            density = f(y, x0 * np.ones_like(y))
+            line, = ax.plot(y, density, lw=2)
+            lines.append(line)
+        ax.set_xlabel("y")
+        ax.set_ylabel("p(y | x)")
+        ax.set_title("Conditional PDF (1D)")
+    else:
+        # Only plot first pdf initially; additional funcs overlay
+        contours = []
+        for f in pdf_funcs:
+            density = f(y, x0 * np.ones_like(y))
+            cs = ax.contourf(y[...,0], y[...,1], density, levels=20, alpha=0.6)
+            contours.append(cs)
+        ax.set_xlabel("y1")
+        ax.set_ylabel("y2")
+        ax.set_title("Conditional PDF (2D)")
+
+    # Slider setup
+    sliders = []
+    if dim == 1:
+        ax_x = plt.axes([0.15, 0.1, 0.65, 0.03])
+        slider_x = widgets.Slider(ax_x, 'x', x_range[0], x_range[1], valinit=x0)
+        sliders.append(slider_x)
+    else:
+        ax_x1 = plt.axes([0.15, 0.15, 0.65, 0.03])
+        ax_x2 = plt.axes([0.15, 0.1, 0.65, 0.03])
+        slider_x1 = widgets.Slider(ax_x1, 'x1', x_range[0][0], x_range[0][1], valinit=x0[0])
+        slider_x2 = widgets.Slider(ax_x2, 'x2', x_range[1][0], x_range[1][1], valinit=x0[1])
+        sliders.extend([slider_x1, slider_x2])
+
+    def update(val):
+        if dim == 1:
+            x_val = sliders[0].val
+            for line, f in zip(lines, pdf_funcs):
+                line.set_ydata(f(y, x_val * np.ones_like(y)))
+        else:
+            x_val = [sliders[0].val, sliders[1].val]
+            ax.clear()
+            for f in pdf_funcs:
+                density = f(y, x_val * np.ones_like(y))
+                ax.contourf(y[...,0], y[...,1], density, levels=20, alpha=0.6)
+            ax.set_xlabel("y1")
+            ax.set_ylabel("y2")
+            ax.set_title("Conditional PDF (2D)")
+        fig.canvas.draw_idle()
+
+    for s in sliders:
+        s.on_changed(update)
+
+    plt.show()
+
 def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True, bounds=None, separate_figures=False, exclude_ticks=False):
     """
     Plots a (interactive) scatter plot of 2D state distributions across time steps.
