@@ -99,3 +99,13 @@ def avg_log_likelihood(data : np.ndarray, density_fcn):
 def empirical_prob_in_region(data : np.ndarray, region : Rectangle):
     within_region = np.all((data >= region.mins) & (data <= region.maxes), axis=1)
     return np.sum(within_region) / data.shape[0]
+
+def mc_auc(dim, f, n_samples : int = 10000, region : Rectangle = None):
+    if region is None:
+        X = np.random.rand(n_samples, dim)
+        vol = 1.0
+    else:
+        X = np.random.uniform(low=region.mins, high=region.maxes, size=(n_samples, dim))
+        vol = region.volume()
+    p_evals = f(X)
+    return np.mean(p_evals) * vol

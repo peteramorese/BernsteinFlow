@@ -82,7 +82,7 @@ class BetaMixtureModel(torch.nn.Module):
             return SparseBernsteinPolynomial(coeffs.numpy(), idx.numpy(), deg.numpy())
 
 
-class ConditionalBetaMixtureModel(torch.nn.Module):
+class ConditionalFactorModel(torch.nn.Module):
     def __init__(self, d : int, 
                  dc : int,
                  nv : int, 
@@ -124,14 +124,14 @@ class ConditionalBetaMixtureModel(torch.nn.Module):
         self.nt = nt # Number of total mixands
 
         # Alpha/Beta params for each total component
-        self.A_unconstrained = torch.nn.Parameter(torch.randn(self.nv, self.ns, self.d, self.nt)-1) # Alpha values for density mixands
-        self.B_unconstrained = torch.nn.Parameter(torch.randn(self.nv, self.ns, self.d, self.nt)-1) # Beta values for density mixands
+        self.A_unconstrained = torch.nn.Parameter(torch.randn(self.nv, self.ns, self.d, self.nt)) # Alpha values for density mixands
+        self.B_unconstrained = torch.nn.Parameter(torch.randn(self.nv, self.ns, self.d, self.nt)) # Beta values for density mixands
         self.var_sub_comp_weights = torch.nn.Parameter(torch.randn(self.nv, self.ns, self.nt)) # Fixed weights for each subcomponent mixture
 
         # Alpha/Beta params for each factor function
-        self.Gamma_unconstrained = torch.nn.Parameter(torch.randn(self.nf, self.dc, self.nt)-1) # Alpha values for weight factors
-        self.Delta_unconstrained = torch.nn.Parameter(torch.randn(self.nf, self.dc, self.nt)-1) # Beta values for weight factors
-        self.factor_weights = torch.nn.Parameter(torch.randn(self.nv, self.nf, self.nt)) # Weights for each conditional factor
+        self.Gamma_unconstrained = torch.nn.Parameter(torch.randn(self.nf, self.dc, self.nt)) # Alpha values for weight factors
+        self.Delta_unconstrained = torch.nn.Parameter(torch.randn(self.nf, self.dc, self.nt)) # Beta values for weight factors
+        self.factor_weights = torch.nn.Parameter(torch.randn(self.nv - 1, self.nf, self.nt)) # Weights for each conditional factor
 
         self.total_comp_weights = torch.nn.Parameter(torch.randn(self.nt))
     
@@ -164,7 +164,7 @@ class ConditionalBetaMixtureModel(torch.nn.Module):
 
 
         A, B, Gamma, Delta, var_sub_comp_weights, factor_weights, total_comp_weights = self.get_constrained_parameters()
-        #print("A bounds: ", torch.max(A), torch.min(A))
+        #print("A bounds: ", torch.max(A).item(), torch.min(A).item())
 
         # Unsqueeze to the right shape
         A = A.unsqueeze(0)
@@ -188,16 +188,14 @@ class ConditionalBetaMixtureModel(torch.nn.Module):
         log_var_component_density = torch.sum(log_var_component_per_dim, dim=3) # Sum out d
         weighted_var_component_density = var_sub_comp_weights * torch.exp(log_var_component_density)
         var_density = torch.sum(weighted_var_component_density, dim=2) # Sum out ns
-        #print("gamma bounds: ", torch.min(Gamma), torch.max(Gamma))
-        #print("var density maxabs: ", torch.max(torch.abs(var_density)))
-        #print("var density: ", torch.isnan(var_density).any())
 
         # Calculate the conditional weights
-        log_max_factor_vals_per_dim = (
-            (Gamma - 1.0) * torch.log(Gamma - 1.0) 
-            + (Delta - 1.0) * torch.log(Delta - 1.0) 
-            - (Gamma + Delta - 2.0) * torch.log(Gamma + Delta - 2.0)
-        )
+        Gamma_term = torch.where(Gamma - 1.0 > 0, (Gamma - 1.0) * torch.log(Gamma - 1.0), torch.zeros_like(Gamma))
+        Delta_term = torch.where(Delta - 1.0 > 0, (Delta - 1.0) * torch.log(Delta - 1.0), torch.zeros_like(Delta))
+        Gamma_Delta_term = torch.where(Gamma + Delta - 2.0 > 0, (Gamma + Delta - 2.0) * torch.log(Gamma + Delta - 2.0), torch.zeros_like(Delta))
+
+        log_max_factor_vals_per_dim = Gamma_term + Delta_term - Gamma_Delta_term
+
         log_max_factor_vals = torch.sum(log_max_factor_vals_per_dim, dim=2)
 
         # Calculate the evaluation of the conditional basis functions at x
@@ -205,10 +203,6 @@ class ConditionalBetaMixtureModel(torch.nn.Module):
             (Gamma - 1.0) * log_x
             + (Delta - 1.0) * log_1mx
         )
-        print("lfcpd bounds: ", torch.min(log_factor_component_per_dim).item(), torch.max(log_factor_component_per_dim).item())
-        #print(f"(p: {yx.shape[0]}, nv: {self.nv}, dc: {self.dc}, nf: {self.nf})")
-        #print(f"Gamma: (p: {yx.shape[0]}, nf: {self.nf}, dc: {self.dc}, nt: {self.nt})")
-        #print("l f c pd: ", log_factor_component_per_dim.shape)
 
         log_factor_value = torch.sum(log_factor_component_per_dim, dim=2)
 
@@ -216,32 +210,30 @@ class ConditionalBetaMixtureModel(torch.nn.Module):
 
         # Normalize and weight the conditional factor value (divide by max value and multiply by weight)
         log_factor_value -= log_max_factor_vals 
-        print("norm log factor val bounds: ", torch.min(log_factor_value).item(), torch.max(log_factor_value).item())
         log_factor_value = log_factor_value.unsqueeze(1) # Add nv dimension
-        #print("log factor value: ", log_factor_value.shape)
-        #print("factor weights: ", factor_weights.shape)
-        log_factor_value = log_factor_value + factor_weights
-        print("log factor val bounds: ", torch.min(log_factor_value), torch.max(log_factor_value))
-        #print("log factor val: ", torch.isnan(log_factor_value).any())
+        log_factor_value = log_factor_value + torch.log(factor_weights)
 
         # Compute the product of all the conditional factors
-        cond_weight = torch.prod(1.0 - torch.exp(log_factor_value), dim=2)
-        #print("cond weight bounds: ", torch.min(cond_weight), torch.max(cond_weight))
+        cumulative_weights = torch.prod(1.0 - torch.exp(log_factor_value), dim=2)
 
-        #print("cond_weight maxabs: ", torch.max(torch.abs(cond_weight)))
-        #print("cond_weight: ", torch.isnan(cond_weight).any())
+        pad_shape = cumulative_weights[:, [0], :].shape
+        separated_weights = -torch.diff(cumulative_weights, dim=1, prepend=torch.ones(pad_shape), append=torch.zeros(pad_shape))
 
-        mixand_densities = torch.sum(cond_weight * var_density, dim=1)
+        mixand_densities = torch.sum(separated_weights * var_density, dim=1)
 
         # Weight all of the mixands and combine
         density = torch.sum(total_comp_weights * mixand_densities, dim=1)
 
-        #print("density bounds: ", torch.max(density), torch.min(density))
-        input("...")
         return density
 
     def get_constrained_parameters(self):
         # Map Alpha, Beta, Gamma, Delta to be in (1, max_degree)
+        #print("A uncst bounds: ", torch.min(self.A_unconstrained), torch.max(self.A_unconstrained))
+        #print("A tanh bounds: ", torch.min(torch.tanh(self.A_unconstrained)), torch.max(torch.tanh(self.A_unconstrained)))
+        #A_b = 1.0 + (self.max_var_degree) * torch.relu(torch.tanh(self.A_unconstrained))
+        #B_b = 1.0 + (self.max_var_degree) * torch.relu(torch.tanh(self.B_unconstrained))
+        #Gamma_b = 1.0 + (self.max_factor_degree) * torch.relu(torch.tanh(self.Gamma_unconstrained))
+        #Delta_b = 1.0 + (self.max_factor_degree) * torch.relu(torch.tanh(self.Delta_unconstrained))
         A_b = 1.0 + (self.max_var_degree) * torch.nn.functional.sigmoid(self.A_unconstrained)
         B_b = 1.0 + (self.max_var_degree) * torch.nn.functional.sigmoid(self.B_unconstrained)
         Gamma_b = 1.0 + (self.max_factor_degree) * torch.nn.functional.sigmoid(self.Gamma_unconstrained)
@@ -255,6 +247,137 @@ class ConditionalBetaMixtureModel(torch.nn.Module):
         norm_total_comp_weights = torch.nn.functional.softmax(self.total_comp_weights, dim=0)
 
         return A_b, B_b, Gamma_b, Delta_b, norm_var_sub_comp_weights, norm_ordered_factor_weights, norm_total_comp_weights
+        
+
+class ConditionalPowerFunctionModel(torch.nn.Module):
+    def __init__(self, d : int, 
+                 dc : int,
+                 nv : int, 
+                 max_var_exp : float,
+                 max_pf_exp : float,
+                 ns : int = 1,
+                 nt : int = 1):
+        
+        """
+        Conditional beta mixture model for modeling p(y | x)
+
+        Args:
+            d : dimension of the support
+            dc : dimension of the conditioner variable
+            nv : number of beta mixture components for the y density
+            ns : number of sub-mixture components for each weighting function. Defaults to 1, where each conditional power function
+                function is assigned to only a single beta component
+            max_var_degree : maximum degree of each y density mixture component (controls max sharpness)
+            max_pf_degree : maximum degree of conditional power function. Uses the reciprocal value for the lower bound
+            nt : number of total components, i.e. number of convex combinations of y-density mixture/x-conditional weight functions
+        """
+        
+        super().__init__()
+
+        self.d = d
+        self.dc = dc
+
+        self.nv = nv # Number of random variable (y) components
+        self.ns = ns # Number of random variable sub components
+        self.max_var_exp = max_var_exp
+        self.max_pf_exp = max_pf_exp
+        self.min_pf_exp = 1.0 / max_pf_exp
+
+        self.nt = nt # Number of total mixands
+
+        # Alpha/Beta params for each total component
+        self.A_unconstrained = torch.nn.Parameter(torch.randn(self.nv, self.ns, self.d, self.nt)) # Alpha values for density mixands
+        self.B_unconstrained = torch.nn.Parameter(torch.randn(self.nv, self.ns, self.d, self.nt)) # Beta values for density mixands
+        self.var_sub_comp_weights = torch.nn.Parameter(torch.randn(self.nv, self.ns, self.nt)) # Fixed weights for each subcomponent mixture
+
+        self.power_fcn_exps_unconstrianed = torch.nn.Parameter(torch.randn(self.nv - 1, self.dc, self.nt)) # Power function exponent vectors
+
+        self.total_comp_weights = torch.nn.Parameter(torch.randn(self.nt))
+    
+    def forward(self, yx : torch.Tensor):
+        """
+        Inference of y-density given x
+
+        Args:
+            yx : torch Tensor of size (p, d + dc)
+        """
+        assert yx.shape[1] == self.d + self.dc
+        y = yx[:, :self.d]
+        x = yx[:, self.d:]
+        #print("y bounds: ", torch.max(y), torch.min(y))
+
+        log_x = torch.log(x)
+        log_y = torch.log(y)
+        log_1my = torch.log(1 - y)
+
+        # Unsqueeze to the right shape (p, nv, ns, d, nt)
+        log_y = log_y[:, None, None, :, None]
+        log_1my = log_1my[:, None, None, :, None]
+
+        # Unsqueeze to the right shape (p, nv, dc, nt)
+        log_x = log_x[:, None, :, None]
+
+
+        A, B, var_sub_comp_weights, pf_exps, total_comp_weights = self.get_constrained_parameters()
+
+        # Unsqueeze to the right shape
+        A = A.unsqueeze(0)
+        B = B.unsqueeze(0)
+        var_sub_comp_weights = var_sub_comp_weights.unsqueeze(0)
+        pf_exps = pf_exps.unsqueeze(0)
+        total_comp_weights.unsqueeze(0)
+
+        # Calculate the evaluation of var basis functions at y
+        log_var_component_per_dim = (
+            (A - 1.0) * log_y
+            + (B - 1.0) * log_1my
+            - torch.special.gammaln(A)
+            - torch.special.gammaln(B)
+            + torch.special.gammaln(A + B)
+        )
+        #print("lvcpd: ", torch.max(log_var_component_per_dim), torch.min(log_var_component_per_dim))
+
+        log_var_component_density = torch.sum(log_var_component_per_dim, dim=3) # Sum out d (multiply all basis functions)
+        weighted_var_component_density = var_sub_comp_weights * torch.exp(log_var_component_density)
+        var_density = torch.sum(weighted_var_component_density, dim=2) # Sum out ns
+        #print("var density min: ", torch.min(var_density).item())
+        #print(torch.any(torch.isnan(var_density)))
+
+        # Calculate the conditional weights
+        #print("pf exps min: ", torch.min(pf_exps).item(), " max: ", torch.max(pf_exps).item())
+        log_pf_vals = torch.sum(pf_exps * log_x, dim=2)
+        pf_vals = torch.exp(log_pf_vals)
+        #print(torch.any(torch.isnan(pf_vals)))
+        #print("pf min: ", torch.min(pf_vals).item(), " max: ", torch.max(pf_vals).item())
+
+        pad_shape = pf_vals[:, [0], :].shape
+        pf_diff_vals = -torch.diff(pf_vals, dim=1, prepend=torch.ones(pad_shape), append=torch.zeros(pad_shape))
+        #print("pf diff min: ", torch.min(pf_diff_vals).item())
+
+        mixand_densities = torch.sum(pf_diff_vals * var_density, dim=1)
+
+        # Weight all of the mixands and combine
+        density = torch.sum(total_comp_weights * mixand_densities, dim=1)
+        #print(torch.any(torch.isnan(density)))
+        #print("Density min: ", torch.min(density).item())
+
+        #input("...")
+        return density
+
+    def get_constrained_parameters(self):
+        A_b = 1.0 + (self.max_var_exp) * torch.nn.functional.sigmoid(self.A_unconstrained)
+        B_b = 1.0 + (self.max_var_exp) * torch.nn.functional.sigmoid(self.B_unconstrained)
+
+        norm_var_sub_comp_weights = torch.nn.functional.softmax(self.var_sub_comp_weights, dim=1)
+
+        # Map each element to be positive, increasing over each dimension, and in (0, 1)
+        max_exp_diff = self.max_pf_exp - self.min_pf_exp
+
+        norm_ordered_pf_exps = self.min_pf_exp + max_exp_diff * torch.softmax(torch.cumsum(torch.nn.functional.softplus(self.power_fcn_exps_unconstrianed), dim=0), dim=0)
+
+        norm_total_comp_weights = torch.nn.functional.softmax(self.total_comp_weights, dim=0)
+
+        return A_b, B_b, norm_var_sub_comp_weights, norm_ordered_pf_exps, norm_total_comp_weights
         
         
 def optimize(model, data_loader : DataLoader, optimizer, epochs=100, log_buffer_size = 20):

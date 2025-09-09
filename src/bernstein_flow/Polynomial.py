@@ -150,39 +150,27 @@ def decasteljau(p : Polynomial, x : np.ndarray):
     degrees = [s - 1 for s in p_ten.shape]
 
     expand_shape = (batch_size,) + p_ten.shape
+    print(p_ten[:, :, 0])
     current_coeffs = np.broadcast_to(p_ten, expand_shape) 
-
     # Iterate over each of the 'd' dimensions to apply De Casteljau's algorithm.
     for i in range(d):
-        #print("i: ", i)
-        #print("current coeffs: ", current_coeffs)
         t = x[:, i]
-        #print("t: ", t)
         view_shape = [batch_size] + [1] * (d - i)
-        #print("view shape: ", view_shape)
         t = t.reshape(*view_shape) 
-        #print("t reshaped: ", t)
 
         degree = degrees[i]
 
-        #print("current coeffs pre slice:  ", current_coeffs[:, :-1, ...])
-        #print("current coeffs post slice: ", current_coeffs[:, 1:, ...])
 
         # Apply the De Casteljau recurrence 'degree' times.
 
-        #print("current_coeffs shape: ", current_coeffs.shape)
         for _ in range(degree):
             current_coeffs = (
                 (1 - t) * current_coeffs[:, :-1, ...] +
                 t * current_coeffs[:, 1:, ...]
             )
 
-        #print("current_coeffs shape af: ", current_coeffs.shape)
-        # After reducing a dimension, its size becomes 1. We squeeze it out
-        # before processing the next dimension, unless it's the last one.
         if i < d - 1:
             current_coeffs = np.squeeze(current_coeffs, axis=1)
-        #input("...")
 
     return np.squeeze(current_coeffs)
 
@@ -616,17 +604,6 @@ def integrate(p : Polynomial, region : Rectangle, stable : bool = False):
     
     return total_integral
 
-def mc_auc(p : Polynomial, n_samples : int, region : Rectangle = None):
-    d = p.dim()
-    if region is None:
-        X = np.random.rand(n_samples, d)
-        vol = 1.0
-    else:
-        X = np.random.uniform(low=region.mins, high=region.maxes, size=(n_samples, d))
-        vol = region.volume()
-    p_evals = p(X)
-    return np.mean(p_evals) * vol
-
 ################## Utility helper functions ##################
 
 
@@ -722,6 +699,24 @@ def _direct_nd_convolve(A: np.ndarray, B: np.ndarray):
 
 if __name__ == "__main__":
 
+    p_mono = Polynomial(np.array([1.0, 4, 3, 4, 7]), basis=Basis.MONO)
+    p_bern = monomial_to_bernstein(p_mono)
+    print("Bern coeffs: ", p_bern.coeffs)
+
+    #p_bern = Polynomial(np.array([[[1.0, 2.0, 3], [4, 5, 6], [7, 8, 9]], [[2, 4, 6], [3, 5 ,7], [4, 8, 10]]]), basis=Basis.BERN)
+    #q_bern = Polynomial(np.array([[[1.5, 2.5, 3.5], [4.5, 5.5, 6.5], [7.5, 8.5, 9.5]], [[2.5, 4.5, 6.5], [3.5, 5.5 ,7.5], [4.5, 8.5, 10.5]]]), basis=Basis.BERN)
+
+    #prod = poly_product_bernstein_direct([p_bern, q_bern])
+
+    #h = Rectangle(mins=[0.1, 0.2, 0.3], maxes=[0.5, 0.6, 0.7])
+    ##p_bern = Polynomial(np.array([[[1.9, 2.9], [4.9, 5.9]], [[2.1, 4.1], [3.1, 5.1]]]), basis=Basis.BERN)
+    #x = np.array([[0.5, 0.5, 0.3], [0.25, 0.75, 0.8]])
+    ##x = np.array([[0.5, 0.5, 0.3]])
+
+    #print("eval", p_bern(x))
+    #print("prod eval", prod(x))
+    #print("integral: ", integrate(p_bern, h))
+
     #p_bern_1 = Polynomial(torch.randn(4,3,4,5), basis=Basis.BERN)
     #p_mono = bernstein_to_monomial(p_bern)
 
@@ -791,16 +786,16 @@ if __name__ == "__main__":
     #print("true val:         ", true_val)
     #print("composed p value: " ,composed_p(x))
 
-    q_bern = Polynomial(np.random.uniform(low=-10, high=10, size=(3, 8, 7)), basis=Basis.BERN)
-    q_mono = bernstein_to_monomial(q_bern)
+    #q_bern = Polynomial(np.random.uniform(low=-10, high=10, size=(3, 8, 7)), basis=Basis.BERN)
+    #q_mono = bernstein_to_monomial(q_bern)
 
-    r = Rectangle(mins=[0.2, 0.4, 0.2], maxes=[0.7, 0.7, 0.3])
-    integ_result_mono = integrate(q_mono, r)
-    integ_result_bern = integrate(q_bern, r)
+    #r = Rectangle(mins=[0.2, 0.4, 0.2], maxes=[0.7, 0.7, 0.3])
+    #integ_result_mono = integrate(q_mono, r)
+    #integ_result_bern = integrate(q_bern, r)
 
-    print("mono result: ", integ_result_mono) 
-    print("bern result: ", integ_result_bern) 
-    print("mc result: ", mc_auc(q_mono, n_samples = 10000, region=r)) 
+    #print("mono result: ", integ_result_mono) 
+    #print("bern result: ", integ_result_bern) 
+    #print("mc result: ", mc_auc(q_mono, n_samples = 10000, region=r)) 
 
     #print(poly_sum([p, q], stable=False).ten())
     #print(poly_sum([p, q], stable=True).ten())
