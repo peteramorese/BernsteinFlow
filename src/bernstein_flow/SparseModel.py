@@ -22,15 +22,6 @@ class BetaMixtureModel(torch.nn.Module):
         self.n_components = n_components
         self.max_degree = float(max_degree)
 
-        #n_dense_components = (max_degree + 1)**dim
-        #sparsity = 1.0 - n_components / n_dense_components
-        #if sparsity > 0.0:
-        #    print("Creating model with sparsity: ", 100 * sparsity, "%")
-        #else:
-        #    print("Warning: model has no sparsity")
-        #    n_components = n_dense_components
-        
-
         # Alpha/Beta params
         self.A_unconstrained = torch.nn.Parameter(torch.rand(self.n_components, self.dim))
         self.B_unconstrained = torch.nn.Parameter(torch.rand(self.n_components, self.dim))
@@ -379,6 +370,103 @@ class ConditionalPowerFunctionModel(torch.nn.Module):
 
         return A_b, B_b, norm_var_sub_comp_weights, norm_ordered_pf_exps, norm_total_comp_weights
         
+
+class ConditionalGMM(torch.nn.Module):
+    def __init__(self, d : int, 
+                 dc : int, 
+                 nv : int, 
+                 min_var_sigma : float, 
+                 min_erf_sigma : float, 
+                 ns : int=1, 
+                 nt : int = 1):
+        
+        """
+        Conditional Gaussian mixture model for modeling p(y | x) (x \in R^d, y \in R^dc)
+
+        Args:
+            d : dimension of the support
+            dc : dimension of the conditioner variable
+            nv : number of beta mixture components for the y density
+            ns : number of sub-mixture components for each weighting function. Defaults to 1, where each conditional power function
+                function is assigned to only a single beta component
+            min_var_sigma : minimum scale of Gaussian component
+            min_erf_sigma : minimum scale of conditional erf multipliers
+            nt : number of total components, i.e. number of convex combinations of y-density mixture/x-conditional weight functions
+        """
+        
+        super().__init__()
+
+        self.d = d
+        self.dc = dc
+
+        self.nv = nv # Number of random variable (y) components
+        self.ns = ns # Number of random variable sub components
+        self.min_var_sigma = min_var_sigma
+        self.min_erf_sigma = min_erf_sigma
+
+        self.nt = nt # Number of total mixands
+
+        self.var_mu = torch.nn.Parameter(torch.randn(self.nv, self.ns, self.d, self.nt))
+        self.var_sigma = torch.nn.Parameter(torch.randn(self.nv, self.ns, self.d, self.nt))
+        self.var_sub_comp_weights = torch.nn.Parameter(torch.randn(self.nv, self.ns, self.nt)) # Fixed weights for each subcomponent mixture
+
+        self.erf_mu = torch.nn.Parameter(torch.randn(self.nv - 1, self.dc, self.nt))
+        self.erf_sigma = torch.nn.Parameter(torch.randn(self.dc, self.nt))
+
+        self.total_comp_weights = torch.nn.Parameter(torch.randn(self.nt))
+
+    def forward(self, yx : torch.Tensor):
+        assert yx.shape[1] == self.d + self.dc
+        y = yx[:, :self.d]
+        x = yx[:, self.d:]
+
+        # Shape (p, nv, ns, d, nt)
+        y = y[:, None, None, :, None]
+        # Shape (p, nv, dc, nt)
+        x = x[:, None, :, None]
+
+        var_mu, var_sigma, var_sub_comp_weights, erf_mu, erf_sigma, total_comp_weights = self.get_constrained_parameters()
+
+        var_mu = var_mu.unsqueeze(0)
+        var_sigma = var_sigma.unsqueeze(0)
+        var_sub_comp_weights = var_sub_comp_weights.unsqueeze(0)
+        erf_mu = erf_mu.unsqueeze(0)
+        erf_sigma = erf_sigma[None, None, :, :]
+        total_comp_weights = total_comp_weights.unsqueeze(0)
+    
+        log_sqrt_2_pi = 0.5 * torch.log(2.0 * torch.tensor(torch.pi))
+        log_norm_const = torch.sum(-(log_sqrt_2_pi + torch.log(var_sigma)), dim=3)
+        log_exp_term = torch.sum(-(y - var_mu)**2 / (2.0 * var_sigma**2), dim=3)
+        log_var_component_density = log_norm_const + log_exp_term
+        weighted_var_component_density = var_sub_comp_weights * torch.exp(log_var_component_density)
+        var_density = torch.sum(weighted_var_component_density, dim=2) # Shape (p, nv, nt)
+
+        sqrt_2 = torch.sqrt(torch.tensor(2.0))
+        erf_mult = torch.sum(0.5 * (1.0 + torch.erf((x - erf_mu) / (erf_sigma * sqrt_2))), dim=2)
+
+        pad_shape = erf_mult[:, [0], :].shape
+        erf_diff_vals = -torch.diff(erf_mult, dim=1, prepend=torch.ones(pad_shape), append=torch.zeros(pad_shape))
+
+        mixand_densities = torch.sum(erf_diff_vals * var_density, dim=1)
+
+        density = torch.sum(total_comp_weights * mixand_densities, dim=1)
+
+        return density
+
+    
+    def get_constrained_parameters(self):
+        pos_var_sigma = torch.nn.functional.softplus(self.var_sigma)
+        norm_var_sub_comp_weights = torch.nn.functional.softmax(self.var_sub_comp_weights, dim=1)
+
+        first_erf_mean_vecs = self.erf_mu[0:1, :, :]
+        erf_mean_increments = torch.nn.functional.softplus(self.erf_mu[1:, :, :])
+        ordered_erf_mu = torch.cumsum(torch.cat((first_erf_mean_vecs, erf_mean_increments), dim=0), dim=0)
+
+        pos_erf_sigma = torch.nn.functional.softplus(self.erf_sigma)
+
+        norm_total_comp_weights = torch.nn.functional.softmax(self.total_comp_weights, dim=0)
+        
+        return self.var_mu, pos_var_sigma, norm_var_sub_comp_weights, ordered_erf_mu, pos_erf_sigma, norm_total_comp_weights
         
 def optimize(model, data_loader : DataLoader, optimizer, epochs=100, log_buffer_size = 20):
     def nll_loss(model, data):
