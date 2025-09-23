@@ -28,7 +28,7 @@ if __name__ == "__main__":
 
     # Number of training epochs
     n_epochs_init = 100
-    n_epochs_tran = 100
+    n_epochs_tran = 1000
 
     # Time horizon
     training_timesteps = 10
@@ -76,8 +76,8 @@ if __name__ == "__main__":
     #max_degree = 60
     #init_state_model = BetaMixtureModel(dim, n_components, max_degree)
 
-    n = 10
-    m = 10
+    n = 2
+    m = 2
     transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m)
 
     #nv = 20
@@ -104,24 +104,38 @@ if __name__ == "__main__":
 
     print("Training transition model...")
     transition_model.to(DTYPE)
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=500, lagrangian_update_interval=100)
+    #trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
+    #optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran, lagrangian_update_interval=10)
     print("Done training transition model \n")
 
-    with torch.no_grad():
-        uls = torch.linspace(0.1, 0.9, 10)
-        for u in uls:
-            auc = mc_auc(1, lambda up : transition_model(torch.hstack((torch.from_numpy(up), u*torch.ones_like(torch.from_numpy(up))))).numpy(), n_samples=10000)
-            print("auc: ", auc)
 
-            ts_llh_auc = mc_auc(1, lambda up : gdt.u_density(up, lambda xp : system.transition_likelihood(gdt.u_to_x(u)* np.ones_like(xp), xp)))
-            print("True auc: ", ts_llh_auc)
 
-    def np_model_density(y : np.ndarray, x : np.ndarray):
-        yx = torch.vstack((torch.from_numpy(y), torch.from_numpy(x))).t()
-        with torch.no_grad():
-            return transition_model(yx).numpy()
+    psi_mat = transition_model.psi_inner_product_mat()
+    Gamma = psi_mat * transition_model.get_A_mat() 
+    res_mat = transition_model.get_residual_mat()
 
-    pdf_funcs = [np_model_density, lambda up, u : gdt.u_density(up, lambda xp : system.transition_likelihood(gdt.u_to_x(u)* np.ones_like(xp), xp))]
+    print("gamma:", Gamma)
+    print("res_mat:", res_mat)
+    ptest = transition_model(torch.tensor([[0.5, 0.5]]))
+    print("ptest: ", ptest)
 
-    transition_distribution_plot(pdf_funcs, dim=dim)
+
+    #with torch.no_grad():
+    #    uls = torch.linspace(0.1, 0.9, 10)
+    #    for u in uls:
+    #        auc = mc_auc(1, lambda up : transition_model(torch.hstack((torch.from_numpy(up), u*torch.ones_like(torch.from_numpy(up))))).numpy(), n_samples=10000)
+    #        print("auc: ", auc)
+
+    #        ts_llh_auc = mc_auc(1, lambda up : gdt.u_density(up, lambda xp : system.transition_likelihood(gdt.u_to_x(u)* np.ones_like(xp), xp)))
+    #        print("True auc: ", ts_llh_auc)
+
+    #def np_model_density(y : np.ndarray, x : np.ndarray):
+    #    yx = torch.vstack((torch.from_numpy(y), torch.from_numpy(x))).t()
+    #    with torch.no_grad():
+    #        return transition_model(yx).numpy()
+
+    #pdf_funcs = [np_model_density, lambda up, u : gdt.u_density(up, lambda xp : system.transition_likelihood(gdt.u_to_x(u)* np.ones_like(xp), xp))]
+
+    #transition_distribution_plot(pdf_funcs, dim=dim)

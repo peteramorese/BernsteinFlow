@@ -6,7 +6,7 @@ import numpy as np
 
 
 class SOSModel(torch.nn.Module):
-    def __init__(self, dy : int, dx : int, n : int, m : int, phi_param_dim : int, psi_param_dim : int, gamma : float = 10.0, eta : float = 0.25):
+    def __init__(self, dy : int, dx : int, n : int, m : int, phi_param_dim : int, psi_param_dim : int, gamma : float = 1.1, eta : float = 0.25):
         """
         SOS form conditional density model for p(y | x)
         Args:
@@ -78,13 +78,20 @@ class SOSModel(torch.nn.Module):
         y = yx[:, :self.dy]
         x = yx[:, self.dy:]
         phi_vec = self.__get_phi(x) # (p, n)
+        #print("phi_vec: ", phi_vec)
 
         phi_vec = phi_vec.repeat_interleave(self.m, dim=1)  # (p, n*m)
+        #print("phi_vec repeated: ", phi_vec)
+        #input("...")
         psi_vec = self.psi(y) # (p, n*m)
         basis_vals = phi_vec * psi_vec  # Shape: (p, n*m)
 
         A_mat = self.get_A_mat()  # Shape: ((n)*m, (n)*m)
 
+        print("A mat:\n", A_mat)
+        print("Phi: ", phi_vec[0, :])
+        print("Psi: ", psi_vec[0, :])
+        print("basis vals: ", basis_vals)
         # Per-sample quadratic form: for each sample i, basis_vals[i]^T A basis_vals[i]
         density = torch.einsum("pi,ij,pj->p", basis_vals, A_mat, basis_vals)
         
@@ -111,7 +118,7 @@ class SOSModel(torch.nn.Module):
 
         linear_penalty = torch.sum(self.lagr_mult * v_mat)
 
-        quadratic_penalty = self.sigma * torch.sum(torch.square(v_mat))
+        quadratic_penalty = 0.5 *self.sigma * torch.sum(torch.square(v_mat))
 
         return -linear_penalty + quadratic_penalty
     
@@ -119,29 +126,33 @@ class SOSModel(torch.nn.Module):
         density = self(yx)
         log_density = torch.log(density + 1e-10)
         nll_loss = -log_density.mean()
-        print("nll loss: ", nll_loss)
 
         aug_lagrangian_loss = self.aug_lagrangian_loss()
-        print("aug lagrangian loss: ", aug_lagrangian_loss)
+        print("nll loss: ", nll_loss.item(),"aug lagrangian loss: ", aug_lagrangian_loss.item())
         loss = nll_loss + aug_lagrangian_loss
-        input("...")
+        #input("...")
         return loss
 
     def update_lagrangians(self):
+        print("Updating lagrangians...")
         with torch.no_grad():
             residuals = self.get_residual_mat()
 
             # Lagrange update iteration
             v = torch.sum(residuals**2)
+            print("v: ", v)
             if v  < self.eta * self.v:
                 self.lagr_mult -= self.sigma * residuals
             else:
                 self.sigma *= self.gamma
 
+            print("sigma: ", self.sigma)
+
             self.v = v
+        input("...")
 
 class BetaSOSModel(SOSModel):
-    def __init__(self, dy : int, dx : int, n : int, m : int, gamma : float = 10.0, eta : float = 0.25):
+    def __init__(self, dy : int, dx : int, n : int, m : int, gamma : float = 1.1, eta : float = 0.25):
         # Two parameters for each basis function (alpha and beta) for each dimension
         super().__init__(dy, dx, n, m, 2 * dy, 2 * dx, gamma, eta)
     
@@ -204,7 +215,7 @@ class BetaSOSModel(SOSModel):
         # B(α₁ + α₂ - 1, β₁ + β₂ - 1) / (B(α₁, β₁) * B(α₂, β₂))
         # where B(α, β) = Γ(α) * Γ(β) / Γ(α + β)
         
-        inner_products = torch.ones(self.n * self.m, self.n * self.m, dtype=alpha.dtype, device=alpha.device)
+        log_inner_products = torch.zeros(self.n * self.m, self.n * self.m, dtype=alpha.dtype, device=alpha.device)
         
         for d in range(self.dy):
             # Get alpha and beta for dimension d
@@ -231,18 +242,17 @@ class BetaSOSModel(SOSModel):
             )
             
             # Convert back from log space and multiply with existing inner products
-            inner_products *= torch.exp(log_inner_d)
+            log_inner_products += log_inner_d
         
-        return inner_products
+        return torch.exp(log_inner_products)
 
-def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, log_buffer_size = 20):
+def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, lagrangian_update_interval=10, log_buffer_size = 20):
     def train_step(data):
         model.train()
         optimizer.zero_grad()
         loss = model.loss(data)
         loss.backward()
         optimizer.step()
-        model.update_lagrangians()
         return loss.item()
 
     stdout_buffer = []
@@ -255,14 +265,17 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, 
             loss = train_step(x_batch)
             total_loss += loss
         avg_loss = total_loss / len(data_loader)
+
+        if epoch % lagrangian_update_interval == 0:
+            model.update_lagrangians()
         
-        line = f"Epoch {epoch+1}: Avg Loss = {avg_loss:.6f}, time: {time.time() - start_time:.3f}"
-        stdout_buffer.append(line)
-        if len(stdout_buffer) <= log_buffer_size:
-            print(line)
-        else:
-            stdout_buffer.pop(0)
-            sys.stdout.write("\033[F" * len(stdout_buffer))
-            for l in stdout_buffer:
-                sys.stdout.write("\033[K")
-                print(l)
+        #line = f"Epoch {epoch+1}: Avg Loss = {avg_loss:.6f}, time: {time.time() - start_time:.3f}"
+        #stdout_buffer.append(line)
+        #if len(stdout_buffer) <= log_buffer_size:
+        #    print(line)
+        #else:
+        #    stdout_buffer.pop(0)
+        #    sys.stdout.write("\033[F" * len(stdout_buffer))
+        #    for l in stdout_buffer:
+        #        sys.stdout.write("\033[K")
+        #        print(l)
