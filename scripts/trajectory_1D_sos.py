@@ -1,6 +1,10 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 #from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
-from sos_form.SOSModel import BetaSOSModel, optimize
+from sos_form.SOSModel import optimize
+from sos_form.BetaModel import BetaSOSModel
+from sos_form.PowerFunctionModel import PowerFunctionSOSModel
+from sos_form.SignomialModel import SignomialSOSModel
+
 from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, mc_auc
 
 from .Systems import CubicMap, sample_trajectories, sample_io_pairs
@@ -40,10 +44,10 @@ if __name__ == "__main__":
         return float(mode) * norm.rvs(loc=np.array([1.5]), scale = 0.5) + (1.0 - float(mode)) * norm.rvs(loc=np.array([-1.5]), scale = 0.5)
 
 
-    io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-10.0], region_uppers=[10.0])
+    io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-2.0], region_uppers=[2.0])
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
-    interactive_state_distribution_plot_1D(traj_data, bins=60)
+    #interactive_state_distribution_plot_1D(traj_data, bins=60)
 
     # Moment match the GDT to all of the data over the whole horizon
     gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[0.2])
@@ -61,24 +65,29 @@ if __name__ == "__main__":
     Up_io_data = np.hstack([gdt.X_to_U(io_data[:, :dim]), gdt.X_to_U(io_data[:, dim:])])
     #Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data 
 
+    plt.scatter(Up_io_data[:, 0], Up_io_data[:, 1], s=1)
+    plt.show()
+
     # Create data loader
     U0_data_torch = torch.tensor(U0_data, dtype=DTYPE)
     U0_dataset = TensorDataset(U0_data_torch)
     U0_dataloader = DataLoader(U0_dataset, batch_size=32, shuffle=True)
 
-    #Up_data_torch = torch.tensor(Up_io_data, dtype=DTYPE)
-    Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
+    Up_data_torch = torch.tensor(Up_io_data, dtype=DTYPE)
+    #Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
-    Up_dataloader = DataLoader(Up_dataset, batch_size=128, shuffle=True)
+    Up_dataloader = DataLoader(Up_dataset, batch_size=256, shuffle=True)
 
     ## Create initial state and transition models
     #n_components = 200
     #max_degree = 60
     #init_state_model = BetaMixtureModel(dim, n_components, max_degree)
 
-    n = 5
-    m = 3
-    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m)
+    n = 30
+    m = 2
+    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, sigma_init=10.0, sigma_max=500)
+    #transition_model = PowerFunctionSOSModel(dy=dim, dx=dim, n=n, m=m, min_exp=0.0, sigma_init=10.0, sigma_max=500, max_exp=30.0)
+    #transition_model = SignomialSOSModel(dy=dim, dx=dim, n=n, m=m, n_terms=5, min_alpha=0.0)
 
     #nv = 20
     #max_var_deg = 25
@@ -104,14 +113,21 @@ if __name__ == "__main__":
 
     print("Training transition model...")
     transition_model.to(DTYPE)
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=500, lagrangian_update_interval=4)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=500, lagrangian_update_interval=10)
+    transition_model.sigma_max = 1000.0
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=30, lagrangian_update_interval=1)
+    #print("Projecting constraints...")
+    #transition_model.project_constraints()
+
     #print("Refining constraints...")
     #trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-5)
     #optimize(transition_model, Up_dataloader, trans_optimizer, epochs=100, lagrangian_update_interval=1, constraints_only=True)
     print("Done training transition model \n")
 
-
+    #print("phi params: \n", transition_model.get_phi_params())
+    #print("psi params: \n", transition_model.get_psi_params())
 
     psi_mat = transition_model.psi_inner_product_mat()
     A = transition_model.get_A_mat() 
@@ -120,10 +136,10 @@ if __name__ == "__main__":
     res_mat = transition_model.get_residual_mat()
 
 
-    print("Gamma: \n", Gamma)
+    #print("Gamma: \n", Gamma)
     #print("Gamma block view: \n", Gamma_block_view)
     #print("A: \n", A)
-    print("res mat: \n", res_mat)
+    #print("res mat: \n", res_mat)
     #print("gamma:", Gamma)
     #print("res_mat:", res_mat)
     #ptest = transition_model(torch.tensor([[0.5, 0.5]]))

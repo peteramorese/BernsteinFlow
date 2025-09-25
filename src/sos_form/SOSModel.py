@@ -3,6 +3,7 @@ from torch.utils.data import DataLoader, TensorDataset
 import time
 import sys
 import numpy as np
+import cvxpy as cp
 
 
 class SOSModel(torch.nn.Module):
@@ -14,6 +15,7 @@ class SOSModel(torch.nn.Module):
                 psi_param_dim : int, 
                 gamma : float = 1.1, 
                 eta : float = 0.25,
+                sigma_init : float = 3.0,
                 sigma_max : float = 100.0):
         """
         SOS form conditional density model for p(y | x)
@@ -48,7 +50,7 @@ class SOSModel(torch.nn.Module):
 
         # Augmented Lagrangian multipliers
         self.register_buffer("lagr_mult", torch.zeros(self.n, self.n)) # Linear penalty multipliers for each equality block
-        self.sigma = 1.0 # Quadratic penalty multiplier
+        self.sigma = sigma_init # Quadratic penalty multiplier
         self.v = 1.0 # Initial value of the augmented lagrangian linear residual
 
     def phi(self, x : torch.Tensor):
@@ -163,103 +165,21 @@ class SOSModel(torch.nn.Module):
     def get_v(self):
         return self.v
 
-class BetaSOSModel(SOSModel):
-    def __init__(self, dy : int, dx : int, n : int, m : int, gamma : float = 1.1, eta : float = 0.8, min_alpha_beta : float = 1.00):
-        # Two parameters for each basis function (alpha and beta) for each dimension
-        super().__init__(dy, dx, n, m, 2 * dy, 2 * dx, gamma, eta)
+    def project_constraints(self):
+        with torch.no_grad():
+            A_proj, prob = project_psd_hadamard_blocksum(self.get_A_mat().cpu().numpy(), 
+                                                        self.psi_inner_product_mat().cpu().numpy(), 
+                                                        self.n, 
+                                                        self.m,
+                                                        verbose=True)
+            #print("A proj: ", A_proj)
+            eigvals, _ = np.linalg.eig(A_proj)
+            print("Eigvals: ", eigvals)
+            L = np.linalg.cholesky(A_proj)
+            self.L_a.copy_(torch.tensor(L, dtype=self.L_a.dtype, device=self.L_a.device))
 
-        self.min_alpha_beta = min_alpha_beta
+
     
-    def phi(self, x : torch.Tensor):
-        # Make each parameter positive and unsqeeze to data shape
-        alpha_beta = torch.nn.functional.softplus(self.phi_params) + self.min_alpha_beta
-        alpha = alpha_beta[:, :self.dx].unsqueeze(0) # Shape (p, n, dx)
-        beta = alpha_beta[:, self.dx:].unsqueeze(0)
-
-        log_x = torch.log(x)
-        log_1mx = torch.log(1 - x)
-        log_x = log_x[:, None, :]
-        log_1mx = log_1mx[:, None, :]
-
-        log_phi_per_dim = (
-            (alpha - 1.0) * log_x
-            + (beta - 1.0) * log_1mx
-            - torch.special.gammaln(alpha)
-            - torch.special.gammaln(beta)
-            + torch.special.gammaln(alpha + beta)
-        )
-
-        # Sum in log space over the dimension
-        log_phi = torch.sum(log_phi_per_dim, dim=2) # Shape (p, n)
-
-        return torch.exp(log_phi)
-
-    def psi(self, y : torch.Tensor):
-        # Make each parameter positive and unsqeeze to data shape
-        alpha_beta = torch.nn.functional.softplus(self.psi_params) + self.min_alpha_beta
-        alpha = alpha_beta[:, :self.dy].unsqueeze(0) # Shape (p, (n+1)*m, dy)
-        beta = alpha_beta[:, self.dy:].unsqueeze(0)
-
-        log_y = torch.log(y)
-        log_1my = torch.log(1 - y)
-        log_y = log_y[:, None, :]  # Shape (p, 1, dy)
-        log_1my = log_1my[:, None, :]  # Shape (p, 1, dy)
-
-        log_psi_per_dim = (
-            (alpha - 1.0) * log_y
-            + (beta - 1.0) * log_1my
-            - torch.special.gammaln(alpha)
-            - torch.special.gammaln(beta)
-            + torch.special.gammaln(alpha + beta)
-        )
-
-        # Sum in log space over the dimension
-        log_psi = torch.sum(log_psi_per_dim, dim=2) # Shape (p, n*m)
-
-        return torch.exp(log_psi)
-
-    def psi_inner_product_mat(self):
-        # Make each parameter positive and unsqeeze to data shape
-        alpha_beta = torch.nn.functional.softplus(self.psi_params) + self.min_alpha_beta
-        alpha = alpha_beta[:, :self.dy] # Shape ((n+1)*m, dy)
-        beta = alpha_beta[:, self.dy:]
-        
-        # For each dimension, compute the inner product between all pairs of beta distributions
-        # The inner product of Beta(α₁, β₁) and Beta(α₂, β₂) is:
-        # B(α₁ + α₂ - 1, β₁ + β₂ - 1) / (B(α₁, β₁) * B(α₂, β₂))
-        # where B(α, β) = Γ(α) * Γ(β) / Γ(α + β)
-        
-        log_inner_products = torch.zeros(self.n * self.m, self.n * self.m, dtype=alpha.dtype, device=alpha.device)
-        
-        for d in range(self.dy):
-            # Get alpha and beta for dimension d
-            alpha_d = alpha[:, d]  # Shape: ((n+1)*m,)
-            beta_d = beta[:, d]    # Shape: ((n+1)*m,)
-            
-            # Compute inner products for this dimension
-            # For each pair (i, j), compute the inner product of psi_i^d and psi_j^d
-            alpha_i = alpha_d.unsqueeze(1)  # Shape: ((n+1)*m, 1)
-            beta_i = beta_d.unsqueeze(1)    # Shape: ((n+1)*m, 1)
-            alpha_j = alpha_d.unsqueeze(0)  # Shape: (1, (n+1)*m)
-            beta_j = beta_d.unsqueeze(0)    # Shape: (1, (n+1)*m)
-            
-            # Compute the inner product for this dimension
-            # B(αᵢ + αⱼ - 1, βᵢ + βⱼ - 1) / (B(αᵢ, βᵢ) * B(αⱼ, βⱼ))
-            alpha_sum = alpha_i + alpha_j - 1
-            beta_sum = beta_i + beta_j - 1
-            
-            # Compute log of the inner product to avoid overflow
-            log_inner_d = (
-                torch.special.gammaln(alpha_sum) + torch.special.gammaln(beta_sum) - torch.special.gammaln(alpha_sum + beta_sum)
-                - torch.special.gammaln(alpha_i) - torch.special.gammaln(beta_i) - torch.special.gammaln(alpha_j) - torch.special.gammaln(beta_j)
-                + torch.special.gammaln(alpha_i + beta_i) + torch.special.gammaln(alpha_j + beta_j)
-            )
-            
-            # Convert back from log space and multiply with existing inner products
-            log_inner_products += log_inner_d
-        
-        return torch.exp(log_inner_products)
-
 def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, lagrangian_update_interval=10, log_buffer_size = 20, constraints_only=False):
     def train_step(data):
         model.train()
@@ -304,3 +224,63 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, 
             for l in stdout_buffer:
                 sys.stdout.write("\033[K")
                 print(l)
+
+
+def project_psd_hadamard_blocksum(A0: np.ndarray, Gamma: np.ndarray, n: int, m: int,
+                                  verbose: bool = False):
+    """
+    Solve:
+        minimize   ||A - A0||_F^2  
+        subject to A is PSD (A >> 0)
+                   For every (i,j) block of size m x m, sum( (A .* Gamma)[block] ) = 0
+
+    Args
+    ----
+    A0 : (N,N) numpy array, target matrix (symmetric recommended)
+    Gamma : (N,N) numpy array, fixed PSD matrix
+    n : number of block rows (and block cols)
+    m : block size (so N = n*m)
+    verbose : print solver info
+
+    Returns
+    -------
+    A_opt : optimal matrix A (numpy array) or None if infeasible
+    prob  : the CVXPY problem object
+    """
+    N = n * m
+    assert A0.shape == (N, N) and Gamma.shape == (N, N), "Shapes must be (n*m, n*m)"
+    # Symmetrize inputs defensively
+    A0 = 0.5 * (A0 + A0.T)
+    Gamma = 0.5 * (Gamma + Gamma.T)
+
+    # Decision variable
+    A = cp.Variable((N, N), PSD=True)
+
+    # PSD constraint
+    #constraints = [A >> 0]
+    constraints = []
+
+    # Build linear equality constraints:
+    # For each (i,j) block, sum of entries of (A ∘ Gamma) in that block equals 0 (except for the 1, 1 block which sums to 1)
+    # This is a linear constraint:  <A, M_ij> = 0  where M_ij has Gamma's entries on that block, 0 elsewhere.
+    for bi in range(n):
+        for bj in range(n):
+            rows = slice(bi*m, (bi+1)*m)
+            cols = slice(bj*m, (bj+1)*m)
+            M = np.zeros((N, N))
+            M[rows, cols] = Gamma[rows, cols]
+            
+            sum_val = 0.0 if (bi > 0 or bj > 0) else 1.0
+            constraints += [cp.sum(cp.multiply(A, M)) == sum_val]
+
+    # Objective: keep A close to A0
+    obj = cp.Minimize(cp.sum_squares(A - A0))
+
+    prob = cp.Problem(obj, constraints)
+    prob.solve(solver=cp.SCS, verbose=verbose, eps=1e-6)  # You can also try MOSEK/OSQP/SDPT3 if available
+
+    if A.value is None:
+        return None, prob
+    # Symmetrize numerical noise
+    A_opt = 0.5 * (A.value + A.value.T)
+    return A_opt, prob

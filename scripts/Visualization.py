@@ -175,7 +175,7 @@ def transition_distribution_plot(pdf_funcs, dim=1, y_range=(0, 1), x_range=(0, 1
             density = f(y, x0 * np.ones_like(y))
             line, = ax.plot(y, density, lw=2)
             lines.append(line)
-        ax.set_xlabel("y")
+        ax.set_xlabel("x")
         ax.set_ylabel("p(y | x)")
         ax.set_title("Conditional PDF (1D)")
     else:
