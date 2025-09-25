@@ -85,7 +85,7 @@ if __name__ == "__main__":
     #init_state_model = BetaMixtureModel(dim, n_components, max_degree)
 
     n = 20
-    m = 10
+    m = 2
     #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, sigma_init=10.0, sigma_max=500, eta=0.8)
     #transition_model = PowerFunctionSOSModel(dy=dim, dx=dim, n=n, m=m, min_exp=0.0, sigma_init=10.0, sigma_max=500, max_exp=30.0)
     transition_model = SignomialSOSModel(dy=dim, dx=dim, n=n, m=m, n_terms=5, min_exp=0.0, sigma_init=10.0, sigma_max=300, max_exp=30.0)
@@ -115,7 +115,7 @@ if __name__ == "__main__":
     print("Training transition model...")
     transition_model.to(DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=700, lagrangian_update_interval=10, al_weight=1e0)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=70, lagrangian_update_interval=10, al_weight=1e0)
     transition_model.sigma_max = 10000.0
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
     optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=50, lagrangian_update_interval=1)
@@ -156,11 +156,90 @@ if __name__ == "__main__":
             ts_llh_auc = mc_auc(1, lambda up : gdt.u_density(up, lambda xp : system.transition_likelihood(gdt.u_to_x(u)* np.ones_like(xp), xp)))
             print("True auc: ", ts_llh_auc)
 
-    def np_model_density(y : np.ndarray, x : np.ndarray):
+    def np_model_density(y, x):
+        # Handle scalar inputs by converting to numpy arrays
+        if np.isscalar(y):
+            y = np.array([y])
+        if np.isscalar(x):
+            x = np.array([x])
+        
         yx = torch.vstack((torch.from_numpy(y), torch.from_numpy(x))).t()
         with torch.no_grad():
             return transition_model(yx).numpy()
 
     pdf_funcs = [np_model_density, lambda up, u : gdt.u_density(up, lambda xp : system.transition_likelihood(gdt.u_to_x(u)* np.ones_like(xp), xp))]
 
-    transition_distribution_plot(pdf_funcs, dim=dim)
+    # Create 2D visualization of conditional distributions
+    def plot_conditional_distributions_2D(pdf_funcs, u_range=(0.1, 0.9), up_range=(0.1, 0.9), resolution=50, 
+                                        save_path=None, show_plot=False):
+        """
+        Plot conditional distributions p(up | u) as 2D heatmaps.
+        
+        Parameters:
+        -----------
+        pdf_funcs : list of callable
+            List of two functions, each with signature f(up, u) returning density values
+        u_range : tuple
+            Range for u values (u_min, u_max)
+        up_range : tuple  
+            Range for up values (up_min, up_max)
+        resolution : int
+            Number of points along each axis
+        save_path : str, optional
+            Path to save the figure. If None, uses default name with timestamp
+        show_plot : bool
+            Whether to display the plot
+        """
+        # Create coordinate grids
+        u_vals = np.linspace(u_range[0], u_range[1], resolution)
+        up_vals = np.linspace(up_range[0], up_range[1], resolution)
+        U, UP = np.meshgrid(u_vals, up_vals, indexing='ij')
+        
+        # Create figure with 1x2 subplots
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+        
+        titles = ['Model Conditional Distribution', 'True Conditional Distribution']
+        
+        for i, pdf_func in enumerate(pdf_funcs):
+            # Evaluate PDF over the grid
+            density = np.zeros_like(U)
+            for j in range(resolution):
+                for k in range(resolution):
+                    u_val = u_vals[j]
+                    up_val = up_vals[k]
+                    density[j, k] = pdf_func(up_val, u_val)
+            
+            # Plot as heatmap
+            im = axes[i].imshow(density, extent=[up_range[0], up_range[1], u_range[0], u_range[1]], 
+                              aspect='auto', origin='lower', cmap='viridis')
+            axes[i].set_xlabel('up')
+            axes[i].set_ylabel('u')
+            axes[i].set_title(titles[i])
+            
+            # Add colorbar
+            plt.colorbar(im, ax=axes[i], label='Density')
+        
+        plt.tight_layout()
+        
+        # Save the figure
+        if save_path is None:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_path = f"conditional_distributions_{timestamp}.png"
+        
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Figure saved to: {save_path}")
+        
+        # Show plot if requested
+        if show_plot:
+            plt.show()
+        else:
+            plt.close()  # Close the figure to free memory
+        
+        return fig, axes
+
+    # Create the visualization
+    plot_conditional_distributions_2D(pdf_funcs, u_range=(0.1, 0.9), up_range=(0.1, 0.9), resolution=50, 
+                                    save_path="figures/conditional_distributions_comparison.png", show_plot=False)
+
+    #transition_distribution_plot(pdf_funcs, dim=dim)
