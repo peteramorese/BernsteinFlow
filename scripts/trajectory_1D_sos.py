@@ -65,8 +65,8 @@ if __name__ == "__main__":
     Up_io_data = np.hstack([gdt.X_to_U(io_data[:, :dim]), gdt.X_to_U(io_data[:, dim:])])
     #Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data 
 
-    plt.scatter(Up_io_data[:, 0], Up_io_data[:, 1], s=1)
-    plt.show()
+    #plt.scatter(Up_io_data[:, 0], Up_io_data[:, 1], s=1)
+    #plt.show()
 
     # Create data loader
     U0_data_torch = torch.tensor(U0_data, dtype=DTYPE)
@@ -77,17 +77,18 @@ if __name__ == "__main__":
     #Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
     Up_dataloader = DataLoader(Up_dataset, batch_size=256, shuffle=True)
+    Up_dataloader_refine = DataLoader(Up_dataset, batch_size=2048, shuffle=True)
 
     ## Create initial state and transition models
     #n_components = 200
     #max_degree = 60
     #init_state_model = BetaMixtureModel(dim, n_components, max_degree)
 
-    n = 30
-    m = 2
-    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, sigma_init=10.0, sigma_max=500)
+    n = 20
+    m = 10
+    #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, sigma_init=10.0, sigma_max=500, eta=0.8)
     #transition_model = PowerFunctionSOSModel(dy=dim, dx=dim, n=n, m=m, min_exp=0.0, sigma_init=10.0, sigma_max=500, max_exp=30.0)
-    #transition_model = SignomialSOSModel(dy=dim, dx=dim, n=n, m=m, n_terms=5, min_alpha=0.0)
+    transition_model = SignomialSOSModel(dy=dim, dx=dim, n=n, m=m, n_terms=5, min_exp=0.0, sigma_init=10.0, sigma_max=300, max_exp=30.0)
 
     #nv = 20
     #max_var_deg = 25
@@ -113,11 +114,11 @@ if __name__ == "__main__":
 
     print("Training transition model...")
     transition_model.to(DTYPE)
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=500, lagrangian_update_interval=10)
-    transition_model.sigma_max = 1000.0
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=30, lagrangian_update_interval=1)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=700, lagrangian_update_interval=10, al_weight=1e0)
+    transition_model.sigma_max = 10000.0
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
+    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=50, lagrangian_update_interval=1)
     #print("Projecting constraints...")
     #transition_model.project_constraints()
 
@@ -126,8 +127,8 @@ if __name__ == "__main__":
     #optimize(transition_model, Up_dataloader, trans_optimizer, epochs=100, lagrangian_update_interval=1, constraints_only=True)
     print("Done training transition model \n")
 
-    #print("phi params: \n", transition_model.get_phi_params())
-    #print("psi params: \n", transition_model.get_psi_params())
+    print("phi params: \n", transition_model.get_phi_params())
+    print("psi params: \n", transition_model.get_psi_params())
 
     psi_mat = transition_model.psi_inner_product_mat()
     A = transition_model.get_A_mat() 
@@ -136,10 +137,10 @@ if __name__ == "__main__":
     res_mat = transition_model.get_residual_mat()
 
 
-    #print("Gamma: \n", Gamma)
+    print("Gamma: \n", Gamma)
     #print("Gamma block view: \n", Gamma_block_view)
-    #print("A: \n", A)
-    #print("res mat: \n", res_mat)
+    print("A: \n", A)
+    print("res mat: \n", res_mat)
     #print("gamma:", Gamma)
     #print("res_mat:", res_mat)
     #ptest = transition_model(torch.tensor([[0.5, 0.5]]))

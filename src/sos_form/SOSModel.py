@@ -133,14 +133,14 @@ class SOSModel(torch.nn.Module):
 
         return -linear_penalty + quadratic_penalty
     
-    def loss(self, yx : torch.Tensor):
+    def loss(self, yx : torch.Tensor, al_weight=1.0):
         density = self(yx)
         log_density = torch.log(density + 1e-10)
         nll_loss = -log_density.mean()
 
         aug_lagrangian_loss = self.aug_lagrangian_loss()
         #print("nll loss: ", nll_loss.item(),"aug lagrangian loss: ", aug_lagrangian_loss.item())
-        loss = nll_loss + aug_lagrangian_loss
+        loss = nll_loss + al_weight * aug_lagrangian_loss
         #input("...")
         return loss, nll_loss, aug_lagrangian_loss
     
@@ -180,7 +180,7 @@ class SOSModel(torch.nn.Module):
 
 
     
-def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, lagrangian_update_interval=10, log_buffer_size = 20, constraints_only=False):
+def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, lagrangian_update_interval=10, log_buffer_size = 20, constraints_only=False, al_weight=1.0):
     def train_step(data):
         model.train()
         optimizer.zero_grad()
@@ -192,7 +192,7 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, 
                 loss, nll_loss, _ = model.loss(data)
             return loss.item(), nll_loss.item(),aug_lagrangian_loss.item()
         else:
-            loss, nll_loss, aug_lagrangian_loss = model.loss(data)
+            loss, nll_loss, aug_lagrangian_loss = model.loss(data, al_weight=al_weight)
             loss.backward()
             optimizer.step()
             return loss.item(), nll_loss.item(), aug_lagrangian_loss.item()

@@ -1,156 +1,260 @@
 import torch
 from .SOSModel import SOSModel
 
+#class SignomialSOSModel(SOSModel):
+#    def __init__(self, dy : int, dx : int, n : int, m : int, n_terms : int, min_exp : float = -1.0, max_exp : float = 50.0, **kwargs):
+#        # One parameter for each basis function (alpha) for each dimension
+#        super().__init__(dy, dx, n, m, n_terms * (dx + 1), n_terms * (dy + 1), **kwargs)
+#
+#        self.min_exp = min_exp
+#        self.max_exp = max_exp
+#        self.n_terms = n_terms
+#    
+#    def phi(self, x : torch.Tensor):
+#        # Split parameters: first n_terms are coefficients, next n_terms*dx are exponents
+#        coefficient_params = self.phi_params[:, :self.n_terms]
+#        exponent_params = self.phi_params[:, self.n_terms:]
+#        assert exponent_params.shape[1] == self.n_terms * self.dx
+#
+#        # Make exponents positive and add minimum exp
+#        exponent_params = (self.max_exp - self.min_exp) * torch.nn.functional.softplus(exponent_params) + self.min_exp
+#        
+#        # Reshape to (p, n, n_terms, dx) 
+#        exponent_params = exponent_params.view(self.n - 1, self.n_terms, self.dx).unsqueeze(0)
+#        coefficient_params = coefficient_params.view(self.n - 1, self.n_terms).unsqueeze(0) # (p, n, n_terms)
+#        
+#        # Compute x^exponent for each term and dimension
+#        log_x = torch.log(x)  # (p, dx)
+#
+#        log_x = log_x[:, None, None, :]
+#        
+#        # Compute x^exponent for each term: (p, n, n_terms, dx)
+#        log_power_terms = exponent_params * log_x
+#
+#        # Sum over dimensions for each term: (p, n, n_terms)
+#        log_power_terms = torch.sum(log_power_terms, dim=3)  # (p, n, n_terms)
+#
+#        power_terms = torch.exp(log_power_terms)
+#        
+#        # Sum over terms
+#        sum_of_terms = torch.sum(power_terms * coefficient_params, dim=2)
+#
+#        log_normalization_constant = -torch.sum(exponent_params + 1, dim=3)
+#        norm_constant = torch.sum(torch.exp(log_normalization_constant) * coefficient_params, dim=2)
+#        
+#        return sum_of_terms / norm_constant
+#
+#    def psi(self, y : torch.Tensor):
+#        # Split parameters: first n_terms are coefficients, next n_terms*dy are exponents
+#        coefficient_params = self.psi_params[:, :self.n_terms]
+#        exponent_params = self.psi_params[:, self.n_terms:]
+#        assert exponent_params.shape[1] == self.n_terms * self.dy
+#
+#        # Make exponents positive and add minimum exp
+#        exponent_params = (self.max_exp - self.min_exp) * torch.nn.functional.softplus(exponent_params) + self.min_exp
+#        
+#        # Reshape to (n*m, n_terms, dy) for easier computation
+#        exponent_params = exponent_params.view(self.n * self.m, self.n_terms, self.dy).unsqueeze(0)
+#        coefficient_params = coefficient_params.view(self.n * self.m, self.n_terms)
+#
+#        # y shape: (p, dy), we need (p, 1, 1, dy) for broadcasting
+#        log_y = torch.log(y)  # (p, dy)
+#        log_y = log_y[:, None, None, :]
+#        
+#        # Compute y^exponent for each term and dimension
+#        log_power_terms = exponent_params * log_y
+#
+#        # Sum over dimensions for each term: (p, n*m, n_terms)
+#        log_power_terms = torch.sum(log_power_terms, dim=3)  # (p, n*m, n_terms)
+#
+#        power_terms = torch.exp(log_power_terms)
+#        
+#        # Sum over terms
+#        sum_of_terms = torch.sum(power_terms * coefficient_params, dim=2)
+#
+#        log_normalization_constant = -torch.sum(exponent_params + 1, dim=3)
+#        norm_constant = torch.sum(torch.exp(log_normalization_constant) * coefficient_params, dim=2)
+#        
+#        return sum_of_terms / norm_constant
+#        
+#    def psi_inner_product_mat(self):
+#        # Split parameters
+#        coefficient_params = self.psi_params[:, :self.n_terms]
+#        exponent_params = self.psi_params[:, self.n_terms:]
+#        assert exponent_params.shape[1] == self.n_terms * self.dy
+#
+#        # Make exponents positive and add minimum alpha
+#        exponent_params = torch.nn.functional.softplus(exponent_params) + self.min_exp
+#        
+#        # Reshape
+#        exponent_params = exponent_params.view(self.n * self.m, self.n_terms, self.dy)
+#        coefficient_params = coefficient_params.view(self.n * self.m, self.n_terms)
+#
+#        # ---- Normalization constants ----
+#        # N_i = Σ_k c_{i,k} * ∏_d 1/(α_{i,k,d} + 1)
+#        norm_factors = torch.prod(1.0 / (exponent_params + 1.0), dim=2)  # (n*m, n_terms)
+#        normalization_constants = torch.sum(coefficient_params * norm_factors, dim=1)  # (n*m,)
+#
+#        # ---- Pairwise inner products ----
+#        exp_i = exponent_params.unsqueeze(1).unsqueeze(3)  # (n*m, 1, 1, n_terms, dy)
+#        exp_j = exponent_params.unsqueeze(0).unsqueeze(2)  # (1, n*m, n_terms, 1, dy)
+#
+#        alpha_sum = exp_i + exp_j + 1.0
+#        term_inner_products = torch.prod(1.0 / alpha_sum, dim=4)  # (n*m, n*m, n_terms, n_terms)
+#
+#        coeff_i = coefficient_params.unsqueeze(1).unsqueeze(3)  # (n*m, 1, 1, n_terms)
+#        coeff_j = coefficient_params.unsqueeze(0).unsqueeze(2)  # (1, n*m, n_terms, 1)
+#        coeff_products = coeff_i * coeff_j
+#
+#        unnormalized_inner_products = torch.sum(coeff_products * term_inner_products, dim=(2, 3))  # (n*m, n*m)
+#
+#        # ---- Apply normalization ----
+#        norm_i = normalization_constants.unsqueeze(1)  # (n*m, 1)
+#        norm_j = normalization_constants.unsqueeze(0)  # (1, n*m)
+#        inner_products = unnormalized_inner_products / (norm_i * norm_j)
+#
+#        return inner_products
+#    
+#    def get_phi_params(self):
+#        return (self.max_exp - self.min_exp) * torch.nn.functional.sigmoid(self.phi_params) + self.min_exp
+#
+#    def get_psi_params(self):
+#        return (self.max_exp - self.min_exp) * torch.nn.functional.sigmoid(self.psi_params) + self.min_exp
+
+
 class SignomialSOSModel(SOSModel):
-    def __init__(self, dy : int, dx : int, n : int, m : int, n_terms : int, min_alpha : float = -1.0, **kwargs):
-        # One parameter for each basis function (alpha) for each dimension
+    def __init__(self, dy: int, dx: int, n: int, m: int, n_terms: int,
+                 min_exp: float = -0.999, max_exp: float = 50.0,  # avoid -1 exactly
+                 eps: float = 1e-12, pos_coeffs: bool = True, **kwargs):
         super().__init__(dy, dx, n, m, n_terms * (dx + 1), n_terms * (dy + 1), **kwargs)
-
-        self.min_alpha = min_alpha
+        self.min_exp = min_exp
+        self.max_exp = max_exp
         self.n_terms = n_terms
-    
-    def phi(self, x : torch.Tensor):
-        # Split parameters: first n_terms are coefficients, next n_terms*dx are exponents
-        coefficient_params = self.phi_params[:, :self.n_terms]
-        exponent_params = self.phi_params[:, self.n_terms:]
-        assert exponent_params.shape[1] == self.n_terms * self.dx
+        self.eps = eps
+        self.pos_coeffs = pos_coeffs  # if True, enforce c_k >= 0 via softplus
 
-        # Make exponents positive and add minimum alpha
-        exponent_params = torch.nn.functional.softplus(exponent_params) + self.min_alpha
-        
-        # Reshape to (n, n_terms, dx) for easier computation
-        exponent_params = exponent_params.view(self.n - 1, self.n_terms, self.dx)
-        coefficient_params = coefficient_params.view(self.n - 1, self.n_terms)
-        
-        # x shape: (p, dx), we need (p, 1, 1, dx) for broadcasting
-        x_expanded = x.unsqueeze(1).unsqueeze(1)  # (p, 1, 1, dx)
-        
-        # Compute x^exponent for each term and dimension
-        log_x = torch.log(x_expanded)  # (p, 1, 1, dx)
-        
-        # exponent_params: (n, n_terms, dx) -> (1, n, n_terms, dx)
-        exponent_params = exponent_params.unsqueeze(0)  # (1, n, n_terms, dx)
-        
-        # Compute x^exponent for each term: (p, n, n_terms, dx)
-        log_power_terms = exponent_params * log_x.unsqueeze(2)  # (p, n, n_terms, dx)
-        
-        # Sum over dimensions for each term: (p, n, n_terms)
-        log_power_terms = torch.sum(log_power_terms, dim=3)  # (p, n, n_terms)
-        
-        # Apply coefficients and sum over terms
-        coefficient_params = coefficient_params.unsqueeze(0)  # (1, n, n_terms)
-        
-        # Compute coefficient * x^exponent for each term
-        log_coeff_terms = torch.log(coefficient_params + 1e-10) + log_power_terms  # (p, n, n_terms)
-        
-        # Sum over terms: (p, n)
-        log_phi = torch.logsumexp(log_coeff_terms, dim=2)  # (p, n)
-        
-        return torch.exp(log_phi)
+    # --- helpers --------------------------------------------------------------
 
-    def psi(self, y : torch.Tensor):
-        # Split parameters: first n_terms are coefficients, next n_terms*dy are exponents
-        coefficient_params = self.psi_params[:, :self.n_terms]
-        exponent_params = self.psi_params[:, self.n_terms:]
-        assert exponent_params.shape[1] == self.n_terms * self.dy
+    def _map_exponents(self, raw):
+        # same mapping everywhere
+        return (self.max_exp - self.min_exp) * torch.nn.functional.softplus(raw) + self.min_exp
 
-        # Make exponents positive and add minimum alpha
-        exponent_params = torch.nn.functional.softplus(exponent_params) + self.min_alpha
-        
-        # Reshape to (n*m, n_terms, dy) for easier computation
-        exponent_params = exponent_params.view(self.n * self.m, self.n_terms, self.dy)
-        coefficient_params = coefficient_params.view(self.n * self.m, self.n_terms)
+    def _map_coeffs(self, raw):
+        if self.pos_coeffs:
+            return torch.nn.functional.softplus(raw) + self.eps  # strictly positive
+        return raw
 
-        # y shape: (p, dy), we need (p, 1, 1, dy) for broadcasting
-        y_expanded = y.unsqueeze(1).unsqueeze(1)  # (p, 1, 1, dy)
-        
-        # Compute y^exponent for each term and dimension
-        log_y = torch.log(y_expanded)  # (p, 1, 1, dy)
-        
-        # exponent_params: (n*m, n_terms, dy) -> (1, n*m, n_terms, dy)
-        exponent_params = exponent_params.unsqueeze(0)  # (1, n*m, n_terms, dy)
-        
-        # Compute y^exponent for each term: (p, n*m, n_terms, dy)
-        log_power_terms = exponent_params * log_y.unsqueeze(2)  # (p, n*m, n_terms, dy)
-        
-        # Sum over dimensions for each term: (p, n*m, n_terms)
-        log_power_terms = torch.sum(log_power_terms, dim=3)  # (p, n*m, n_terms)
-        
-        # Apply coefficients and sum over terms
-        coefficient_params = coefficient_params.unsqueeze(0)  # (1, n*m, n_terms)
-        
-        # Compute coefficient * y^exponent for each term
-        log_coeff_terms = torch.log(coefficient_params + 1e-10) + log_power_terms  # (p, n*m, n_terms)
-        
-        # Sum over terms: (p, n*m)
-        log_psi = torch.logsumexp(log_coeff_terms, dim=2)  # (p, n*m)
-        
-        return torch.exp(log_psi)
+    def _log_norm_terms(self, exps):
+        # exps shape (..., dim)
+        # log ∏_d 1/(α_d+1) = -∑_d log(α_d+1)
+        return -torch.sum(torch.log(exps + 1.0 + self.eps), dim=-1)
+
+    # --- phi ------------------------------------------------------------------
+
+    def phi(self, x: torch.Tensor):
+        # params
+        coeff_raw = self.phi_params[:, :self.n_terms]
+        exp_raw   = self.phi_params[:, self.n_terms:]
+        assert exp_raw.shape[1] == self.n_terms * self.dx
+
+        coeff = self._map_coeffs(coeff_raw)  # (n-1, n_terms)
+        exps  = self._map_exponents(exp_raw).view(self.n - 1, self.n_terms, self.dx)  # (n-1, n_terms, dx)
+
+        # shapes for batch p
+        coeff = coeff.unsqueeze(0)                     # (1, n-1, n_terms)
+        exps  = exps.unsqueeze(0)                      # (1, n-1, n_terms, dx)
+
+        # clamp x to avoid log(0)
+        x = torch.clamp(x, self.eps, 1.0 - self.eps)   # (p, dx)
+        log_x = torch.log(x)[:, None, None, :]         # (p, 1, 1, dx)
+
+        # log power per term: ∑_d α_d log x_d
+        log_power_terms = torch.sum(exps * log_x, dim=3)     # (p, n-1, n_terms)
+        power_terms = torch.exp(log_power_terms)             # (p, n-1, n_terms)
+
+        # numerator: Σ_k c_k * ∏_d x_d^{α_d}
+        numer = torch.sum(power_terms * coeff, dim=2)        # (p, n-1)
+
+        # denominator: Σ_k c_k * ∏_d 1/(α_d+1)
+        log_den_terms = self._log_norm_terms(exps)           # (1, n-1, n_terms)
+        # stable log-sum-exp over k with weights c_k:
+        # log Σ_k c_k * a_k = log Σ_k exp(log c_k + log a_k)
+        log_coeff = torch.log(coeff)                          # (1, n-1, n_terms)
+        log_den = torch.logsumexp(log_coeff + log_den_terms, dim=2)  # (1, n-1)
+        den = torch.exp(log_den)                              # (1, n-1)
+
+        return numer / (den + self.eps)                       # (p, n-1)
+
+    # --- psi ------------------------------------------------------------------
+
+    def psi(self, y: torch.Tensor):
+        coeff_raw = self.psi_params[:, :self.n_terms]
+        exp_raw   = self.psi_params[:, self.n_terms:]
+        assert exp_raw.shape[1] == self.n_terms * self.dy
+
+        coeff = self._map_coeffs(coeff_raw).view(self.n * self.m, self.n_terms)     # (nm, n_terms)
+        exps  = self._map_exponents(exp_raw).view(self.n * self.m, self.n_terms, self.dy)  # (nm, n_terms, dy)
+
+        # batch shapes
+        exps  = exps.unsqueeze(0)                         # (1, nm, n_terms, dy)
+        coeff = coeff.unsqueeze(0)                        # (1, nm, n_terms)
+
+        y = torch.clamp(y, self.eps, 1.0 - self.eps)      # (p, dy)
+        log_y = torch.log(y)[:, None, None, :]            # (p, 1, 1, dy)
+
+        log_power_terms = torch.sum(exps * log_y, dim=3)  # (p, nm, n_terms)
+        power_terms = torch.exp(log_power_terms)          # (p, nm, n_terms)
+
+        numer = torch.sum(power_terms * coeff, dim=2)     # (p, nm)
+
+        log_den_terms = self._log_norm_terms(exps)        # (1, nm, n_terms)
+        log_den = torch.logsumexp(torch.log(coeff) + log_den_terms, dim=2)  # (1, nm)
+        den = torch.exp(log_den)
+
+        return numer / (den + self.eps)                   # (p, nm)
+
+    # --- Gram of psi ----------------------------------------------------------
 
     def psi_inner_product_mat(self):
-        # Split parameters: first n_terms are coefficients, next n_terms*dy are exponents
-        coefficient_params = self.psi_params[:, :self.n_terms]
-        exponent_params = self.psi_params[:, self.n_terms:]
-        assert exponent_params.shape[1] == self.n_terms * self.dy
+        coeff_raw = self.psi_params[:, :self.n_terms]
+        exp_raw   = self.psi_params[:, self.n_terms:]
+        assert exp_raw.shape[1] == self.n_terms * self.dy
 
-        # Make exponents positive and add minimum alpha
-        exponent_params = torch.nn.functional.softplus(exponent_params) + self.min_alpha
-        
-        # Reshape to (n*m, n_terms, dy) for easier computation
-        exponent_params = exponent_params.view(self.n * self.m, self.n_terms, self.dy)
-        coefficient_params = coefficient_params.view(self.n * self.m, self.n_terms)
-        
-        # Initialize the inner product matrix
-        inner_products = torch.zeros(self.n * self.m, self.n * self.m, 
-                                   dtype=exponent_params.dtype, device=exponent_params.device)
-        
-        # For signomials, we need to compute the inner product of each pair of basis functions
-        # Each basis function is a sum of terms: sum_k c_k * ∏_d y_d^α_k_d
-        # The inner product of two signomials is:
-        # ∫ sum_i c_i * ∏_d y_d^α_i_d * sum_j d_j * ∏_d y_d^β_j_d dy
-        # = sum_i sum_j c_i * d_j * ∫ ∏_d y_d^(α_i_d + β_j_d) dy
-        # = sum_i sum_j c_i * d_j * ∏_d ∫[0,1] y_d^(α_i_d + β_j_d) dy_d
-        # = sum_i sum_j c_i * d_j * ∏_d 1/(α_i_d + β_j_d + 1)
-        
-        for i in range(self.n * self.m):
-            for j in range(self.n * self.m):
-                # Get parameters for basis functions i and j
-                exp_i = exponent_params[i]  # (n_terms, dy)
-                coeff_i = coefficient_params[i]  # (n_terms,)
-                exp_j = exponent_params[j]  # (n_terms, dy)
-                coeff_j = coefficient_params[j]  # (n_terms,)
-                
-                # Compute inner product between all pairs of terms
-                inner_product = 0.0
-                
-                for k in range(self.n_terms):
-                    for l in range(self.n_terms):
-                        # Get the k-th term of basis i and l-th term of basis j
-                        exp_i_k = exp_i[k]  # (dy,)
-                        coeff_i_k = coeff_i[k]  # scalar
-                        exp_j_l = exp_j[l]  # (dy,)
-                        coeff_j_l = coeff_j[l]  # scalar
-                        
-                        # Compute the inner product of the k-th term of i and l-th term of j
-                        # This is: ∫[0,1]^dy c_i_k * ∏_d y_d^α_i_k_d * c_j_l * ∏_d y_d^β_j_l_d dy
-                        # = c_i_k * c_j_l * ∫[0,1]^dy ∏_d y_d^(α_i_k_d + β_j_l_d) dy
-                        # = c_i_k * c_j_l * ∏_d ∫[0,1] y_d^(α_i_k_d + β_j_l_d) dy_d
-                        # = c_i_k * c_j_l * ∏_d 1/(α_i_k_d + β_j_l_d + 1)
-                        
-                        # Compute the product over dimensions
-                        term_inner_product = 1.0
-                        for d in range(self.dy):
-                            alpha_sum = exp_i_k[d] + exp_j_l[d] + 1
-                            if alpha_sum > 0:
-                                term_inner_product *= 1.0 / alpha_sum
-                            else:
-                                term_inner_product = 0.0
-                                break
-                        
-                        # Multiply by coefficients
-                        coeff_product = coeff_i_k * coeff_j_l
-                        inner_product += coeff_product * term_inner_product
-                
-                inner_products[i, j] = inner_product
-        
-        return inner_products
+        # use the SAME mappings as in psi()
+        coeff = self._map_coeffs(coeff_raw).view(self.n * self.m, self.n_terms)           # (nm, n_terms)
+        exps  = self._map_exponents(exp_raw).view(self.n * self.m, self.n_terms, self.dy)  # (nm, n_terms, dy)
+
+        # normalization constants N_i = Σ_k c_{i,k} ∏_d 1/(α_{i,k,d}+1)
+        log_norm_terms = -torch.sum(torch.log(exps + 1.0 + self.eps), dim=2)   # (nm, n_terms)
+        log_norm_i = torch.logsumexp(torch.log(coeff) + log_norm_terms, dim=1) # (nm,)
+        N = torch.exp(log_norm_i) + self.eps                                   # (nm,)
+
+        # pairwise ∑_{k,l} c_i,k c_j,l ∏_d 1/(α_i,k,d + α_j,l,d + 1)
+        exp_i = exps.unsqueeze(1).unsqueeze(3)   # (nm, 1, 1, n_terms, dy)
+        exp_j = exps.unsqueeze(0).unsqueeze(2)   # (1, nm, n_terms, 1, dy)
+
+        denom = exp_i + exp_j + 1.0
+        # product over dimensions with eps
+        term_ip = torch.prod(1.0 / (denom + self.eps), dim=4)  # (nm, nm, n_terms, n_terms)
+
+        c_i = coeff.unsqueeze(1).unsqueeze(3)                  # (nm, 1, 1, n_terms)
+        c_j = coeff.unsqueeze(0).unsqueeze(2)                  # (1, nm, n_terms, 1)
+        coeff_prod = c_i * c_j                                 # (nm, nm, n_terms, n_terms)
+
+        unnorm = torch.sum(coeff_prod * term_ip, dim=(2, 3))   # (nm, nm)
+
+        # normalize
+        G = unnorm / (N.unsqueeze(1) * N.unsqueeze(0))         # (nm, nm)
+        return G
+
+    # (optional) expose bounded params if you still want these:
+    def get_phi_params(self):
+        # match _map_exponents if you use them downstream
+        exps = self._map_exponents(self.phi_params[:, self.n_terms:])
+        coeff = self._map_coeffs(self.phi_params[:, :self.n_terms])
+        return torch.cat([coeff, exps], dim=1)
+
+    def get_psi_params(self):
+        exps = self._map_exponents(self.psi_params[:, self.n_terms:])
+        coeff = self._map_coeffs(self.psi_params[:, :self.n_terms])
+        return torch.cat([coeff, exps], dim=1)
