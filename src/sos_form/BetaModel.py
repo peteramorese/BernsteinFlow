@@ -97,3 +97,9 @@ class BetaSOSModel(SOSModel):
             log_inner_products += log_inner_d
         
         return torch.exp(log_inner_products)
+    
+    def get_phi_params(self):
+        return (self.max_exp - self.min_exp) * torch.nn.functional.sigmoid(self.phi_params) + self.min_exp
+
+    def get_psi_params(self):
+        return (self.max_exp - self.min_exp) * torch.nn.functional.sigmoid(self.psi_params) + self.min_exp

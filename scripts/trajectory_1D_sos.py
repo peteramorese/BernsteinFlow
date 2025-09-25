@@ -73,8 +73,8 @@ if __name__ == "__main__":
     U0_dataset = TensorDataset(U0_data_torch)
     U0_dataloader = DataLoader(U0_dataset, batch_size=32, shuffle=True)
 
-    Up_data_torch = torch.tensor(Up_io_data, dtype=DTYPE)
-    #Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
+    #Up_data_torch = torch.tensor(Up_io_data, dtype=DTYPE)
+    Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
     Up_dataloader = DataLoader(Up_dataset, batch_size=256, shuffle=True)
     Up_dataloader_refine = DataLoader(Up_dataset, batch_size=2048, shuffle=True)
@@ -84,11 +84,11 @@ if __name__ == "__main__":
     #max_degree = 60
     #init_state_model = BetaMixtureModel(dim, n_components, max_degree)
 
-    n = 20
-    m = 2
-    #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, sigma_init=10.0, sigma_max=500, eta=0.8)
+    n = 40
+    m = 5
+    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, sigma_init=10.0, sigma_max=500, eta=0.8)
     #transition_model = PowerFunctionSOSModel(dy=dim, dx=dim, n=n, m=m, min_exp=0.0, sigma_init=10.0, sigma_max=500, max_exp=30.0)
-    transition_model = SignomialSOSModel(dy=dim, dx=dim, n=n, m=m, n_terms=5, min_exp=0.0, sigma_init=10.0, sigma_max=300, max_exp=30.0)
+    #transition_model = SignomialSOSModel(dy=dim, dx=dim, n=n, m=m, n_terms=5, min_exp=0.0, sigma_init=10.0, sigma_max=300, max_exp=30.0)
 
     #nv = 20
     #max_var_deg = 25
@@ -114,8 +114,8 @@ if __name__ == "__main__":
 
     print("Training transition model...")
     transition_model.to(DTYPE)
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=70, lagrangian_update_interval=10, al_weight=1e0)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=70, lagrangian_update_interval=10, al_weight=5)
     transition_model.sigma_max = 10000.0
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
     optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=50, lagrangian_update_interval=1)
@@ -127,8 +127,8 @@ if __name__ == "__main__":
     #optimize(transition_model, Up_dataloader, trans_optimizer, epochs=100, lagrangian_update_interval=1, constraints_only=True)
     print("Done training transition model \n")
 
-    print("phi params: \n", transition_model.get_phi_params())
-    print("psi params: \n", transition_model.get_psi_params())
+    #print("phi params: \n", transition_model.get_phi_params())
+    #print("psi params: \n", transition_model.get_psi_params())
 
     psi_mat = transition_model.psi_inner_product_mat()
     A = transition_model.get_A_mat() 
@@ -238,8 +238,16 @@ if __name__ == "__main__":
         
         return fig, axes
 
+    # Import the visualization function
+    from src.visualization import plot_conditional_distributions_2D, plot_conditional_distributions_slices
+
     # Create the visualization
-    plot_conditional_distributions_2D(pdf_funcs, u_range=(0.1, 0.9), up_range=(0.1, 0.9), resolution=50, 
+    plot_conditional_distributions_2D(pdf_funcs, u_range=(0.2, 0.8), up_range=(0.01, 0.99), resolution=50, 
                                     save_path="figures/conditional_distributions_comparison.png", show_plot=False)
+    
+    # Create the new slice visualization
+    plot_conditional_distributions_slices(pdf_funcs, u_range=(0.2, 0.8), up_range=(0.01, 0.99), 
+                                        n_slices=4, resolution=100, 
+                                        save_path="figures/conditional_distributions_slices.png", show_plot=False)
 
     #transition_distribution_plot(pdf_funcs, dim=dim)
