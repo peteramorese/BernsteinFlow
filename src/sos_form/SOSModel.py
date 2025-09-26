@@ -13,10 +13,14 @@ class SOSModel(torch.nn.Module):
                 m : int, 
                 phi_param_dim : int, 
                 psi_param_dim : int, 
+                opt_mode : str = "logdet",
                 gamma : float = 1.1, 
                 eta : float = 0.25,
                 sigma_init : float = 3.0,
-                sigma_max : float = 100.0):
+                sigma_max : float = 100.0,
+                mu : float = 1.0,
+                npsd_penalty_exp : float = 5.0
+                ):
         """
         SOS form conditional density model for p(y | x)
         Args:
@@ -26,11 +30,20 @@ class SOSModel(torch.nn.Module):
             m : number of duplicates of the x-basis functions (making n * m y-basis functions)
             phi_param_dim : dimension of the phi (x-basis) parameters
             psi_param_dim : dimension of the psi (y-basis) parameters
-            gamma : augmented lagrangian quadratic scaling
-            eta : augmented lagrangian linear residual threshold
+            gamma : augmented lagrangian quadratic scaling (AL mode)
+            eta : augmented lagrangian linear residual threshold (AL mode)
+            mu : logdet barrier weight parameter (logdet mode)
         """
 
         super().__init__()
+
+
+        if opt_mode == "lagrangian":
+            self.opt_mode = 1
+        elif opt_mode == "logdet":
+            self.opt_mode = 2
+        else:
+            raise ValueError("Invalid optimization mode. Must be either 'logdet' or 'lagrangian'.")
 
         self.dy = dy
         self.dx = dx
@@ -41,17 +54,25 @@ class SOSModel(torch.nn.Module):
         self.gamma = gamma
         self.eta = eta
         self.sigma_max = sigma_max
+        self.npsd_penalty_exp = npsd_penalty_exp
         # Initialize with smaller values to prevent explosion
         self.phi_params = torch.nn.Parameter(0.1 * torch.randn(self.n - 1, phi_param_dim))
         self.psi_params = torch.nn.Parameter(0.1 * torch.randn(self.n*self.m, psi_param_dim)) 
 
-        self.L_a = torch.nn.Parameter(0.1 * torch.randn(self.n*self.m, self.n*self.m))
-        print("Coefficient matrix size: ", self.L_a.shape)
+        print("Coefficient matrix size: ", self.n*self.m, " x", self.n*self.m)
 
-        # Augmented Lagrangian multipliers
-        self.register_buffer("lagr_mult", torch.zeros(self.n, self.n)) # Linear penalty multipliers for each equality block
-        self.sigma = sigma_init # Quadratic penalty multiplier
-        self.v = 1.0 # Initial value of the augmented lagrangian linear residual
+        if self.opt_mode == 1: 
+            self.L_a = torch.nn.Parameter(0.1 * torch.randn(self.n*self.m, self.n*self.m))
+
+            # Augmented Lagrangian multipliers
+            self.register_buffer("lagr_mult", torch.zeros(self.n, self.n)) # Linear penalty multipliers for each equality block
+            self.sigma = sigma_init # Quadratic penalty multiplier
+            self.v = 1.0 # Initial value of the augmented lagrangian linear residual
+
+        elif self.opt_mode == 2:
+            #self.Aasym_unconstrained = torch.nn.Parameter(torch.zeros(self.n*self.m, self.n*self.m))
+            self.Aasym_unconstrained = torch.nn.Parameter(10 * torch.eye(self.n*self.m))
+            self.mu = mu
 
     def phi(self, x : torch.Tensor):
         """
@@ -65,7 +86,7 @@ class SOSModel(torch.nn.Module):
         """
         raise NotImplementedError()
 
-    def psi_inner_product_mat(self):
+    def psi_gram(self):
         """
         Compute the inner product matrix of the psi basis functions. Must return a tensor of size ((n+1)*m, (n+1)*m)
         """
@@ -99,20 +120,58 @@ class SOSModel(torch.nn.Module):
         A_mat = self.get_A_mat()  # Shape: ((n)*m, (n)*m)
 
         #print("A mat:\n", A_mat)
+        #print("A isnan: ", torch.isnan(A_mat).any())
+
+        #print("A mat:\n", A_mat)
         #print("Phi: ", phi_vec[0, :])
         #print("Psi: ", psi_vec[0, :])
         #print("basis vals: ", basis_vals)
 
         # Per-sample quadratic form: for each sample i, basis_vals[i]^T A basis_vals[i]
         density = torch.einsum("pi,ij,pj->p", basis_vals, A_mat, basis_vals)
+        #print("density isnan: ", torch.isnan(density).any())
+        #print("density: ", density)
+        return torch.relu(density) 
         
-        return density 
-        
-    def get_A_mat(self):
-        return self.L_a @ self.L_a.T
+    def get_A_mat(self, eps=1e-8):
+        if self.opt_mode == 1:
+            return self.L_a @ self.L_a.T
+        elif self.opt_mode == 2:
+            n, m = self.n, self.m
+
+            Gamma = self.psi_gram()
+            A_unconstrained = 0.5 * (self.Aasym_unconstrained + self.Aasym_unconstrained.T)
+
+                # put into block view: (n, n, m, m)
+            Gamma_blocks = Gamma.view(n, m, n, m).permute(0, 2, 1, 3)   # (n, n, m, m)
+            A_blocks     = A_unconstrained.view(n, m, n, m).permute(0, 2, 1, 3)
+
+            # flatten each block to vector: (n, n, m*m)
+            Gf = Gamma_blocks.reshape(n, n, m*m)
+            Uf = A_blocks.reshape(n, n, m*m)
+
+            # blockwise dot products <Gamma, U>
+            dot = (Gf * Uf).sum(dim=-1, keepdim=True)   # (n, n, 1)
+            gnorm2 = (Gf.square()).sum(dim=-1, keepdim=True)  # (n, n, 1)
+
+            # projection: remove component along Gamma
+            Af = Uf - (dot / (gnorm2 + eps)) * Gf
+
+            # special correction for (0,0) block
+            g00 = Gf[0, 0]       # (m*m,)
+            a00 = Af[0, 0]       # (m*m,)
+            current_dot = (g00 * a00).sum()
+            gnorm2_00 = (g00 * g00).sum() + eps
+            correction = (1.0 - current_dot) / gnorm2_00 * g00
+            Af = Af.clone()
+            Af[0, 0] = a00 + correction
+
+            # reshape back: (n, n, m, m) → (n*m, n*m)
+            A = Af.reshape(n, n, m, m).permute(0, 2, 1, 3).reshape(n*m, n*m)
+            return A
     
     def get_residual_mat(self):
-        psi_mat = self.psi_inner_product_mat()
+        psi_mat = self.psi_gram()
         Gamma = psi_mat * self.get_A_mat() # Hadamard product between psi inner product mat and A
 
         # Reshape Gamma to group blocks and sum over each block
@@ -124,7 +183,24 @@ class SOSModel(torch.nn.Module):
         sum_gamma_violation[0, 0] -= 1.0
         return sum_gamma_violation
 
+    def loss(self, yx : torch.Tensor, al_weight=1.0, logdet_weight=None):
+        density = self(yx)
+        log_density = torch.log(density + 1e-10)
+        nll_loss = -log_density.mean()
+
+        if self.opt_mode == 1:
+            aug_lagrangian_loss = self.aug_lagrangian_loss()
+            #print("nll loss: ", nll_loss.item(),"aug lagrangian loss: ", aug_lagrangian_loss.item())
+            loss = nll_loss + al_weight * aug_lagrangian_loss
+            return loss, nll_loss, aug_lagrangian_loss
+        elif self.opt_mode == 2:
+            logdet_loss = self.logdet_barrier_loss()
+            logdet_weight = logdet_weight if logdet_weight is not None else 1.0
+            loss = nll_loss + logdet_weight * logdet_loss
+            return loss, nll_loss, logdet_loss
+    
     def aug_lagrangian_loss(self):
+        assert self.opt_mode == 1
         v_mat = self.get_residual_mat()
 
         linear_penalty = torch.sum(self.lagr_mult * v_mat)
@@ -132,40 +208,34 @@ class SOSModel(torch.nn.Module):
         quadratic_penalty = 0.5 *self.sigma * torch.sum(torch.square(v_mat))
 
         return -linear_penalty + quadratic_penalty
-    
-    def loss(self, yx : torch.Tensor, al_weight=1.0):
-        density = self(yx)
-        log_density = torch.log(density + 1e-10)
-        nll_loss = -log_density.mean()
 
-        aug_lagrangian_loss = self.aug_lagrangian_loss()
-        #print("nll loss: ", nll_loss.item(),"aug lagrangian loss: ", aug_lagrangian_loss.item())
-        loss = nll_loss + al_weight * aug_lagrangian_loss
-        #input("...")
-        return loss, nll_loss, aug_lagrangian_loss
+    def logdet_barrier_loss(self):
+        assert self.opt_mode == 2
+        A = self.get_A_mat()
+        eigvals = torch.linalg.eigvalsh(A)
+        penalty = torch.sum(eigvals ** (-self.npsd_penalty_exp))
+        return -self.mu * (torch.logdet(A) + penalty)
     
     def update_lagrangians(self):
+        assert self.opt_mode == 1
         #print("Updating lagrangians...")
         with torch.no_grad():
             residuals = self.get_residual_mat()
-            #print("residuals: ", residuals)
 
             # Lagrange update iteration
             v = torch.sum(residuals**2)
-            #print("v: ", v)
             if v  < self.eta * self.v:
                 self.lagr_mult -= self.sigma * residuals
             else:
                 self.sigma = min(self.sigma_max, self.sigma *self.gamma)
-
-            #print("sigma: ", self.sigma)
-
             self.v = v
     
     def get_v(self):
+        assert self.opt_mode == 1
         return self.v
 
     def project_constraints(self):
+        assert self.opt_mode == 1
         with torch.no_grad():
             A_proj, prob = project_psd_hadamard_blocksum(self.get_A_mat().cpu().numpy(), 
                                                         self.psi_inner_product_mat().cpu().numpy(), 
@@ -180,7 +250,7 @@ class SOSModel(torch.nn.Module):
 
 
     
-def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, lagrangian_update_interval=10, log_buffer_size = 20, constraints_only=False, al_weight=1.0):
+def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, lagrangian_update_interval=10, log_buffer_size = 20, constraints_only=False, al_weight=1.0, logdet_weight=None):
     def train_step(data):
         model.train()
         optimizer.zero_grad()
@@ -191,11 +261,16 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, 
             with torch.no_grad():
                 loss, nll_loss, _ = model.loss(data)
             return loss.item(), nll_loss.item(),aug_lagrangian_loss.item()
-        else:
+        elif model.opt_mode == 1:
             loss, nll_loss, aug_lagrangian_loss = model.loss(data, al_weight=al_weight)
             loss.backward()
             optimizer.step()
             return loss.item(), nll_loss.item(), aug_lagrangian_loss.item()
+        elif model.opt_mode == 2:
+            loss, nll_loss, logdet_loss = model.loss(data, logdet_weight=logdet_weight)
+            loss.backward()
+            optimizer.step()
+            return loss.item(), nll_loss.item(), logdet_loss.item()
 
     stdout_buffer = []
 
@@ -205,16 +280,25 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, 
         total_loss = 0.0
         for x_batch in data_loader:
             x_batch = x_batch[0].to(next(model.parameters()).device)
-            loss, nll_loss, aug_lagrangian_loss = train_step(x_batch)
+            loss, nll_loss, constraint_loss = train_step(x_batch)
             total_loss += loss
         avg_loss = total_loss / len(data_loader)
 
-        if (epoch + 1) % lagrangian_update_interval == 0:
+        ## DEBUG
+        #print("res mat: ", model.get_residual_mat())
+        #input("...")
+
+
+
+        if (epoch + 1) % lagrangian_update_interval == 0 and model.opt_mode == 1:
             #print("updating...")
             model.update_lagrangians()
             #input("...")
         
-        line = f"Epoch {epoch+1}: Avg Loss = {avg_loss:.4f}, NLL Loss = {nll_loss:.4f}, AL Loss = {aug_lagrangian_loss:.4f}, v = {model.get_v():.6f}, sigma = {model.sigma:.4f}, time: {time.time() - start_time:.3f}"
+        if model.opt_mode == 1:
+            line = f"Epoch {epoch+1}: Avg Loss = {avg_loss:.4f}, NLL Loss = {nll_loss:.4f}, AL Loss = {constraint_loss:.4f}, v = {model.get_v():.6f}, sigma = {model.sigma:.4f}, time: {time.time() - start_time:.3f}"
+        elif model.opt_mode == 2:
+            line = f"Epoch {epoch+1}: Avg Loss = {avg_loss:.4f}, NLL Loss = {nll_loss:.4f}, LDB Loss = {constraint_loss:.4f}, time: {time.time() - start_time:.3f}"
         stdout_buffer.append(line)
         if len(stdout_buffer) <= log_buffer_size:
             print(line)

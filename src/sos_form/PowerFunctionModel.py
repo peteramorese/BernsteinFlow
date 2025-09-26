@@ -57,7 +57,7 @@ class PowerFunctionSOSModel(SOSModel):
 
         return torch.exp(log_psi_normalized)
 
-    def psi_inner_product_mat(self):
+    def psi_gram(self):
         # Make each parameter positive and unsqeeze to data shape
         alpha = self.get_psi_params()
         

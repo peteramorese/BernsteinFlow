@@ -2,15 +2,16 @@ import torch
 from .SOSModel import SOSModel
 
 class BetaSOSModel(SOSModel):
-    def __init__(self, dy : int, dx : int, n : int, m : int, min_alpha_beta : float = 1.00, **kwargs):
+    def __init__(self, dy : int, dx : int, n : int, m : int, min_alpha_beta : float = 1.00, max_alpha_beta : float = 100.0, **kwargs):
         # Two parameters for each basis function (alpha and beta) for each dimension
         super().__init__(dy, dx, n, m, 2 * dy, 2 * dx, **kwargs)
 
         self.min_alpha_beta = min_alpha_beta
-    
+        self.max_alpha_beta = max_alpha_beta
+
     def phi(self, x : torch.Tensor):
         # Make each parameter positive and unsqeeze to data shape
-        alpha_beta = torch.nn.functional.softplus(self.phi_params) + self.min_alpha_beta
+        alpha_beta = (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.phi_params) + self.min_alpha_beta
         alpha = alpha_beta[:, :self.dx].unsqueeze(0) # Shape (p, n, dx)
         beta = alpha_beta[:, self.dx:].unsqueeze(0)
 
@@ -34,7 +35,7 @@ class BetaSOSModel(SOSModel):
 
     def psi(self, y : torch.Tensor):
         # Make each parameter positive and unsqeeze to data shape
-        alpha_beta = torch.nn.functional.softplus(self.psi_params) + self.min_alpha_beta
+        alpha_beta = (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.psi_params) + self.min_alpha_beta
         alpha = alpha_beta[:, :self.dy].unsqueeze(0) # Shape (p, (n+1)*m, dy)
         beta = alpha_beta[:, self.dy:].unsqueeze(0)
 
@@ -56,9 +57,9 @@ class BetaSOSModel(SOSModel):
 
         return torch.exp(log_psi)
 
-    def psi_inner_product_mat(self):
+    def psi_gram(self):
         # Make each parameter positive and unsqeeze to data shape
-        alpha_beta = torch.nn.functional.softplus(self.psi_params) + self.min_alpha_beta
+        alpha_beta = (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.psi_params) + self.min_alpha_beta
         alpha = alpha_beta[:, :self.dy] # Shape ((n+1)*m, dy)
         beta = alpha_beta[:, self.dy:]
         
@@ -99,7 +100,7 @@ class BetaSOSModel(SOSModel):
         return torch.exp(log_inner_products)
     
     def get_phi_params(self):
-        return (self.max_exp - self.min_exp) * torch.nn.functional.sigmoid(self.phi_params) + self.min_exp
+        return (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.phi_params) + self.min_alpha_beta
 
     def get_psi_params(self):
-        return (self.max_exp - self.min_exp) * torch.nn.functional.sigmoid(self.psi_params) + self.min_exp
+        return (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.psi_params) + self.min_alpha_beta

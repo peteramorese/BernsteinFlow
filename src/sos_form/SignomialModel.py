@@ -215,7 +215,7 @@ class SignomialSOSModel(SOSModel):
 
     # --- Gram of psi ----------------------------------------------------------
 
-    def psi_inner_product_mat(self):
+    def psi_gram(self):
         coeff_raw = self.psi_params[:, :self.n_terms]
         exp_raw   = self.psi_params[:, self.n_terms:]
         assert exp_raw.shape[1] == self.n_terms * self.dy
