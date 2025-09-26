@@ -2,7 +2,7 @@ import torch
 from .SOSModel import SOSModel
 
 class BetaSOSModel(SOSModel):
-    def __init__(self, dy : int, dx : int, n : int, m : int, min_alpha_beta : float = 1.00, max_alpha_beta : float = 100.0, **kwargs):
+    def __init__(self, dy : int, dx : int, n : int, m : int, min_alpha_beta : float = 1.00, max_alpha_beta : float = 50.0, **kwargs):
         # Two parameters for each basis function (alpha and beta) for each dimension
         super().__init__(dy, dx, n, m, 2 * dy, 2 * dx, **kwargs)
 

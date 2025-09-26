@@ -19,7 +19,7 @@ class SOSModel(torch.nn.Module):
                 sigma_init : float = 3.0,
                 sigma_max : float = 100.0,
                 mu : float = 1.0,
-                npsd_penalty_exp : float = 5.0
+                npsd_penalty : float = 1.0
                 ):
         """
         SOS form conditional density model for p(y | x)
@@ -54,7 +54,7 @@ class SOSModel(torch.nn.Module):
         self.gamma = gamma
         self.eta = eta
         self.sigma_max = sigma_max
-        self.npsd_penalty_exp = npsd_penalty_exp
+        self.npsd_penalty = npsd_penalty
         # Initialize with smaller values to prevent explosion
         self.phi_params = torch.nn.Parameter(0.1 * torch.randn(self.n - 1, phi_param_dim))
         self.psi_params = torch.nn.Parameter(0.1 * torch.randn(self.n*self.m, psi_param_dim)) 
@@ -213,8 +213,13 @@ class SOSModel(torch.nn.Module):
         assert self.opt_mode == 2
         A = self.get_A_mat()
         eigvals = torch.linalg.eigvalsh(A)
-        penalty = torch.sum(eigvals ** (-self.npsd_penalty_exp))
-        return -self.mu * (torch.logdet(A) + penalty)
+        if torch.all(eigvals > 1e-8):
+            #print("A is PSD")
+            return -self.mu * torch.logdet(A)
+        else:
+            #print("A is INFEASIBLE")
+            penalty = self.npsd_penalty * torch.sum(torch.relu(-eigvals + 2e-0)**4)
+            return self.mu * penalty
     
     def update_lagrangians(self):
         assert self.opt_mode == 1
