@@ -68,7 +68,7 @@ class BetaSOSModel(SOSModel):
         psi_beta = psi_alpha_beta[:, self.dy:]   # Shape (n, dy)
         
         # Initialize the 4D gram tensor: (n, n, n, n)
-        gram_tensor = torch.zeros(self.n, self.n, self.n, self.n, dtype=phi_alpha.dtype, device=phi_alpha.device)
+        log_gram_tensor = torch.zeros(self.n, self.n, self.n, self.n, dtype=phi_alpha.dtype, device=phi_alpha.device)
         
         # For each dimension, compute the inner products
         for d in range(self.dy):
@@ -119,11 +119,29 @@ class BetaSOSModel(SOSModel):
                 + torch.special.gammaln(psi_alpha_l + psi_beta_l)
             )
             
+            ## DEBUG: Check for NaN values in log_integral
+            #if torch.any(torch.isnan(log_integral)):
+            #    print(f"NaN detected in log_integral for dimension {d}")
+            #    print("total_alpha min/max:", torch.min(total_alpha), torch.max(total_alpha))
+            #    print("total_beta min/max:", torch.min(total_beta), torch.max(total_beta))
+            #    print("phi_alpha_i min/max:", torch.min(phi_alpha_i), torch.max(phi_alpha_i))
+            #    print("phi_beta_i min/max:", torch.min(phi_beta_i), torch.max(phi_beta_i))
+            #    print("log_integral min/max:", torch.min(log_integral), torch.max(log_integral))
+            #    print("log_integral has NaN at indices:", torch.isnan(log_integral).nonzero())
+            #    input("Press Enter to continue...")
+            
             # Add to the gram tensor for this dimension
-            gram_tensor += log_integral
+            log_gram_tensor += log_integral
         
         # Convert from log space
-        gram_tensor = torch.exp(gram_tensor)
+        gram_tensor = torch.exp(log_gram_tensor)
+
+        #print("Phi alpha: ", phi_alpha)
+        #print("Phi beta: ", phi_beta)
+        #print("Psi alpha: ", psi_alpha)
+        #print("Psi beta: ", psi_beta)
+        #print("Gram tensor [0, 0, 0, 0]: ", gram_tensor[0, 0, 0, 0])
+        #input("...")
         
         return gram_tensor
     

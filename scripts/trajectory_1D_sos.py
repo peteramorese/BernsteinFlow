@@ -81,8 +81,8 @@ if __name__ == "__main__":
 
     ## Create initial state and transition models
 
-    n = 2
-    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1)
+    n = 20
+    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.0, max_alpha_beta=30.0)
     #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, sigma_init=10.0, sigma_max=500, eta=0.8)
     #transition_model = PowerFunctionSOSModel(dy=dim, dx=dim, n=n, m=m, min_exp=0.0, sigma_init=10.0, sigma_max=500, max_exp=30.0)
     #transition_model = SignomialSOSModel(dy=dim, dx=dim, n=n, m=m, n_terms=5, min_exp=0.0, sigma_init=10.0, sigma_max=300, max_exp=30.0)
@@ -92,15 +92,30 @@ if __name__ == "__main__":
     print("Training transition model...")
     transition_model.to(DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=700)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=1000)
 
     print("Done training transition model \n")
 
-    Q, R = transition_model.get_QR_matrices()
-    #print("R: \n", R)
-    print("R evals: ", torch.linalg.eigvals(R))
+    #Q, R = transition_model.get_QR_matrices()
+    ##print("R: \n", R)
+    #print("R evals: ", torch.linalg.eigvals(R))
+    ##print("Q: \n", Q)
+    #print("Q evals: ", torch.linalg.eigvals(Q))
+    #resid, abs_norm, rel_norm, max_abs, rhs = transition_model.fixed_point_residual()
+    #print("Fixed point residuals: ", resid)
+
+    print("phi params: ", transition_model.phi_params)
+    print("psi params: ", transition_model.psi_params)
     #print("Q: \n", Q)
-    print("Q evals: ", torch.linalg.eigvals(Q))
+    #print("R: \n", R)
+    #E4 = transition_model.gram_tensor()
+    #r00 = R[1, 1]
+    #q00 = Q[1, 1]
+    #E4_00 = E4[:, :, 1, 1]
+    #s = torch.sum(E4_00 * R)
+    #print("r00: ", r00, " fp: ", q00*s)
+    #print("E4: \n", transition_model.gram_tensor())
+    #input("...")
 
 
     with torch.no_grad():
