@@ -2,9 +2,9 @@ import torch
 from .SOSModel import SOSModel
 
 class BetaSOSModel(SOSModel):
-    def __init__(self, dy : int, dx : int, n : int, m : int, min_alpha_beta : float = 1.00, max_alpha_beta : float = 50.0, **kwargs):
+    def __init__(self, dy : int, dx : int, n : int, min_alpha_beta : float = 1.00, max_alpha_beta : float = 50.0, **kwargs):
         # Two parameters for each basis function (alpha and beta) for each dimension
-        super().__init__(dy, dx, n, m, 2 * dy, 2 * dx, **kwargs)
+        super().__init__(dy, dx, n, 2 * dy, 2 * dx, **kwargs)
 
         self.min_alpha_beta = min_alpha_beta
         self.max_alpha_beta = max_alpha_beta
@@ -36,7 +36,7 @@ class BetaSOSModel(SOSModel):
     def psi(self, y : torch.Tensor):
         # Make each parameter positive and unsqeeze to data shape
         alpha_beta = (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.psi_params) + self.min_alpha_beta
-        alpha = alpha_beta[:, :self.dy].unsqueeze(0) # Shape (p, n*m-1, dy)
+        alpha = alpha_beta[:, :self.dy].unsqueeze(0) # Shape (p, n, dy)
         beta = alpha_beta[:, self.dy:].unsqueeze(0)
 
         log_y = torch.log(y)
@@ -53,66 +53,79 @@ class BetaSOSModel(SOSModel):
         )
 
         # Sum in log space over the dimension
-        log_psi = torch.sum(log_psi_per_dim, dim=2) # Shape (p, n*m-1)
+        log_psi = torch.sum(log_psi_per_dim, dim=2) # Shape (p, n)
 
         return torch.exp(log_psi)
 
-    def psi_gram(self):
-        # Make each parameter positive and unsqeeze to data shape
-        alpha_beta = (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.psi_params) + self.min_alpha_beta
-        alpha = alpha_beta[:, :self.dy] # Shape (n*m-1, dy)
-        beta = alpha_beta[:, self.dy:]
+    def gram_tensor(self):
+        # Make each parameter positive
+        phi_alpha_beta = (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.phi_params) + self.min_alpha_beta
+        psi_alpha_beta = (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.psi_params) + self.min_alpha_beta
         
-        # Initialize the full gram matrix including the constant function
-        # psi_0 = 1, psi_1, ..., psi_{n*m-1}
-        gram_matrix = torch.zeros(self.n * self.m, self.n * self.m, dtype=alpha.dtype, device=alpha.device)
+        phi_alpha = phi_alpha_beta[:, :self.dx]  # Shape (n, dx)
+        phi_beta = phi_alpha_beta[:, self.dx:]   # Shape (n, dx)
+        psi_alpha = psi_alpha_beta[:, :self.dy]  # Shape (n, dy)
+        psi_beta = psi_alpha_beta[:, self.dy:]   # Shape (n, dy)
+        
+        # Initialize the 4D gram tensor: (n, n, n, n)
+        gram_tensor = torch.zeros(self.n, self.n, self.n, self.n, dtype=phi_alpha.dtype, device=phi_alpha.device)
         
         # For each dimension, compute the inner products
         for d in range(self.dy):
-            alpha_d = alpha[:, d]  # Shape: (n*m-1,)
-            beta_d = beta[:, d]    # Shape: (n*m-1,)
+            phi_alpha_d = phi_alpha[:, d]  # Shape: (n,)
+            phi_beta_d = phi_beta[:, d]    # Shape: (n,)
+            psi_alpha_d = psi_alpha[:, d]  # Shape: (n,)
+            psi_beta_d = psi_beta[:, d]    # Shape: (n,)
             
-            # Compute integrals of individual beta functions: ∫ psi_i(y) dy
-            # For Beta(α, β), the integral over [0,1] is 1 (normalized)
-            # So ∫ psi_i(y) dy = 1 for all i
-            beta_integrals = torch.ones(self.n * self.m - 1, dtype=alpha.dtype, device=alpha.device)
+            # Compute the 4D tensor for this dimension
+            # Each element is ∫ φᵢ(y)φⱼ(y)ψₖ(y)ψₗ(y) dy
+            # This is the integral of the product of four beta PDFs
             
-            # Fill in the gram matrix:
-            # G[0, 0] = ⟨1, 1⟩ = 1
-            gram_matrix[0, 0] = 1.0
+            # Create all combinations of indices
+            i_idx = torch.arange(self.n, device=phi_alpha.device)
+            j_idx = torch.arange(self.n, device=phi_alpha.device)
+            k_idx = torch.arange(self.n, device=phi_alpha.device)
+            l_idx = torch.arange(self.n, device=phi_alpha.device)
             
-            # G[0, j] = ⟨1, psi_j⟩ = ∫ psi_j(y) dy = 1 for j > 0
-            gram_matrix[0, 1:] = beta_integrals
+            # Broadcast to 4D tensors
+            phi_alpha_i = phi_alpha_d[i_idx, None, None, None]  # (n, 1, 1, 1)
+            phi_alpha_j = phi_alpha_d[None, j_idx, None, None]  # (1, n, 1, 1)
+            psi_alpha_k = psi_alpha_d[None, None, k_idx, None]  # (1, 1, n, 1)
+            psi_alpha_l = psi_alpha_d[None, None, None, l_idx]  # (1, 1, 1, n)
             
-            # G[i, 0] = ⟨psi_i, 1⟩ = ∫ psi_i(y) dy = 1 for i > 0  
-            gram_matrix[1:, 0] = beta_integrals
+            phi_beta_i = phi_beta_d[i_idx, None, None, None]    # (n, 1, 1, 1)
+            phi_beta_j = phi_beta_d[None, j_idx, None, None]    # (1, n, 1, 1)
+            psi_beta_k = psi_beta_d[None, None, k_idx, None]    # (1, 1, n, 1)
+            psi_beta_l = psi_beta_d[None, None, None, l_idx]   # (1, 1, 1, n)
             
-            # G[i, j] = ⟨psi_i, psi_j⟩ for i, j > 0
-            # The inner product of Beta(αᵢ, βᵢ) and Beta(αⱼ, βⱼ) is:
-            # B(αᵢ + αⱼ - 1, βᵢ + βⱼ - 1) / (B(αᵢ, βᵢ) * B(αⱼ, βⱼ))
-            alpha_i = alpha_d.unsqueeze(1)  # Shape: (n*m-1, 1)
-            beta_i = beta_d.unsqueeze(1)    # Shape: (n*m-1, 1)
-            alpha_j = alpha_d.unsqueeze(0)  # Shape: (1, n*m-1)
-            beta_j = beta_d.unsqueeze(0)    # Shape: (1, n*m-1)
+            # The integral of the product of four beta PDFs is:
+            # B(αᵢ + αⱼ + αₖ + αₗ - 3, βᵢ + βⱼ + βₖ + βₗ - 3) / 
+            # (B(αᵢ, βᵢ) * B(αⱼ, βⱼ) * B(αₖ, βₖ) * B(αₗ, βₗ))
             
-            # Compute the inner product for this dimension
-            alpha_sum = alpha_i + alpha_j - 1
-            beta_sum = beta_i + beta_j - 1
+            # Sum all alpha and beta parameters
+            total_alpha = phi_alpha_i + phi_alpha_j + psi_alpha_k + psi_alpha_l - 3
+            total_beta = phi_beta_i + phi_beta_j + psi_beta_k + psi_beta_l - 3
             
-            # Compute log of the inner product to avoid overflow
-            log_inner_d = (
-                torch.special.gammaln(alpha_sum) + torch.special.gammaln(beta_sum) - torch.special.gammaln(alpha_sum + beta_sum)
-                - torch.special.gammaln(alpha_i) - torch.special.gammaln(beta_i) - torch.special.gammaln(alpha_j) - torch.special.gammaln(beta_j)
-                + torch.special.gammaln(alpha_i + beta_i) + torch.special.gammaln(alpha_j + beta_j)
+            # Compute log of the integral to avoid overflow
+            log_integral = (
+                torch.special.gammaln(total_alpha) + torch.special.gammaln(total_beta) - torch.special.gammaln(total_alpha + total_beta)
+                - torch.special.gammaln(phi_alpha_i) - torch.special.gammaln(phi_beta_i)
+                - torch.special.gammaln(phi_alpha_j) - torch.special.gammaln(phi_beta_j)
+                - torch.special.gammaln(psi_alpha_k) - torch.special.gammaln(psi_beta_k)
+                - torch.special.gammaln(psi_alpha_l) - torch.special.gammaln(psi_beta_l)
+                + torch.special.gammaln(phi_alpha_i + phi_beta_i)
+                + torch.special.gammaln(phi_alpha_j + phi_beta_j)
+                + torch.special.gammaln(psi_alpha_k + psi_beta_k)
+                + torch.special.gammaln(psi_alpha_l + psi_beta_l)
             )
             
-            # Add to the submatrix for i, j > 0
-            gram_matrix[1:, 1:] += log_inner_d
+            # Add to the gram tensor for this dimension
+            gram_tensor += log_integral
         
-        # Convert the submatrix from log space
-        gram_matrix[1:, 1:] = torch.exp(gram_matrix[1:, 1:])
+        # Convert from log space
+        gram_tensor = torch.exp(gram_tensor)
         
-        return gram_matrix
+        return gram_tensor
     
     def get_phi_params(self):
         return (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.phi_params) + self.min_alpha_beta
