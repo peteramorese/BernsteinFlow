@@ -47,7 +47,7 @@ class SOSModel(torch.nn.Module):
 
         self.dy = dy
         self.dx = dx
-        self.n = n + 1
+        self.n = n
         self.m = m
         self.phi_param_dim = phi_param_dim
         self.psi_param_dim = psi_param_dim
@@ -57,7 +57,7 @@ class SOSModel(torch.nn.Module):
         self.npsd_penalty = npsd_penalty
         # Initialize with smaller values to prevent explosion
         self.phi_params = torch.nn.Parameter(0.1 * torch.randn(self.n - 1, phi_param_dim))
-        self.psi_params = torch.nn.Parameter(0.1 * torch.randn(self.n*self.m, psi_param_dim)) 
+        self.psi_params = torch.nn.Parameter(0.1 * torch.randn(self.n*self.m - 1, psi_param_dim)) 
 
         print("Coefficient matrix size: ", self.n*self.m, " x", self.n*self.m)
 
@@ -70,8 +70,11 @@ class SOSModel(torch.nn.Module):
             self.v = 1.0 # Initial value of the augmented lagrangian linear residual
 
         elif self.opt_mode == 2:
-            #self.Aasym_unconstrained = torch.nn.Parameter(torch.zeros(self.n*self.m, self.n*self.m))
-            self.Aasym_unconstrained = torch.nn.Parameter(10 * torch.eye(self.n*self.m))
+            # Initialize with identity-like structure for autograd compatibility
+            #A_init = torch.zeros(self.n*self.m, self.n*self.m)
+            #A_init[0, 0] = 1.0
+            #self.Aasym_unconstrained = torch.nn.Parameter(A_init)
+            self.Aasym_unconstrained = torch.nn.Parameter(torch.randn(self.n*self.m, self.n*self.m))
             self.mu = mu
 
     def phi(self, x : torch.Tensor):
@@ -82,19 +85,25 @@ class SOSModel(torch.nn.Module):
 
     def psi(self, y : torch.Tensor):
         """
-        Evaluate the psi basis function vector at y using self.phi_params. Must return a tensor of size (p, (n+1)*m)
+        Evaluate the psi basis function vector at y using self.psi_params. Must return a tensor of size (p, n*m-1)
+        Note: The constant function psi_0=1 is added in __get_psi, so this method should return the remaining n*m-1 functions
         """
         raise NotImplementedError()
 
     def psi_gram(self):
         """
-        Compute the inner product matrix of the psi basis functions. Must return a tensor of size ((n+1)*m, (n+1)*m)
+        Compute the inner product matrix of the psi basis functions. Must return a tensor of size (n*m, n*m)
         """
         raise NotImplementedError()
 
     def __get_phi(self, x : torch.Tensor):
         phi_vec = self.phi(x)
         phi_vec = torch.cat([torch.ones(x.shape[0], 1, dtype=x.dtype, device=x.device), phi_vec], dim=1)
+        return phi_vec
+
+    def __get_psi(self, y : torch.Tensor):
+        phi_vec = self.psi(y)
+        phi_vec = torch.cat([torch.ones(y.shape[0], 1, dtype=y.dtype, device=y.device), phi_vec], dim=1)
         return phi_vec
 
     def forward(self, yx : torch.Tensor):
@@ -114,7 +123,7 @@ class SOSModel(torch.nn.Module):
         phi_vec = phi_vec.repeat_interleave(self.m, dim=1)  # (p, n*m)
         #print("phi_vec repeated: ", phi_vec)
         #input("...")
-        psi_vec = self.psi(y) # (p, n*m)
+        psi_vec = self.__get_psi(y) # (p, n*m)
         basis_vals = phi_vec * psi_vec  # Shape: (p, n*m)
 
         A_mat = self.get_A_mat()  # Shape: ((n)*m, (n)*m)
@@ -141,10 +150,15 @@ class SOSModel(torch.nn.Module):
 
             Gamma = self.psi_gram()
             A_unconstrained = 0.5 * (self.Aasym_unconstrained + self.Aasym_unconstrained.T)
+            #print("A unconstrained: \n", A_unconstrained)
+            #print("Gamma: \n", Gamma)
+            #print("A Gamma: \n", A_unconstrained * Gamma)
+            #input("...")
 
                 # put into block view: (n, n, m, m)
             Gamma_blocks = Gamma.view(n, m, n, m).permute(0, 2, 1, 3)   # (n, n, m, m)
             A_blocks     = A_unconstrained.view(n, m, n, m).permute(0, 2, 1, 3)
+
 
             # flatten each block to vector: (n, n, m*m)
             Gf = Gamma_blocks.reshape(n, n, m*m)
@@ -158,16 +172,26 @@ class SOSModel(torch.nn.Module):
             Af = Uf - (dot / (gnorm2 + eps)) * Gf
 
             # special correction for (0,0) block
-            g00 = Gf[0, 0]       # (m*m,)
-            a00 = Af[0, 0]       # (m*m,)
-            current_dot = (g00 * a00).sum()
-            gnorm2_00 = (g00 * g00).sum() + eps
-            correction = (1.0 - current_dot) / gnorm2_00 * g00
-            Af = Af.clone()
-            Af[0, 0] = a00 + correction
+            #g00 = Gf[0, 0]       # (m*m,)
+            #a00 = Uf[0, 0]       # (m*m,)
+            current_dot = (Gf[0, 0] * Uf[0, 0]).sum()
+            #print("current dot: ", current_dot)
+            #Af = Af.clone()
+            Af[0, 0] = Uf[0, 0] / current_dot
+            #print("g00: \n", g00)
+            #print("a00: \n", a00)
+            #input("...")
+            #current_dot = (g00 * a00).sum()
+            #print("current_dot: ", current_dot)
+            #gnorm2_00 = (g00 * g00).sum() + eps
+            #correction = (1.0 - current_dot) / gnorm2_00 * g00
+            #Af = Af.clone()
+            #Af[0, 0] = a00 + correction
 
             # reshape back: (n, n, m, m) → (n*m, n*m)
             A = Af.reshape(n, n, m, m).permute(0, 2, 1, 3).reshape(n*m, n*m)
+            #print("CONSTRAINED A: \n", A)
+            #input("...")
             return A
     
     def get_residual_mat(self):
@@ -213,12 +237,13 @@ class SOSModel(torch.nn.Module):
         assert self.opt_mode == 2
         A = self.get_A_mat()
         eigvals = torch.linalg.eigvalsh(A)
+        #print(" in loss eigvals: ", eigvals)
         if torch.all(eigvals > 1e-8):
             #print("A is PSD")
             return -self.mu * torch.logdet(A)
         else:
             #print("A is INFEASIBLE")
-            penalty = self.npsd_penalty * torch.sum(torch.relu(-eigvals + 2e-0)**4)
+            penalty = self.npsd_penalty * torch.sum(torch.relu(-eigvals + 2e-0)**2)
             return self.mu * penalty
     
     def update_lagrangians(self):
@@ -238,6 +263,12 @@ class SOSModel(torch.nn.Module):
     def get_v(self):
         assert self.opt_mode == 1
         return self.v
+    
+    def is_psd(self):
+        assert self.opt_mode == 2
+        A = self.get_A_mat()
+        eigvals = torch.linalg.eigvalsh(A)
+        return torch.all(eigvals > 1e-8)
 
     def project_constraints(self):
         assert self.opt_mode == 1
@@ -279,6 +310,11 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, 
 
     stdout_buffer = []
 
+    #with torch.no_grad():
+    #    A = model.get_A_mat()
+    #    eigvals = torch.linalg.eigvalsh(A)
+    #    print("Init Eigvals: ", eigvals)
+    #    input("...")
 
     for epoch in range(epochs):
         start_time = time.time()
@@ -303,7 +339,8 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, 
         if model.opt_mode == 1:
             line = f"Epoch {epoch+1}: Avg Loss = {avg_loss:.4f}, NLL Loss = {nll_loss:.4f}, AL Loss = {constraint_loss:.4f}, v = {model.get_v():.6f}, sigma = {model.sigma:.4f}, time: {time.time() - start_time:.3f}"
         elif model.opt_mode == 2:
-            line = f"Epoch {epoch+1}: Avg Loss = {avg_loss:.4f}, NLL Loss = {nll_loss:.4f}, LDB Loss = {constraint_loss:.4f}, time: {time.time() - start_time:.3f}"
+            is_psd = model.is_psd()
+            line = f"Epoch {epoch+1}: Avg Loss = {avg_loss:.4f}, NLL Loss = {nll_loss:.4f}, LDB Loss = {constraint_loss:.4f}, is_psd = {is_psd}, time: {time.time() - start_time:.3f}"
         stdout_buffer.append(line)
         if len(stdout_buffer) <= log_buffer_size:
             print(line)
@@ -313,6 +350,13 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer, epochs=100, 
             for l in stdout_buffer:
                 sys.stdout.write("\033[K")
                 print(l)
+
+        #with torch.no_grad():
+        #    A = model.get_A_mat()
+        #    eigvals = torch.linalg.eigvalsh(A)
+        #    print("A: \n", A)
+        #    print("Init Eigvals: ", eigvals)
+        #    input("...")
 
 
 def project_psd_hadamard_blocksum(A0: np.ndarray, Gamma: np.ndarray, n: int, m: int,

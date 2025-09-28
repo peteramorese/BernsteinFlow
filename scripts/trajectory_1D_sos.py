@@ -84,8 +84,8 @@ if __name__ == "__main__":
     #max_degree = 60
     #init_state_model = BetaMixtureModel(dim, n_components, max_degree)
 
-    n = 3
-    m = 2
+    n = 5
+    m = 5
     transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, opt_mode="logdet")
     #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, sigma_init=10.0, sigma_max=500, eta=0.8)
     #transition_model = PowerFunctionSOSModel(dy=dim, dx=dim, n=n, m=m, min_exp=0.0, sigma_init=10.0, sigma_max=500, max_exp=30.0)
@@ -115,7 +115,7 @@ if __name__ == "__main__":
 
     print("Training transition model...")
     transition_model.to(DTYPE)
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
     optimize(transition_model, Up_dataloader, trans_optimizer, epochs=700, lagrangian_update_interval=10, al_weight=5)
     #transition_model.sigma_max = 10000.0
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
