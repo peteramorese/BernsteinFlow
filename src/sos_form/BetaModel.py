@@ -2,12 +2,13 @@ import torch
 from .SOSModel import SOSModel
 
 class BetaSOSModel(SOSModel):
-    def __init__(self, dy : int, dx : int, n : int, min_alpha_beta : float = 1.00, max_alpha_beta : float = 50.0, **kwargs):
+    def __init__(self, dy : int, dx : int, n : int, min_alpha_beta : float = 1.00, max_alpha_beta : float = 50.0, regularization_weight : float = 0, **kwargs):
         # Two parameters for each basis function (alpha and beta) for each dimension
         super().__init__(dy=dy, dx=dx, n=n, phi_param_dim=2 * dx, psi_param_dim=2 * dy, **kwargs)
 
         self.min_alpha_beta = min_alpha_beta
         self.max_alpha_beta = max_alpha_beta
+        self.regularization_weight = regularization_weight
 
     def constrained_phi_params(self):
         return (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.phi_params_uc) + self.min_alpha_beta
@@ -135,6 +136,8 @@ class BetaSOSModel(SOSModel):
         
         return gram_tensor
 
+    def regularization_loss(self):
+        return self.regularization_weight * torch.sum(self.get_phi_params() ** 2 + self.get_psi_params() ** 2)
 
     def marginalize(self, dims_to_integrate):
         """
