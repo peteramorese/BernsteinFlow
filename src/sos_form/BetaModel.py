@@ -4,19 +4,25 @@ from .SOSModel import SOSModel
 class BetaSOSModel(SOSModel):
     def __init__(self, dy : int, dx : int, n : int, min_alpha_beta : float = 1.00, max_alpha_beta : float = 50.0, **kwargs):
         # Two parameters for each basis function (alpha and beta) for each dimension
-        super().__init__(dy, dx, n, 2 * dy, 2 * dx, **kwargs)
+        super().__init__(dy=dy, dx=dx, n=n, phi_param_dim=2 * dx, psi_param_dim=2 * dy, **kwargs)
 
         self.min_alpha_beta = min_alpha_beta
         self.max_alpha_beta = max_alpha_beta
 
+    def constrained_phi_params(self):
+        return (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.phi_params_uc) + self.min_alpha_beta
+
+    def constrained_psi_params(self):
+        return (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.psi_params_uc) + self.min_alpha_beta
+
     def phi(self, x : torch.Tensor):
         # Make each parameter positive and unsqeeze to data shape
-        alpha_beta = (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.phi_params) + self.min_alpha_beta
+        alpha_beta = self.get_phi_params()
         alpha = alpha_beta[:, :self.dx].unsqueeze(0) # Shape (p, n, dx)
         beta = alpha_beta[:, self.dx:].unsqueeze(0)
 
-        log_x = torch.log(x)
-        log_1mx = torch.log(1 - x)
+        log_x = torch.log(x + 1e-8)
+        log_1mx = torch.log(1 - x + 1e-8)
         log_x = log_x[:, None, :]
         log_1mx = log_1mx[:, None, :]
 
@@ -35,12 +41,12 @@ class BetaSOSModel(SOSModel):
 
     def psi(self, y : torch.Tensor):
         # Make each parameter positive and unsqeeze to data shape
-        alpha_beta = (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.psi_params) + self.min_alpha_beta
+        alpha_beta = self.get_psi_params()
         alpha = alpha_beta[:, :self.dy].unsqueeze(0) # Shape (p, n, dy)
         beta = alpha_beta[:, self.dy:].unsqueeze(0)
 
-        log_y = torch.log(y)
-        log_1my = torch.log(1 - y)
+        log_y = torch.log(y + 1e-8)
+        log_1my = torch.log(1 - y + 1e-8)
         log_y = log_y[:, None, :]  # Shape (p, 1, dy)
         log_1my = log_1my[:, None, :]  # Shape (p, 1, dy)
 
@@ -57,11 +63,17 @@ class BetaSOSModel(SOSModel):
 
         return torch.exp(log_psi)
 
-    def gram_tensor(self):
-        # Make each parameter positive
-        phi_alpha_beta = (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.phi_params) + self.min_alpha_beta
-        psi_alpha_beta = (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.psi_params) + self.min_alpha_beta
-        
+    def gram_tensor(self, cross_gram_model = None):
+        """
+        Compute the gram tensor using self's phi and psi parameters. If cross_gram_model is provided, use its psi parameters.
+        """
+        if cross_gram_model is None:
+            phi_alpha_beta = self.get_phi_params()
+            psi_alpha_beta = self.get_psi_params()
+        else:
+            phi_alpha_beta = self.get_phi_params()  # Current model's phi parameters
+            psi_alpha_beta = cross_gram_model.get_psi_params()  # Other model's psi parameters
+
         phi_alpha = phi_alpha_beta[:, :self.dx]  # Shape (n, dx)
         phi_beta = phi_alpha_beta[:, self.dx:]   # Shape (n, dx)
         psi_alpha = psi_alpha_beta[:, :self.dy]  # Shape (n, dy)
@@ -76,10 +88,6 @@ class BetaSOSModel(SOSModel):
             phi_beta_d = phi_beta[:, d]    # Shape: (n,)
             psi_alpha_d = psi_alpha[:, d]  # Shape: (n,)
             psi_beta_d = psi_beta[:, d]    # Shape: (n,)
-            
-            # Compute the 4D tensor for this dimension
-            # Each element is ∫ φᵢ(y)φⱼ(y)ψₖ(y)ψₗ(y) dy
-            # This is the integral of the product of four beta PDFs
             
             # Create all combinations of indices
             i_idx = torch.arange(self.n, device=phi_alpha.device)
@@ -119,34 +127,153 @@ class BetaSOSModel(SOSModel):
                 + torch.special.gammaln(psi_alpha_l + psi_beta_l)
             )
             
-            ## DEBUG: Check for NaN values in log_integral
-            #if torch.any(torch.isnan(log_integral)):
-            #    print(f"NaN detected in log_integral for dimension {d}")
-            #    print("total_alpha min/max:", torch.min(total_alpha), torch.max(total_alpha))
-            #    print("total_beta min/max:", torch.min(total_beta), torch.max(total_beta))
-            #    print("phi_alpha_i min/max:", torch.min(phi_alpha_i), torch.max(phi_alpha_i))
-            #    print("phi_beta_i min/max:", torch.min(phi_beta_i), torch.max(phi_beta_i))
-            #    print("log_integral min/max:", torch.min(log_integral), torch.max(log_integral))
-            #    print("log_integral has NaN at indices:", torch.isnan(log_integral).nonzero())
-            #    input("Press Enter to continue...")
-            
             # Add to the gram tensor for this dimension
             log_gram_tensor += log_integral
         
         # Convert from log space
         gram_tensor = torch.exp(log_gram_tensor)
-
-        #print("Phi alpha: ", phi_alpha)
-        #print("Phi beta: ", phi_beta)
-        #print("Psi alpha: ", psi_alpha)
-        #print("Psi beta: ", psi_beta)
-        #print("Gram tensor [0, 0, 0, 0]: ", gram_tensor[0, 0, 0, 0])
-        #input("...")
         
         return gram_tensor
-    
-    def get_phi_params(self):
-        return (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.phi_params) + self.min_alpha_beta
 
-    def get_psi_params(self):
-        return (self.max_alpha_beta - self.min_alpha_beta) * torch.nn.functional.sigmoid(self.psi_params) + self.min_alpha_beta
+
+    def marginalize(self, dims_to_integrate):
+        """
+        Compute the exact marginal over the kept dimensions, returning a TensorMarginalSOSModel.
+        """
+        device = self.get_phi_params().device
+        dtype  = self.get_phi_params().dtype
+        n = self.n
+
+        dims_to_integrate = sorted(set(dims_to_integrate))
+        kept = [d for d in range(self.dy) if d not in dims_to_integrate]
+        dy_new = len(kept)
+        dx_new = dy_new
+
+        # slice params
+        def slice_ab(ab, D, keep_idx):
+            alpha = ab[:, :D][:, keep_idx]
+            beta  = ab[:, D:][:, keep_idx]
+            return torch.cat([alpha, beta], dim=1)
+
+        phi_ab = self.get_phi_params()
+        psi_ab = self.get_psi_params()
+        phi_new = slice_ab(phi_ab, self.dx, kept).detach()
+        psi_new = slice_ab(psi_ab, self.dy, kept).detach()
+
+        # build coefficient tensor T
+        Q, R = self.get_QR_matrices()
+        phi_alpha = self.get_phi_params()[:, :self.dx]
+        phi_beta  = self.get_phi_params()[:, self.dx:]
+        psi_alpha = self.get_psi_params()[:, :self.dy]
+        psi_beta  = self.get_psi_params()[:, self.dy:]
+
+        logC = torch.zeros(n, n, n, n, device=device, dtype=dtype)
+        idx = torch.arange(n, device=device)
+
+        for d in dims_to_integrate:
+            pa, pb = phi_alpha[:, d], phi_beta[:, d]
+            qa, qb = psi_alpha[:, d], psi_beta[:, d]
+
+            pa_i = pa[idx, None, None, None]
+            pa_j = pa[None, idx, None, None]
+            qa_k = qa[None, None, idx, None]
+            qa_l = qa[None, None, None, idx]
+            pb_i = pb[idx, None, None, None]
+            pb_j = pb[None, idx, None, None]
+            qb_k = qb[None, None, idx, None]
+            qb_l = qb[None, None, None, idx]
+
+            total_alpha = pa_i + pa_j + qa_k + qa_l - 3
+            total_beta  = pb_i + pb_j + qb_k + qb_l - 3
+
+            log_int = (torch.special.gammaln(total_alpha) + torch.special.gammaln(total_beta)
+                    - torch.special.gammaln(total_alpha + total_beta)
+                    - torch.special.gammaln(pa_i) - torch.special.gammaln(pb_i)
+                    - torch.special.gammaln(pa_j) - torch.special.gammaln(pb_j)
+                    - torch.special.gammaln(qa_k) - torch.special.gammaln(qb_k)
+                    - torch.special.gammaln(qa_l) - torch.special.gammaln(qb_l)
+                    + torch.special.gammaln(pa_i + pb_i)
+                    + torch.special.gammaln(pa_j + pb_j)
+                    + torch.special.gammaln(qa_k + qb_k)
+                    + torch.special.gammaln(qa_l + qb_l))
+            logC += log_int
+
+        C = torch.exp(logC)
+        # coefficients T[i,j,k,l] = R[i,j] * Q[k,l] * C[i,j,k,l]
+        T = (R[:, :, None, None] * Q[None, None, :, :]) * C
+
+        return TensorMarginalSOSModel(phi_new, psi_new, T,
+                                    min_alpha_beta=self.min_alpha_beta,
+                                    max_alpha_beta=self.max_alpha_beta)
+
+
+class TensorMarginalSOSModel(torch.nn.Module):
+    """
+    Marginalized SOS model that stores the exact 4-tensor coefficients
+    after integrating out some dimensions. 
+
+    Density is:
+        p(x_kept) = sum_{i,j,k,l} T[i,j,k,l] *
+                    prod_d phi_i^{(d)}(x_d) * phi_j^{(d)}(x_d) *
+                    prod_d psi_k^{(d)}(x_d) * psi_l^{(d)}(x_d)
+    """
+    def __init__(self, phi_params, psi_params, coeff_tensor, min_alpha_beta=1.0, max_alpha_beta=50.0):
+        """
+        Args:
+            phi_params : (n, 2*dx_new) tensor of Beta (alpha,beta) params for kept dims
+            psi_params : (n, 2*dy_new) tensor
+            coeff_tensor : (n, n, n, n) tensor of coefficients T[i,j,k,l]
+        """
+        super().__init__()
+        self.register_buffer("phi_params", phi_params)
+        self.register_buffer("psi_params", psi_params)
+        self.register_buffer("coeff_tensor", coeff_tensor)
+        self.n = phi_params.shape[0]
+        self.dx = phi_params.shape[1] // 2
+        self.dy = psi_params.shape[1] // 2
+        self.min_alpha_beta = min_alpha_beta
+        self.max_alpha_beta = max_alpha_beta
+
+    def phi(self, x):
+        """Evaluate phi basis functions at x (shape (p, dx_new)) -> (p, n)."""
+        alpha = self.phi_params[:, :self.dx].unsqueeze(0)  # (1,n,dx)
+        beta  = self.phi_params[:, self.dx:].unsqueeze(0)
+        log_x = torch.log(x + 1e-8)[:, None, :]            # (p,1,dx)
+        log_1mx = torch.log(1 - x + 1e-8)[:, None, :]
+        log_phi = ((alpha-1)*log_x + (beta-1)*log_1mx
+                   - torch.special.gammaln(alpha)
+                   - torch.special.gammaln(beta)
+                   + torch.special.gammaln(alpha+beta))
+        return torch.exp(log_phi.sum(dim=2))  # (p,n)
+
+    def psi(self, y):
+        """Evaluate psi basis functions at y (shape (p, dy_new)) -> (p, n)."""
+        alpha = self.psi_params[:, :self.dy].unsqueeze(0)  # (1,n,dy)
+        beta  = self.psi_params[:, self.dy:].unsqueeze(0)
+        log_y = torch.log(y + 1e-8)[:, None, :]            # (p,1,dy)
+        log_1my = torch.log(1 - y + 1e-8)[:, None, :]
+        log_psi = ((alpha-1)*log_y + (beta-1)*log_1my
+                   - torch.special.gammaln(alpha)
+                   - torch.special.gammaln(beta)
+                   + torch.special.gammaln(alpha+beta))
+        return torch.exp(log_psi.sum(dim=2))  # (p,n)
+
+    def forward(self, xy, return_log=False):
+        """
+        Evaluate marginal density at (y,x) where xy has shape (p, dy+dx).
+        """
+        assert xy.shape[1] == self.dy + self.dx
+        y = xy[:, :self.dy]
+        x = xy[:, self.dy:]
+
+        phi_x = self.phi(x)   # (p,n)
+        psi_y = self.psi(y)   # (p,n)
+
+        # Contract over i,j,k,l
+        # dens[p] = sum_{i,j,k,l} T[i,j,k,l] * phi_x[p,i]*phi_x[p,j]*psi_y[p,k]*psi_y[p,l]
+        dens = torch.einsum("ijkl,pi,pj,pk,pl->p", self.coeff_tensor, phi_x, phi_x, psi_y, psi_y)
+
+        if return_log:
+            return torch.log(dens + 1e-12)
+        else:
+            return dens

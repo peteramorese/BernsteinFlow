@@ -11,7 +11,7 @@ class PowerFunctionSOSModel(SOSModel):
     
     def phi(self, x : torch.Tensor):
         # Make each parameter positive and unsqeeze to data shape
-        alpha = self.get_phi_params()
+        alpha = (self.max_exp - self.min_exp) * torch.nn.functional.sigmoid(self.phi_params) + self.min_exp
         alpha = alpha[None, :, :] # (p, n, dx)
 
         log_x = torch.log(x) # Shape (p, dx)
@@ -35,7 +35,7 @@ class PowerFunctionSOSModel(SOSModel):
 
     def psi(self, y : torch.Tensor):
         # Make each parameter positive and unsqeeze to data shape
-        alpha = self.get_psi_params()
+        alpha = (self.max_exp - self.min_exp) * torch.nn.functional.sigmoid(self.psi_params) + self.min_exp
         alpha = alpha[None, :, :] # (p, n*m-1, dy)
 
         log_y = torch.log(y)
@@ -57,54 +57,63 @@ class PowerFunctionSOSModel(SOSModel):
 
         return torch.exp(log_psi_normalized)
 
-    def psi_gram(self):
-        # Make each parameter positive and unsqeeze to data shape
-        alpha = self.get_psi_params()
+    def gram_tensor(self, cross_gram_model : 'PowerFunctionSOSModel' = None):
+        """
+        Compute the gram tensor using self's phi and psi parameters. If cross_gram_model is provided, use its psi parameters.
+        """
+        if cross_gram_model is None:
+            phi_alpha = (self.max_exp - self.min_exp) * torch.nn.functional.sigmoid(self.phi_params) + self.min_exp
+            psi_alpha = (self.max_exp - self.min_exp) * torch.nn.functional.sigmoid(self.psi_params) + self.min_exp
+        else:
+            phi_alpha = (self.max_exp - self.min_exp) * torch.nn.functional.sigmoid(self.phi_params) + self.min_exp
+            psi_alpha = (cross_gram_model.max_exp - cross_gram_model.min_exp) * torch.nn.functional.sigmoid(cross_gram_model.psi_params) + cross_gram_model.min_exp
         
-        # Initialize the full gram matrix including the constant function
-        # psi_0 = 1, psi_1, ..., psi_{n*m-1}
-        gram_matrix = torch.zeros(self.n * self.m, self.n * self.m, dtype=alpha.dtype, device=alpha.device)
+        # Initialize the 4D gram tensor: (n, n, n*m-1, n*m-1)
+        log_gram_tensor = torch.zeros(self.n, self.n, self.n * self.m - 1, self.n * self.m - 1, dtype=phi_alpha.dtype, device=phi_alpha.device)
         
         # For each dimension, compute the inner products
         for d in range(self.dy):
-            alpha_d = alpha[:, d]  # Shape: (n*m-1,)
+            phi_alpha_d = phi_alpha[:, d]  # Shape: (n,)
+            psi_alpha_d = psi_alpha[:, d]  # Shape: (n*m-1,)
             
-            # For normalized power functions (α+1)y^α, the integral over [0,1] is 1
-            # So ∫ psi_i(y) dy = 1 for all i
-            power_integrals = torch.ones(self.n * self.m - 1, dtype=alpha.dtype, device=alpha.device)
+            # Create all combinations of indices
+            i_idx = torch.arange(self.n, device=phi_alpha.device)
+            j_idx = torch.arange(self.n, device=phi_alpha.device)
+            k_idx = torch.arange(self.n * self.m - 1, device=phi_alpha.device)
+            l_idx = torch.arange(self.n * self.m - 1, device=phi_alpha.device)
             
-            # Fill in the gram matrix:
-            # G[0, 0] = ⟨1, 1⟩ = 1
-            gram_matrix[0, 0] = 1.0
+            # Always compute as φᵢ φⱼ ψₖ ψₗ (regular gram tensor)
+            phi_alpha_i = phi_alpha_d[i_idx, None, None, None]  # (n, 1, 1, 1)
+            phi_alpha_j = phi_alpha_d[None, j_idx, None, None]  # (1, n, 1, 1)
+            psi_alpha_k = psi_alpha_d[None, None, k_idx, None]  # (1, 1, n*m-1, 1)
+            psi_alpha_l = psi_alpha_d[None, None, None, l_idx]  # (1, 1, 1, n*m-1)
             
-            # G[0, j] = ⟨1, psi_j⟩ = ∫ psi_j(y) dy = 1 for j > 0
-            gram_matrix[0, 1:] = power_integrals
+            # The integral of the product of four normalized power functions is:
+            # ∫₀¹ (αᵢ+1)x^αᵢ (αⱼ+1)x^αⱼ (αₖ+1)x^αₖ (αₗ+1)x^αₗ dx
+            # = (αᵢ+1)(αⱼ+1)(αₖ+1)(αₗ+1) / (αᵢ + αⱼ + αₖ + αₗ + 1)
             
-            # G[i, 0] = ⟨psi_i, 1⟩ = ∫ psi_i(y) dy = 1 for i > 0  
-            gram_matrix[1:, 0] = power_integrals
+            # Sum all alpha parameters
+            total_alpha = phi_alpha_i + phi_alpha_j + psi_alpha_k + psi_alpha_l + 1
             
-            # G[i, j] = ⟨psi_i, psi_j⟩ for i, j > 0
-            # For normalized power functions (α+1)y^α, the inner product over [0,1]^d is:
-            # ∫₀¹ (αᵢ+1)y^αᵢ (αⱼ+1)y^αⱼ dy = (αᵢ+1)(αⱼ+1)/(αᵢ + αⱼ + 1)
-            alpha_i = alpha_d.unsqueeze(1)  # Shape: (n*m-1, 1)
-            alpha_j = alpha_d.unsqueeze(0)  # Shape: (1, n*m-1)
+            # Compute log of the integral to avoid overflow
+            log_integral = (
+                torch.log(phi_alpha_i + 1) + torch.log(phi_alpha_j + 1) 
+                + torch.log(psi_alpha_k + 1) + torch.log(psi_alpha_l + 1)
+                - torch.log(total_alpha)
+            )
             
-            # Compute the inner product for this dimension
-            normalization_i = alpha_i + 1
-            normalization_j = alpha_j + 1
-            alpha_sum = alpha_i + alpha_j + 1
-            
-            # Compute log of the inner product to avoid overflow
-            # log((αᵢ+1)(αⱼ+1)/(αᵢ + αⱼ + 1)) = log(αᵢ+1) + log(αⱼ+1) - log(αᵢ + αⱼ + 1)
-            log_inner_d = torch.log(normalization_i) + torch.log(normalization_j) - torch.log(alpha_sum)
-            
-            # Add to the submatrix for i, j > 0
-            gram_matrix[1:, 1:] += log_inner_d
+            # Add to the gram tensor for this dimension
+            log_gram_tensor += log_integral
         
-        # Convert the submatrix from log space
-        gram_matrix[1:, 1:] = torch.exp(gram_matrix[1:, 1:])
+        # Convert from log space
+        gram_tensor = torch.exp(log_gram_tensor)
         
-        return gram_matrix
+        # If cross_gram_model is provided, permute indices to get ψ'ᵢ ψ'ⱼ φₖ φₗ
+        if cross_gram_model is not None:
+            # Permute from (i,j,k,l) to (k,l,i,j) to get ψ'ᵢ ψ'ⱼ φₖ φₗ
+            gram_tensor = gram_tensor.permute(2, 3, 0, 1)
+        
+        return gram_tensor
     
     def get_phi_params(self):
         return (self.max_exp - self.min_exp) * torch.nn.functional.sigmoid(self.phi_params) + self.min_exp

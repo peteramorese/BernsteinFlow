@@ -315,3 +315,59 @@ class DisturbedDubinsCar(DiscreteTimeStochasticSystem):
         theta_next = theta + self.controller_gain * heading_error
 
         return np.array([x_next, y_next, theta_next])
+
+class PlanarQuadrotor(DiscreteTimeStochasticSystem):
+    def __init__(self, dt: float,
+                 m: float = 1.0, I: float = 0.02, ell: float = 0.2, g: float = 9.81,
+                 c_v: float = 0.05, c_w: float = 0.02,
+                 covariance: np.ndarray = 0.01*np.eye(6)):
+        """
+        Planar quadrotor dynamics with additive Gaussian noise.
+        State: [px, pz, theta, vx, vz, omega]
+        Inputs (fixed here to hover): rotor thrusts u1, u2
+
+        Args:
+            dt : time step
+            m : mass (kg)
+            I : moment of inertia about out-of-plane axis
+            ell : half arm length (m)
+            g : gravity (m/s^2)
+            c_v : linear velocity damping
+            c_w : angular velocity damping
+            covariance : 6x6 covariance for additive Gaussian process noise
+        """
+
+        def additive_gaussian():
+            return stats.multivariate_normal.rvs(mean=np.zeros(6), cov=covariance)
+
+        super().__init__(dim=6, v_dist=additive_gaussian)
+
+        self.dt = dt
+        self.m = m
+        self.I = I
+        self.ell = ell
+        self.g = g
+        self.c_v = c_v
+        self.c_w = c_w
+
+        # Default hover thrust per rotor
+        self.u_hover = np.array([m*g/2, m*g/2])
+
+    def next_state(self, x: np.ndarray, v: np.ndarray):
+        px, pz, th, vx, vz, w = x
+        u1, u2 = self.u_hover   # you could later generalize this to accept control inputs
+        T = u1 + u2
+        tau = self.ell * (u2 - u1)
+
+        # Continuous dynamics
+        dx = np.zeros(6)
+        dx[0] = vx
+        dx[1] = vz
+        dx[2] = w
+        dx[3] = -(T/self.m)*np.sin(th) - self.c_v*vx
+        dx[4] =  (T/self.m)*np.cos(th) - self.g - self.c_v*vz
+        dx[5] =  (tau/self.I) - self.c_w*w
+
+        # Euler step
+        x_next = x + self.dt * dx
+        return x_next + v

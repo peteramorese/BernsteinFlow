@@ -19,6 +19,125 @@ from scipy.stats import norm
 
 DTYPE = torch.float64
 
+def plot_beliefs_pdfs(beliefs, x_range=(0.1, 0.9), resolution=100, save_path=None, show_plot=True):
+    """
+    Plot all PDFs from beliefs list in a single row of subplots.
+    
+    Args:
+        beliefs: List of models where each model's forward method returns the PDF
+        x_range: Tuple of (min, max) for x-axis range
+        resolution: Number of points to evaluate the PDF
+        save_path: Path to save the plot (optional)
+        show_plot: Whether to display the plot
+    """
+    n_beliefs = len(beliefs)
+    
+    # Create subplots in a single row
+    fig, axes = plt.subplots(1, n_beliefs, figsize=(4*n_beliefs, 4))
+    if n_beliefs == 1:
+        axes = [axes]  # Make it iterable for single subplot
+    
+    # Create x values for evaluation
+    x_vals = np.linspace(x_range[0], x_range[1], resolution)
+    
+    for i, belief in enumerate(beliefs):
+        # Evaluate the PDF for this belief
+        with torch.no_grad():
+            # Convert x_vals to tensor format expected by the model
+            x_tensor = torch.from_numpy(x_vals).reshape(-1, 1).float()
+            pdf_vals = belief(x_tensor).numpy()
+        
+        # Plot the PDF
+        axes[i].plot(x_vals, pdf_vals, 'b-', linewidth=2)
+        axes[i].set_title(f'Belief {i}')
+        axes[i].set_xlabel('x')
+        axes[i].set_ylabel('Density')
+        axes[i].grid(True, alpha=0.3)
+        
+        # Set consistent y-axis limits across all subplots
+        if i == 0:
+            max_density = np.max(pdf_vals)
+        else:
+            max_density = max(max_density, np.max(pdf_vals))
+    
+    # Set consistent y-axis limits
+    for ax in axes:
+        ax.set_ylim(0, max_density * 1.1)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Plot saved to {save_path}")
+    
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
+
+def plot_mc_particles_histograms(u_traj_data, x_range=(0.1, 0.9), bins=50, save_path=None, show_plot=True):
+    """
+    Plot histograms of MC particles from u_traj_data in a single row of subplots.
+    
+    Args:
+        u_traj_data: List of arrays where each array contains particle data for a timestep
+        x_range: Tuple of (min, max) for x-axis range
+        bins: Number of bins for histogram
+        save_path: Path to save the plot (optional)
+        show_plot: Whether to display the plot
+    """
+    n_timesteps = len(u_traj_data)
+    
+    # Create subplots in a single row
+    fig, axes = plt.subplots(1, n_timesteps, figsize=(4*n_timesteps, 4))
+    if n_timesteps == 1:
+        axes = [axes]  # Make it iterable for single subplot
+    
+    # Find global max count for consistent y-axis scaling
+    max_count = 0
+    for i, particles in enumerate(u_traj_data):
+        # Filter particles within x_range
+        mask = (particles >= x_range[0]) & (particles <= x_range[1])
+        filtered_particles = particles[mask]
+        
+        if len(filtered_particles) > 0:
+            counts, _ = np.histogram(filtered_particles, bins=bins, range=x_range)
+            max_count = max(max_count, np.max(counts))
+    
+    for i, particles in enumerate(u_traj_data):
+        # Filter particles within x_range
+        mask = (particles >= x_range[0]) & (particles <= x_range[1])
+        filtered_particles = particles[mask]
+        
+        if len(filtered_particles) > 0:
+            # Create histogram
+            axes[i].hist(filtered_particles, bins=bins, range=x_range, 
+                        alpha=0.7, color='orange', edgecolor='black', linewidth=0.5)
+            axes[i].set_title(f'MC Particles t={i}')
+            axes[i].set_xlabel('u')
+            axes[i].set_ylabel('Count')
+            axes[i].grid(True, alpha=0.3)
+            
+            # Set consistent y-axis limits
+            axes[i].set_ylim(0, max_count * 1.1)
+        else:
+            axes[i].set_title(f'MC Particles t={i} (No data)')
+            axes[i].set_xlabel('u')
+            axes[i].set_ylabel('Count')
+            axes[i].grid(True, alpha=0.3)
+            axes[i].set_ylim(0, 1)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"MC particles plot saved to {save_path}")
+    
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
+
 if __name__ == "__main__":
 
     # System model
@@ -28,7 +147,7 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 10
+    n_traj = 1000
 
     # Number of training epochs
     n_epochs_init = 100
@@ -81,8 +200,13 @@ if __name__ == "__main__":
 
     ## Create initial state and transition models
 
-    n = 20
-    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.0, max_alpha_beta=30.0)
+    print("Using GPU: ", torch.cuda.is_available())
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("device: ", device)
+
+
+    n = 10
+    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=25.0, mu=0.1, min_Q_eigval=1e-8)
     #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, sigma_init=10.0, sigma_max=500, eta=0.8)
     #transition_model = PowerFunctionSOSModel(dy=dim, dx=dim, n=n, m=m, min_exp=0.0, sigma_init=10.0, sigma_max=500, max_exp=30.0)
     #transition_model = SignomialSOSModel(dy=dim, dx=dim, n=n, m=m, n_terms=5, min_exp=0.0, sigma_init=10.0, sigma_max=300, max_exp=30.0)
@@ -90,11 +214,23 @@ if __name__ == "__main__":
 
 
     print("Training transition model...")
-    transition_model.to(DTYPE)
+    transition_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=1000)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=300)
 
+    transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
+
+    n = 10
+    init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False,reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=25.0, mu=0.1, min_Q_eigval=1e-8)
+
+    print("Training init state model...")
+    init_state_model.to(device=device, dtype=DTYPE)
+    trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-1)
+    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=300)
+
+    init_state_model.to(device=torch.device("cpu"))
+    print("Done training init state model \n")
 
     #Q, R = transition_model.get_QR_matrices()
     ##print("R: \n", R)
@@ -104,8 +240,6 @@ if __name__ == "__main__":
     #resid, abs_norm, rel_norm, max_abs, rhs = transition_model.fixed_point_residual()
     #print("Fixed point residuals: ", resid)
 
-    print("phi params: ", transition_model.phi_params)
-    print("psi params: ", transition_model.psi_params)
     #print("Q: \n", Q)
     #print("R: \n", R)
     #E4 = transition_model.gram_tensor()
@@ -117,6 +251,10 @@ if __name__ == "__main__":
     #print("E4: \n", transition_model.gram_tensor())
     #input("...")
 
+    beliefs = [init_state_model]
+    for i in range(timesteps):
+        beliefs.append(transition_model.propagate(beliefs[i]))
+
 
     with torch.no_grad():
         uls = torch.linspace(0.1, 0.9, 10)
@@ -126,6 +264,12 @@ if __name__ == "__main__":
 
             ts_llh_auc = mc_auc(1, lambda up : gdt.u_density(up, lambda xp : system.transition_likelihood(gdt.u_to_x(u)* np.ones_like(xp), xp)))
             print("True auc: ", ts_llh_auc)
+    
+    print("\n")
+    for i, belief in enumerate(beliefs):
+        with torch.no_grad():
+            auc = mc_auc(1, lambda u : belief(torch.from_numpy(u)).numpy(), n_samples=10000)
+            print(f"Belief {i} auc: ", auc)
 
     def np_model_density(y, x):
         # Handle scalar inputs by converting to numpy arrays
@@ -141,16 +285,56 @@ if __name__ == "__main__":
     pdf_funcs = [np_model_density, lambda up, u : gdt.u_density(up, lambda xp : system.transition_likelihood(gdt.u_to_x(u)* np.ones_like(xp), xp))]
 
 
-    # Import the visualization function
+    # Import the visualization functions
     from src.visualization import plot_conditional_distributions_2D, plot_conditional_distributions_slices
+    from src.visualization.regular_distributions import plot_regular_distributions_1D, plot_regular_distributions_slices
 
-    # Create the visualization
-    plot_conditional_distributions_2D(pdf_funcs, u_range=(0.2, 0.8), up_range=(0.01, 0.99), resolution=50, 
-                                    save_path="figures/conditional_distributions_comparison.png", show_plot=False)
+    ## Create the visualization
+    #plot_conditional_distributions_2D(pdf_funcs, u_range=(0.2, 0.8), up_range=(0.01, 0.99), resolution=50, 
+    #                                save_path="figures/conditional_distributions_comparison.png", show_plot=False)
     
     # Create the new slice visualization
     plot_conditional_distributions_slices(pdf_funcs, u_range=(0.2, 0.8), up_range=(0.01, 0.99), 
                                         n_slices=10, resolution=100, 
                                         save_path="figures/conditional_distributions_slices.png", show_plot=False)
 
+    # Create regular distribution functions for initial state model
+    def np_init_model_density(u):
+        # Handle scalar inputs by converting to numpy arrays
+        if np.isscalar(u):
+            u = np.array([u])
+        
+        u_tensor = torch.from_numpy(u).reshape(-1, 1)
+        with torch.no_grad():
+            return init_state_model(u_tensor).numpy()
+    
+    def np_true_init_x_density(x):
+        from scipy.stats import norm
+        density1 = 0.5 * norm.pdf(x, loc=1.5, scale=0.5)
+        density2 = 0.5 * norm.pdf(x, loc=-1.5, scale=0.5)
+        return density1 + density2
+
+    np_true_init_u_density = lambda u : gdt.u_density(u, np_true_init_x_density)
+
+    # Create regular distribution visualization
+    regular_pdf_funcs = [np_true_init_u_density, np_init_model_density, ]
+    
+    # Plot regular distributions comparison
+    plot_regular_distributions_1D(regular_pdf_funcs, x_range=(0.1, 0.9), resolution=100,
+                                 save_path="figures/regular_distributions_1D.png", show_plot=False,
+                                 labels=['Model Initial State', 'True Initial State'])
+    
+    # Plot regular distributions as slices
+    plot_regular_distributions_slices(regular_pdf_funcs, x_range=(0.1, 0.9), n_slices=2, resolution=100,
+                                     save_path="figures/regular_distributions_slices.png", show_plot=False,
+                                     labels=['Model Initial State', 'True Initial State'])
+
     #transition_distribution_plot(pdf_funcs, dim=dim)
+    
+    # Plot all beliefs in a single row
+    plot_beliefs_pdfs(beliefs, x_range=(0.1, 0.9), resolution=100, 
+                     save_path="figures/beliefs_evolution.png", show_plot=True)
+    
+    # Plot MC particles as histograms for comparison
+    plot_mc_particles_histograms(u_traj_data, x_range=(0.1, 0.9), bins=50,
+                               save_path="figures/mc_particles_histograms.png", show_plot=True)

@@ -7,8 +7,7 @@ services:
       - .:/root/BernsteinFlow
     user: "${UID}:${GID}"
     command: tail -f /dev/null  # Temporary command to keep the container running
-    deploy:
-        resources:
-            reservations:
-                devices:
-                  - capabilities: [gpu]
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
