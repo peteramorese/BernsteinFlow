@@ -157,7 +157,7 @@ if __name__ == "__main__":
     training_timesteps = 10
     timesteps = training_timesteps
 
-    init_mode_means = [2.5, -2.5]
+    init_mode_means = [2.0, -2.0]
     def init_state_sampler():
         mode = np.random.randint(0, 2)
         #return float(mode) * norm.rvs(loc=np.array([1.0]), scale = 1.2) + (1.0 - float(mode)) * norm.rvs(loc=np.array([-1.0]), scale = 1.2)
@@ -173,7 +173,7 @@ if __name__ == "__main__":
     gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[2.5])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
-    interactive_state_distribution_plot_1D(u_traj_data)
+    #interactive_state_distribution_plot_1D(u_traj_data)
 
     # Create the data matrices for training
     X0_data = traj_data[0]
@@ -206,8 +206,8 @@ if __name__ == "__main__":
     print("device: ", device)
 
 
-    n = 15
-    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=35.0, mu=0.1, min_Q_eigval=1e-8)
+    n = 5
+    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=1.0, max_alpha_beta=40.0, mu=0.01, min_Q_eigval=1e-8)
     #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, sigma_init=10.0, sigma_max=500, eta=0.8)
     #transition_model = PowerFunctionSOSModel(dy=dim, dx=dim, n=n, m=m, min_exp=0.0, sigma_init=10.0, sigma_max=500, max_exp=30.0)
     #transition_model = SignomialSOSModel(dy=dim, dx=dim, n=n, m=m, n_terms=5, min_exp=0.0, sigma_init=10.0, sigma_max=300, max_exp=30.0)
@@ -218,12 +218,14 @@ if __name__ == "__main__":
     transition_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
     optimize(transition_model, Up_dataloader, trans_optimizer, epochs=150)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=50)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
 
-    n = 15
-    init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False,reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=25.0, mu=0.1, min_Q_eigval=1e-8)
+    n = 5
+    init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False,reference_factor_model=transition_model, min_alpha_beta=1.0, max_alpha_beta=40.0, mu=0.01, min_Q_eigval=1e-8)
 
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)
@@ -296,8 +298,8 @@ if __name__ == "__main__":
     
     # Create the new slice visualization
     plot_conditional_distributions_slices(pdf_funcs, u_range=(0.2, 0.8), up_range=(0.01, 0.99), 
-                                        n_slices=10, resolution=100, 
-                                        save_path="figures/conditional_distributions_slices.png", show_plot=False)
+                                        n_slices=20, resolution=100, 
+                                        save_path="figures/conditional_distributions_slices.png", show_plot=True)
 
     # Create regular distribution functions for initial state model
     def np_init_model_density(u):
