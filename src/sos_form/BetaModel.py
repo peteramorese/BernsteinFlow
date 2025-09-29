@@ -207,21 +207,23 @@ class BetaSOSModel(SOSModel):
                                     max_alpha_beta=self.max_alpha_beta)
 
 
+
 class TensorMarginalSOSModel(torch.nn.Module):
     """
     Marginalized SOS model that stores the exact 4-tensor coefficients
-    after integrating out some dimensions. 
+    after integrating out some dimensions.
 
     Density is:
-        p(x_kept) = sum_{i,j,k,l} T[i,j,k,l] *
-                    prod_d phi_i^{(d)}(x_d) * phi_j^{(d)}(x_d) *
-                    prod_d psi_k^{(d)}(x_d) * psi_l^{(d)}(x_d)
+        p(z) = sum_{i,j,k,l} T[i,j,k,l] *
+               phi_i(z) * phi_j(z) * psi_k(z) * psi_l(z)
+    where z ∈ [0,1]^{d'} with reduced dimension.
     """
-    def __init__(self, phi_params, psi_params, coeff_tensor, min_alpha_beta=1.0, max_alpha_beta=50.0):
+    def __init__(self, phi_params, psi_params, coeff_tensor,
+                 min_alpha_beta=1.0, max_alpha_beta=50.0):
         """
         Args:
-            phi_params : (n, 2*dx_new) tensor of Beta (alpha,beta) params for kept dims
-            psi_params : (n, 2*dy_new) tensor
+            phi_params : (n, 2*dz) tensor of Beta (alpha,beta) params for kept dims
+            psi_params : (n, 2*dz) tensor
             coeff_tensor : (n, n, n, n) tensor of coefficients T[i,j,k,l]
         """
         super().__init__()
@@ -229,49 +231,48 @@ class TensorMarginalSOSModel(torch.nn.Module):
         self.register_buffer("psi_params", psi_params)
         self.register_buffer("coeff_tensor", coeff_tensor)
         self.n = phi_params.shape[0]
-        self.dx = phi_params.shape[1] // 2
-        self.dy = psi_params.shape[1] // 2
+        self.dz = phi_params.shape[1] // 2
         self.min_alpha_beta = min_alpha_beta
         self.max_alpha_beta = max_alpha_beta
 
-    def phi(self, x):
-        """Evaluate phi basis functions at x (shape (p, dx_new)) -> (p, n)."""
-        alpha = self.phi_params[:, :self.dx].unsqueeze(0)  # (1,n,dx)
-        beta  = self.phi_params[:, self.dx:].unsqueeze(0)
-        log_x = torch.log(x + 1e-8)[:, None, :]            # (p,1,dx)
-        log_1mx = torch.log(1 - x + 1e-8)[:, None, :]
-        log_phi = ((alpha-1)*log_x + (beta-1)*log_1mx
+    def phi(self, z):
+        """Evaluate phi basis functions at z (shape (p, dz)) -> (p, n)."""
+        alpha = self.phi_params[:, :self.dz].unsqueeze(0)  # (1,n,dz)
+        beta  = self.phi_params[:, self.dz:].unsqueeze(0)
+        log_z = torch.log(z + 1e-8)[:, None, :]             # (p,1,dz)
+        log_1mz = torch.log(1 - z + 1e-8)[:, None, :]
+        log_phi = ((alpha-1)*log_z + (beta-1)*log_1mz
                    - torch.special.gammaln(alpha)
                    - torch.special.gammaln(beta)
                    + torch.special.gammaln(alpha+beta))
         return torch.exp(log_phi.sum(dim=2))  # (p,n)
 
-    def psi(self, y):
-        """Evaluate psi basis functions at y (shape (p, dy_new)) -> (p, n)."""
-        alpha = self.psi_params[:, :self.dy].unsqueeze(0)  # (1,n,dy)
-        beta  = self.psi_params[:, self.dy:].unsqueeze(0)
-        log_y = torch.log(y + 1e-8)[:, None, :]            # (p,1,dy)
-        log_1my = torch.log(1 - y + 1e-8)[:, None, :]
-        log_psi = ((alpha-1)*log_y + (beta-1)*log_1my
+    def psi(self, z):
+        """Evaluate psi basis functions at z (shape (p, dz)) -> (p, n)."""
+        alpha = self.psi_params[:, :self.dz].unsqueeze(0)  # (1,n,dz)
+        beta  = self.psi_params[:, self.dz:].unsqueeze(0)
+        log_z = torch.log(z + 1e-8)[:, None, :]             # (p,1,dz)
+        log_1mz = torch.log(1 - z + 1e-8)[:, None, :]
+        log_psi = ((alpha-1)*log_z + (beta-1)*log_1mz
                    - torch.special.gammaln(alpha)
                    - torch.special.gammaln(beta)
                    + torch.special.gammaln(alpha+beta))
         return torch.exp(log_psi.sum(dim=2))  # (p,n)
 
-    def forward(self, xy, return_log=False):
+    def forward(self, z, return_log=False):
         """
-        Evaluate marginal density at (y,x) where xy has shape (p, dy+dx).
+        Evaluate marginal density at z ∈ [0,1]^{dz}.
+
+        Args:
+            z : tensor (p, dz) of inputs
         """
-        assert xy.shape[1] == self.dy + self.dx
-        y = xy[:, :self.dy]
-        x = xy[:, self.dy:]
+        assert z.shape[1] == self.dz
 
-        phi_x = self.phi(x)   # (p,n)
-        psi_y = self.psi(y)   # (p,n)
+        phi_z = self.phi(z)   # (p,n)
+        psi_z = self.psi(z)   # (p,n)
 
-        # Contract over i,j,k,l
-        # dens[p] = sum_{i,j,k,l} T[i,j,k,l] * phi_x[p,i]*phi_x[p,j]*psi_y[p,k]*psi_y[p,l]
-        dens = torch.einsum("ijkl,pi,pj,pk,pl->p", self.coeff_tensor, phi_x, phi_x, psi_y, psi_y)
+        # dens[p] = sum_{i,j,k,l} T[i,j,k,l] * phi_z[p,i]*phi_z[p,j]*psi_z[p,k]*psi_z[p,l]
+        dens = torch.einsum("ijkl,pi,pj,pk,pl->p", self.coeff_tensor, phi_z, phi_z, psi_z, psi_z)
 
         if return_log:
             return torch.log(dens + 1e-12)

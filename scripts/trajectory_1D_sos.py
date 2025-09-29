@@ -141,7 +141,7 @@ def plot_mc_particles_histograms(u_traj_data, x_range=(0.1, 0.9), bins=50, save_
 if __name__ == "__main__":
 
     # System model
-    system = CubicMap(dt=0.01, alpha=0.5, variance=0.5)
+    system = CubicMap(dt=0.05, alpha=0.8, variance=0.5)
 
     # Dimension
     dim = system.dim()
@@ -157,10 +157,11 @@ if __name__ == "__main__":
     training_timesteps = 10
     timesteps = training_timesteps
 
+    init_mode_means = [2.5, -2.5]
     def init_state_sampler():
         mode = np.random.randint(0, 2)
         #return float(mode) * norm.rvs(loc=np.array([1.0]), scale = 1.2) + (1.0 - float(mode)) * norm.rvs(loc=np.array([-1.0]), scale = 1.2)
-        return float(mode) * norm.rvs(loc=np.array([1.5]), scale = 0.5) + (1.0 - float(mode)) * norm.rvs(loc=np.array([-1.5]), scale = 0.5)
+        return float(mode) * norm.rvs(loc=np.array([init_mode_means[mode]]), scale = 0.5) + (1.0 - float(mode)) * norm.rvs(loc=np.array([init_mode_means[mode]]), scale = 0.5)
 
 
     io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-2.0], region_uppers=[2.0])
@@ -169,10 +170,10 @@ if __name__ == "__main__":
     #interactive_state_distribution_plot_1D(traj_data, bins=60)
 
     # Moment match the GDT to all of the data over the whole horizon
-    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[0.2])
+    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[2.5])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
-    #interactive_state_distribution_plot_1D(u_traj_data)
+    interactive_state_distribution_plot_1D(u_traj_data)
 
     # Create the data matrices for training
     X0_data = traj_data[0]
@@ -205,8 +206,8 @@ if __name__ == "__main__":
     print("device: ", device)
 
 
-    n = 10
-    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=25.0, mu=0.1, min_Q_eigval=1e-8)
+    n = 15
+    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=35.0, mu=0.1, min_Q_eigval=1e-8)
     #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, sigma_init=10.0, sigma_max=500, eta=0.8)
     #transition_model = PowerFunctionSOSModel(dy=dim, dx=dim, n=n, m=m, min_exp=0.0, sigma_init=10.0, sigma_max=500, max_exp=30.0)
     #transition_model = SignomialSOSModel(dy=dim, dx=dim, n=n, m=m, n_terms=5, min_exp=0.0, sigma_init=10.0, sigma_max=300, max_exp=30.0)
@@ -215,19 +216,19 @@ if __name__ == "__main__":
 
     print("Training transition model...")
     transition_model.to(device=device, dtype=DTYPE)
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=300)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=150)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
 
-    n = 10
+    n = 15
     init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False,reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=25.0, mu=0.1, min_Q_eigval=1e-8)
 
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)
-    trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-1)
-    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=300)
+    trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
+    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=150)
 
     init_state_model.to(device=torch.device("cpu"))
     print("Done training init state model \n")
@@ -310,8 +311,8 @@ if __name__ == "__main__":
     
     def np_true_init_x_density(x):
         from scipy.stats import norm
-        density1 = 0.5 * norm.pdf(x, loc=1.5, scale=0.5)
-        density2 = 0.5 * norm.pdf(x, loc=-1.5, scale=0.5)
+        density1 = 0.5 * norm.pdf(x, loc=init_mode_means[0], scale=0.5)
+        density2 = 0.5 * norm.pdf(x, loc=init_mode_means[1], scale=0.5)
         return density1 + density2
 
     np_true_init_u_density = lambda u : gdt.u_density(u, np_true_init_x_density)
