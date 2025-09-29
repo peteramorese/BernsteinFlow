@@ -415,10 +415,12 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
                 x_batch = x_batch.unsqueeze(0)
             loss, nll_loss, constraint_loss = train_step(x_batch)
             total_loss += loss
-            nll_loss_val = nll_loss  # just track last batch for logging
-            constraint_loss_val = constraint_loss
+            nll_loss_val += nll_loss  # just track last batch for logging
+            constraint_loss_val += constraint_loss
 
         avg_loss = total_loss / len(data_loader)
+        avg_nll_loss = nll_loss_val / len(data_loader)
+        avg_constraint_loss = constraint_loss_val / len(data_loader)
 
         is_psd = model.is_psd()
         # --- Save best model in RAM ---
@@ -431,8 +433,8 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
         #     model.update_lagrangians()
 
         line = (f"Epoch {epoch+1}: Avg Loss = {avg_loss:.4f}, "
-                f"NLL Loss = {nll_loss_val:.4f}, "
-                f"LDB Loss = {constraint_loss_val:.4f}, "
+                f"NLL Loss = {avg_nll_loss:.4f}, "
+                f"LDB Loss = {avg_constraint_loss:.4f}, "
                 f"is_psd = {is_psd}, "
                 f"time: {time.time() - start_time:.3f}")
 

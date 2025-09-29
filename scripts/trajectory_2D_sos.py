@@ -218,24 +218,24 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("device: ", device)
 
-    n = 40
-    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=40.0, mu=0.1, min_Q_eigval=1e-8)
+    n = 15
+    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=60.0, mu=0.1, min_Q_eigval=1e-8)
 
     print("Training transition model...")
     transition_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=1000)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=150)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
 
-    n = 40
-    init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=25.0, mu=0.1, min_Q_eigval=1e-8)
+    n = 15
+    init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=40.0, mu=0.1, min_Q_eigval=1e-8)
 
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-3)
-    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=1000)
+    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=150)
 
     init_state_model.to(device=torch.device("cpu"))
     print("Done training init state model \n")
