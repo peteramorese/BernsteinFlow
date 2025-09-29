@@ -305,6 +305,10 @@ class SOSModel(torch.nn.Module):
             Q, R = self.get_QR_matrices()
 
 
+        #ldb = torch.relu(-self.mu * torch.logdet(R))
+        #return ldb
+        #if torch.isinf(ldb):
+
         eigvals = torch.linalg.eigvalsh(R)
         #print(" in loss eigvals: ", eigvals)
         if torch.all(eigvals > 1e-8):
