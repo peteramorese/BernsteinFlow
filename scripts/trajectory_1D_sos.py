@@ -2,6 +2,7 @@ from bernstein_flow.DistributionTransform import GaussianDistTransform
 #from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
 from sos_form.SOSModel import optimize
 from sos_form.BetaModel import BetaSOSModel
+from sos_form.SumBetaModel import SumBetaSOSModel
 from sos_form.PowerFunctionModel import PowerFunctionSOSModel
 from sos_form.SignomialModel import SignomialSOSModel
 
@@ -170,7 +171,7 @@ if __name__ == "__main__":
     #interactive_state_distribution_plot_1D(traj_data, bins=60)
 
     # Moment match the GDT to all of the data over the whole horizon
-    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[2.5])
+    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[3.5])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
     #interactive_state_distribution_plot_1D(u_traj_data)
@@ -188,75 +189,62 @@ if __name__ == "__main__":
     #plt.scatter(Up_io_data[:, 0], Up_io_data[:, 1], s=1)
     #plt.show()
 
+    use_gpu = True
+    print("GPU available: ", torch.cuda.is_available())
+    device = torch.device("cuda" if torch.cuda.is_available() and use_gpu else "cpu")
+    print("device: ", device)
+    print("Using GPU: ", use_gpu)
+
     # Create data loader
     U0_data_torch = torch.tensor(U0_data, dtype=DTYPE)
     U0_dataset = TensorDataset(U0_data_torch)
-    U0_dataloader = DataLoader(U0_dataset, batch_size=32, shuffle=True)
+    U0_dataloader = DataLoader(U0_dataset, batch_size=32, shuffle=True, pin_memory=use_gpu)
 
     #Up_data_torch = torch.tensor(Up_io_data, dtype=DTYPE)
     Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
-    Up_dataloader = DataLoader(Up_dataset, batch_size=256, shuffle=True)
-    Up_dataloader_refine = DataLoader(Up_dataset, batch_size=2048, shuffle=True)
+    Up_dataloader = DataLoader(Up_dataset, batch_size=128, shuffle=True, pin_memory=use_gpu)
+    Up_dataloader_refine = DataLoader(Up_dataset, batch_size=2048, shuffle=True, pin_memory=use_gpu)
 
     ## Create initial state and transition models
 
-    print("Using GPU: ", torch.cuda.is_available())
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("device: ", device)
 
 
     n = 5
-    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=1.0, max_alpha_beta=40.0, mu=0.01, min_Q_eigval=1e-8)
+    n_terms = 5
+    #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=50.0, mu=0.01, min_Q_eigval=1e-8)
     #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, sigma_init=10.0, sigma_max=500, eta=0.8)
     #transition_model = PowerFunctionSOSModel(dy=dim, dx=dim, n=n, m=m, min_exp=0.0, sigma_init=10.0, sigma_max=500, max_exp=30.0)
     #transition_model = SignomialSOSModel(dy=dim, dx=dim, n=n, m=m, n_terms=5, min_exp=0.0, sigma_init=10.0, sigma_max=300, max_exp=30.0)
+    transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, min_alpha_beta=0.1, max_alpha_beta=50.0, mu=0.01, min_Q_eigval=1e-8)
 
 
 
     print("Training transition model...")
     transition_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=150)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=3)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=50)
+    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=3)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
 
-    n = 5
-    init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False,reference_factor_model=transition_model, min_alpha_beta=1.0, max_alpha_beta=40.0, mu=0.01, min_Q_eigval=1e-8)
+    #init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False,reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=50.0, mu=0.01, min_Q_eigval=1e-8)
+    init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=50.0, mu=0.01, min_Q_eigval=1e-8)
 
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
-    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=150)
+    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=3)
 
     init_state_model.to(device=torch.device("cpu"))
     print("Done training init state model \n")
 
-    #Q, R = transition_model.get_QR_matrices()
-    ##print("R: \n", R)
-    #print("R evals: ", torch.linalg.eigvals(R))
-    ##print("Q: \n", Q)
-    #print("Q evals: ", torch.linalg.eigvals(Q))
-    #resid, abs_norm, rel_norm, max_abs, rhs = transition_model.fixed_point_residual()
-    #print("Fixed point residuals: ", resid)
 
-    #print("Q: \n", Q)
-    #print("R: \n", R)
-    #E4 = transition_model.gram_tensor()
-    #r00 = R[1, 1]
-    #q00 = Q[1, 1]
-    #E4_00 = E4[:, :, 1, 1]
-    #s = torch.sum(E4_00 * R)
-    #print("r00: ", r00, " fp: ", q00*s)
-    #print("E4: \n", transition_model.gram_tensor())
-    #input("...")
 
-    beliefs = [init_state_model]
-    for i in range(timesteps):
-        beliefs.append(transition_model.propagate(beliefs[i]))
+
+
 
 
     with torch.no_grad():
@@ -267,6 +255,11 @@ if __name__ == "__main__":
 
             ts_llh_auc = mc_auc(1, lambda up : gdt.u_density(up, lambda xp : system.transition_likelihood(gdt.u_to_x(u)* np.ones_like(xp), xp)))
             print("True auc: ", ts_llh_auc)
+
+    beliefs = [init_state_model]
+    for i in range(timesteps):
+        #beliefs.append(transition_model.propagate(beliefs[i]))
+        beliefs.append(transition_model.propagate(beliefs[i], n_terms=n_terms))
     
     print("\n")
     for i, belief in enumerate(beliefs):
@@ -292,14 +285,14 @@ if __name__ == "__main__":
     from src.visualization import plot_conditional_distributions_2D, plot_conditional_distributions_slices
     from src.visualization.regular_distributions import plot_regular_distributions_1D, plot_regular_distributions_slices
 
-    ## Create the visualization
-    #plot_conditional_distributions_2D(pdf_funcs, u_range=(0.2, 0.8), up_range=(0.01, 0.99), resolution=50, 
-    #                                save_path="figures/conditional_distributions_comparison.png", show_plot=False)
+    # Create the visualization
+    plot_conditional_distributions_2D(pdf_funcs, u_range=(0.2, 0.8), up_range=(0.01, 0.99), resolution=50, 
+                                    save_path="figures/conditional_distributions_comparison_1d.png", show_plot=False)
     
     # Create the new slice visualization
     plot_conditional_distributions_slices(pdf_funcs, u_range=(0.2, 0.8), up_range=(0.01, 0.99), 
                                         n_slices=20, resolution=100, 
-                                        save_path="figures/conditional_distributions_slices.png", show_plot=True)
+                                        save_path="figures/conditional_distributions_slices_1d.png", show_plot=True)
 
     # Create regular distribution functions for initial state model
     def np_init_model_density(u):
@@ -324,20 +317,20 @@ if __name__ == "__main__":
     
     # Plot regular distributions comparison
     plot_regular_distributions_1D(regular_pdf_funcs, x_range=(0.1, 0.9), resolution=100,
-                                 save_path="figures/regular_distributions_1D.png", show_plot=False,
+                                 save_path="figures/regular_distributions_1d.png", show_plot=False,
                                  labels=['Model Initial State', 'True Initial State'])
     
     # Plot regular distributions as slices
     plot_regular_distributions_slices(regular_pdf_funcs, x_range=(0.1, 0.9), n_slices=2, resolution=100,
-                                     save_path="figures/regular_distributions_slices.png", show_plot=False,
+                                     save_path="figures/regular_distributions_slices_1d.png", show_plot=False,
                                      labels=['Model Initial State', 'True Initial State'])
 
     #transition_distribution_plot(pdf_funcs, dim=dim)
     
     # Plot all beliefs in a single row
     plot_beliefs_pdfs(beliefs, x_range=(0.1, 0.9), resolution=100, 
-                     save_path="figures/beliefs_evolution.png", show_plot=True)
+                     save_path="figures/beliefs_evolution_1d.png", show_plot=True)
     
     # Plot MC particles as histograms for comparison
     plot_mc_particles_histograms(u_traj_data, x_range=(0.1, 0.9), bins=50,
-                               save_path="figures/mc_particles_histograms.png", show_plot=True)
+                               save_path="figures/mc_particles_histograms_1d.png", show_plot=True)

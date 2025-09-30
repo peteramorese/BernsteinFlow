@@ -2,6 +2,7 @@ from bernstein_flow.DistributionTransform import GaussianDistTransform
 #from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
 from sos_form.SOSModel import optimize
 from sos_form.BetaModel import BetaSOSModel
+from sos_form.SumBetaModel import SumBetaSOSModel
 from sos_form.PowerFunctionModel import PowerFunctionSOSModel
 from sos_form.SignomialModel import SignomialSOSModel
 
@@ -20,7 +21,7 @@ from scipy.stats import multivariate_normal
 import os
 
 
-DTYPE = torch.float32
+DTYPE = torch.float64
 
 def plot_beliefs_pdfs_2d(beliefs, x_range=(0.1, 0.9), y_range=(0.1, 0.9), resolution=50, save_path=None, show_plot=True):
     """
@@ -172,7 +173,7 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 1000
+    n_traj = 2000
 
     # Number of training epochs
     n_epochs_init = 100
@@ -204,10 +205,10 @@ if __name__ == "__main__":
     Up_io_data = np.hstack([gdt.X_to_U(io_data[:, :dim]), gdt.X_to_U(io_data[:, dim:])])
 
     #use_gpu = torch.cuda.is_available()
-    use_gpu = False
+    use_gpu = True
     print("Using GPU: ", use_gpu)
-    #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = torch.device("cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if use_gpu else torch.device("cpu")
+    #device = torch.device("cpu")
     print("device: ", device)
 
     # Create data loader
@@ -222,31 +223,37 @@ if __name__ == "__main__":
     ## Create initial state and transition models
 
 
-    n = 15
-    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=60.0, mu=0.1, min_Q_eigval=1e-8)
+    n = 8
+    n_terms = 10
+    #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=60.0, mu=0.1, min_Q_eigval=1e-8)
+    transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, min_alpha_beta=0.1, max_alpha_beta=60.0, mu=0.1, min_Q_eigval=1e-8)
 
     print("Training transition model...")
     transition_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=150)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=300)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=300)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
 
-    n = 15
-    init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=40.0, mu=0.1, min_Q_eigval=1e-8)
+    init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=40.0, mu=0.1, min_Q_eigval=1e-8)
 
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
-    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=150)
+    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=500)
+    trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-4)
+    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=500)
 
     init_state_model.to(device=torch.device("cpu"))
     print("Done training init state model \n")
 
     beliefs = [init_state_model]
     for i in range(timesteps):
-        beliefs.append(transition_model.propagate(beliefs[i]))
+        #beliefs.append(transition_model.propagate(beliefs[i]))
+        beliefs.append(transition_model.propagate(beliefs[i], n_terms=n_terms))
 
     print("\n")
     for i, belief in enumerate(beliefs):
