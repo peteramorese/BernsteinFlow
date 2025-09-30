@@ -142,7 +142,7 @@ def plot_mc_particles_histograms(u_traj_data, x_range=(0.1, 0.9), bins=50, save_
 if __name__ == "__main__":
 
     # System model
-    system = CubicMap(dt=0.05, alpha=0.8, variance=0.5)
+    system = CubicMap(dt=0.1, alpha=0.8, variance=0.5)
 
     # Dimension
     dim = system.dim()
@@ -155,14 +155,15 @@ if __name__ == "__main__":
     n_epochs_tran = 1000
 
     # Time horizon
-    training_timesteps = 10
+    training_timesteps = 5
     timesteps = training_timesteps
 
     init_mode_means = [2.0, -2.0]
     def init_state_sampler():
         mode = np.random.randint(0, 2)
         #return float(mode) * norm.rvs(loc=np.array([1.0]), scale = 1.2) + (1.0 - float(mode)) * norm.rvs(loc=np.array([-1.0]), scale = 1.2)
-        return float(mode) * norm.rvs(loc=np.array([init_mode_means[mode]]), scale = 0.5) + (1.0 - float(mode)) * norm.rvs(loc=np.array([init_mode_means[mode]]), scale = 0.5)
+        #return float(mode) * norm.rvs(loc=np.array([init_mode_means[mode]]), scale = 0.5) + (1.0 - float(mode)) * norm.rvs(loc=np.array([init_mode_means[mode]]), scale = 0.5)
+        return norm.rvs(loc=np.array([init_mode_means[0]]), scale = 0.5) #+ (1.0 - float(mode)) * norm.rvs(loc=np.array([init_mode_means[mode]]), scale = 0.5)
 
 
     io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-2.0], region_uppers=[2.0])
@@ -182,8 +183,9 @@ if __name__ == "__main__":
 
     # Convert the data to the U space for training
     U0_data = gdt.X_to_U(X0_data) # Initial state data
-    Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data 
-    Up_io_data = np.hstack([gdt.X_to_U(io_data[:, :dim]), gdt.X_to_U(io_data[:, dim:])])
+    #Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data 
+    Up_data = np.hstack([gdt.X_to_U(Xp_data[:, dim:]), gdt.X_to_U(Xp_data[:, :dim])])  # Transition kernel data 
+    #Up_io_data = np.hstack([gdt.X_to_U(io_data[:, :dim]), gdt.X_to_U(io_data[:, dim:])])
     #Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data 
 
     #plt.scatter(Up_io_data[:, 0], Up_io_data[:, 1], s=1)
@@ -203,14 +205,14 @@ if __name__ == "__main__":
     #Up_data_torch = torch.tensor(Up_io_data, dtype=DTYPE)
     Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
-    Up_dataloader = DataLoader(Up_dataset, batch_size=128, shuffle=True, pin_memory=use_gpu)
+    Up_dataloader = DataLoader(Up_dataset, batch_size=512, shuffle=True, pin_memory=use_gpu)
     Up_dataloader_refine = DataLoader(Up_dataset, batch_size=2048, shuffle=True, pin_memory=use_gpu)
 
     ## Create initial state and transition models
 
 
 
-    n = 5
+    n = 4
     n_terms = 5
     #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=50.0, mu=0.01, min_Q_eigval=1e-8)
     #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, sigma_init=10.0, sigma_max=500, eta=0.8)
@@ -223,7 +225,7 @@ if __name__ == "__main__":
     print("Training transition model...")
     transition_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=3)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=100)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
     optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=3)
 
@@ -236,7 +238,7 @@ if __name__ == "__main__":
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
-    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=3)
+    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=100)
 
     init_state_model.to(device=torch.device("cpu"))
     print("Done training init state model \n")
@@ -306,9 +308,11 @@ if __name__ == "__main__":
     
     def np_true_init_x_density(x):
         from scipy.stats import norm
-        density1 = 0.5 * norm.pdf(x, loc=init_mode_means[0], scale=0.5)
-        density2 = 0.5 * norm.pdf(x, loc=init_mode_means[1], scale=0.5)
-        return density1 + density2
+        #density1 = 0.5 * norm.pdf(x, loc=init_mode_means[0], scale=0.5)
+        #density2 = 0.5 * norm.pdf(x, loc=init_mode_means[1], scale=0.5)
+        #return density1 + density2
+        density1 = norm.pdf(x, loc=init_mode_means[0], scale=0.5)
+        return density1
 
     np_true_init_u_density = lambda u : gdt.u_density(u, np_true_init_x_density)
 

@@ -318,56 +318,101 @@ class DisturbedDubinsCar(DiscreteTimeStochasticSystem):
 
 class PlanarQuadrotor(DiscreteTimeStochasticSystem):
     def __init__(self, dt: float,
+                 waypoint: np.ndarray = np.array([0.0, 0.0]),   # [px_ref, pz_ref]
                  m: float = 1.0, I: float = 0.02, ell: float = 0.2, g: float = 9.81,
                  c_v: float = 0.05, c_w: float = 0.02,
-                 covariance: np.ndarray = 0.01*np.eye(6)):
+                 covariance: np.ndarray = 0.01*np.eye(6),
+                 thrust_min: float = 0.0, thrust_max: float = 20.0):
         """
-        Planar quadrotor dynamics with additive Gaussian noise.
-        State: [px, pz, theta, vx, vz, omega]
-        Inputs (fixed here to hover): rotor thrusts u1, u2
+        Planar quadrotor with state-feedback waypoint tracking (6D autonomous system).
+        State x = [px, pz, theta, vx, vz, omega]
 
-        Args:
-            dt : time step
-            m : mass (kg)
-            I : moment of inertia about out-of-plane axis
-            ell : half arm length (m)
-            g : gravity (m/s^2)
-            c_v : linear velocity damping
-            c_w : angular velocity damping
-            covariance : 6x6 covariance for additive Gaussian process noise
+        Controller drives (px, pz) -> waypoint using PD position control, pitch control from desired horizontal accel.
+        Inputs are internal (no extra args to next_state), so the system is autonomous.
         """
-
         def additive_gaussian():
             return stats.multivariate_normal.rvs(mean=np.zeros(6), cov=covariance)
 
         super().__init__(dim=6, v_dist=additive_gaussian)
 
         self.dt = dt
-        self.m = m
-        self.I = I
-        self.ell = ell
-        self.g = g
-        self.c_v = c_v
-        self.c_w = c_w
+        self.m, self.I, self.ell, self.g = m, I, ell, g
+        self.c_v, self.c_w = c_v, c_w
+        self.thrust_min, self.thrust_max = thrust_min, thrust_max
 
-        # Default hover thrust per rotor
+        # Fixed waypoint (parameter, not part of the state)
+        self.waypoint = np.asarray(waypoint, dtype=float).reshape(2,)
+
+        # PD gains (tune as needed)
+        self.kp_pos = np.array([2.0, 5.0])   # [x, z]
+        self.kd_pos = np.array([1.0, 3.0])
+        self.kp_theta = 5.0
+        self.kd_theta = 3.0
+
+        # Convenience: hover thrust per rotor (not used directly but useful bound)
         self.u_hover = np.array([m*g/2, m*g/2])
 
-    def next_state(self, x: np.ndarray, v: np.ndarray):
+    def set_waypoint(self, waypoint: np.ndarray):
+        self.waypoint = np.asarray(waypoint, dtype=float).reshape(2,)
+
+    # ---------- internal helpers ----------
+    def _dynamics(self, x: np.ndarray, u: np.ndarray):
         px, pz, th, vx, vz, w = x
-        u1, u2 = self.u_hover   # you could later generalize this to accept control inputs
+        u1, u2 = u
         T = u1 + u2
         tau = self.ell * (u2 - u1)
 
-        # Continuous dynamics
         dx = np.zeros(6)
         dx[0] = vx
         dx[1] = vz
         dx[2] = w
-        dx[3] = -(T/self.m)*np.sin(th) - self.c_v*vx
-        dx[4] =  (T/self.m)*np.cos(th) - self.g - self.c_v*vz
-        dx[5] =  (tau/self.I) - self.c_w*w
+        dx[3] = -(T/self.m) * np.sin(th) - self.c_v * vx
+        dx[4] =  (T/self.m) * np.cos(th) - self.g - self.c_v * vz
+        dx[5] =  (tau/self.I) - self.c_w * w
+        return dx
 
-        # Euler step
-        x_next = x + self.dt * dx
+    def _state_feedback(self, x: np.ndarray):
+        """
+        State-feedback thrusts to move toward self.waypoint.
+        Returns rotor thrusts u = [u1, u2] with saturation and non-negativity.
+        """
+        px, pz, th, vx, vz, w = x
+        px_ref, pz_ref = self.waypoint
+
+        # Position & velocity errors
+        ex, ez = (px_ref - px), (pz_ref - pz)
+        evx, evz = (-vx), (-vz)
+
+        # Desired accelerations
+        ax_des = self.kp_pos[0] * ex + self.kd_pos[0] * evx
+        az_des = self.kp_pos[1] * ez + self.kd_pos[1] * evz + self.g  # add g so az_des = g at zero error
+
+        # Desired pitch from horizontal accel (small-angle compatible, globally well-defined)
+        theta_des = -np.arctan2(ax_des, az_des)
+
+        # Inner-loop attitude control -> desired torque
+        e_theta = theta_des - th
+        e_w = -w
+        tau_des = self.kp_theta * e_theta + self.kd_theta * e_w
+
+        # Total thrust to realize resultant accel magnitude
+        T_des = self.m * np.sqrt(ax_des**2 + az_des**2)
+
+        # Map to rotor thrusts
+        u1 = 0.5 * (T_des - tau_des / self.ell)
+        u2 = 0.5 * (T_des + tau_des / self.ell)
+
+        # Enforce actuator limits and non-negativity
+        u1 = float(np.clip(u1, self.thrust_min, self.thrust_max))
+        u2 = float(np.clip(u2, self.thrust_min, self.thrust_max))
+        return np.array([u1, u2])
+
+    # ---------- required by your framework ----------
+    def next_state(self, x: np.ndarray, v: np.ndarray):
+        """
+        Autonomous closed-loop: x_{k+1} = f(x_k) + v_k
+        """
+        u = self._state_feedback(x)
+        dx = self._dynamics(x, u)
+        x_next = x + self.dt * dx   # Euler step (matches style of your other systems)
         return x_next + v

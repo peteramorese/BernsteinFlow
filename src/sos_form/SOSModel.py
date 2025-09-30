@@ -213,7 +213,7 @@ class SOSModel(torch.nn.Module):
 
             return Q, self.ref_R #, torch.tensor(0.0, device=Q.device, dtype=Q.dtype)
 
-    def _project_null(self, A : torch.Tensor, v : torch.Tensor, lam : float = 1e-8):
+    def _project_null(self, A : torch.Tensor, v : torch.Tensor, lam : float = 1e-6):
         Ax = A @ v                                 # (m,)
         G  = A @ A.T
         G  = G + lam * torch.eye(G.shape[-1], device=A.device, dtype=A.dtype)

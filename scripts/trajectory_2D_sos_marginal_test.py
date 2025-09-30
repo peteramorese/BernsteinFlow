@@ -2,6 +2,7 @@ from bernstein_flow.DistributionTransform import GaussianDistTransform
 #from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
 from sos_form.SOSModel import optimize
 from sos_form.BetaModel import BetaSOSModel
+from sos_form.SumBetaModel import SumBetaSOSModel, SumBetaMarginalSOSModel
 from sos_form.PowerFunctionModel import PowerFunctionSOSModel
 from sos_form.SignomialModel import SignomialSOSModel
 
@@ -472,7 +473,7 @@ if __name__ == "__main__":
 
     Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
-    Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True)
+    Up_dataloader = DataLoader(Up_dataset, batch_size=512, shuffle=True)
 
     ## Create initial state and transition models
 
@@ -480,31 +481,36 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("device: ", device)
 
-    n = 10
-    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=40.0, mu=0.1, min_Q_eigval=1e-8)
+    n = 4
+    n_terms = 7
+    #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=40.0, mu=0.1, min_Q_eigval=1e-8)
+    transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, min_alpha_beta=0.1, max_alpha_beta=40.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-5)
 
     print("Training transition model...")
     transition_model.to(device=device, dtype=DTYPE)
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=100)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=80)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
 
-    n = 10
-    init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=25.0, mu=0.1, min_Q_eigval=1e-8)
+    #init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=25.0, mu=0.1, min_Q_eigval=1e-8)
+    init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=40.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-7)
+
+    #init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=25.0, mu=0.1, min_Q_eigval=1e-8)
 
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
-    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=100)
+    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=50)
 
     init_state_model.to(device=torch.device("cpu"))
     print("Done training init state model \n")
 
     beliefs = [init_state_model]
     for i in range(timesteps):
-        beliefs.append(transition_model.propagate(beliefs[i]))
+        #beliefs.append(transition_model.propagate(beliefs[i]))
+        beliefs.append(transition_model.propagate(beliefs[i], n_terms=n_terms))
 
     print("\n")
     for i, belief in enumerate(beliefs):
@@ -521,6 +527,7 @@ if __name__ == "__main__":
         print(f"Marginalizing belief {i}...")
         # Create x1 marginal (integrate out x2, keep x1)
         x1_marginal = belief.marginalize([1])  # Integrate out dimension 1 (x2)
+        #x1_marginal = belief.marginalize([1], n_terms=n_terms)  # Integrate out dimension 1 (x2)
         x1_marginals.append(x1_marginal)
         
         # Create x2 marginal (integrate out x1, keep x2)  
@@ -558,7 +565,7 @@ if __name__ == "__main__":
                              save_path="figures/marginalized_beliefs_comparison.png", show_plot=True)
     
     # Plot detailed comparison between computed and exact marginals
-    plot_marginal_comparison(beliefs, x1_marginals, x2_marginals, x_range=(0.1, 0.9), y_range=(0.1, 0.9), resolution=100,
+    plot_marginal_comparison(beliefs, x1_marginals, x2_marginals, x_range=(0.1, 0.9), y_range=(0.1, 0.9), resolution=50,
                             save_path="figures/marginal_comparison_detailed.png", show_plot=True)
     
     # Plot MC particles as scatter plots for comparison
