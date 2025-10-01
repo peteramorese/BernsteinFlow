@@ -8,7 +8,7 @@ from sos_form.SignomialModel import SignomialSOSModel
 
 from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, mc_auc
 
-from .Systems import PlanarQuadrotor, sample_trajectories, sample_io_pairs
+from .Systems import CartPole, sample_trajectories, sample_io_pairs
 from .Visualization import interactive_transformer_plot, state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
 
 import numpy as np
@@ -140,7 +140,7 @@ def plot_2d_particle_scatter_over_time(u_traj_list, keep_pair, pair_name,
 if __name__ == "__main__":
 
     # System model
-    system = PlanarQuadrotor(dt=0.1, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
+    system = CartPole(dt=0.1, covariance=0.01 * np.eye(4))
 
     # Dimension
     dim = system.dim()
@@ -157,32 +157,27 @@ if __name__ == "__main__":
     timesteps = training_timesteps
 
     def init_state_sampler():
-        # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
-        mean = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
+        # 4D state: [cart_pos, cart_vel, pole_angle, pole_angular_vel] near equilibrium
+        mean = np.array([0.0, 0.0, 0.0, 0.0])
+        cov = np.diag([0.1, 0.1, 0.1, 0.1])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
     #io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-5.0, -5.0], region_uppers=[5.0, 5.0])
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
     # Moment match the GDT to all of the data over the whole horizon
-    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[5.2, 5.2, 3.1, 5.2, 5.2, 3.1])
-    #gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[0.2, 0.2])
+    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[2.0, 2.0, 5.0, 10.0])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
 
-    os.makedirs("figures/sos_6D", exist_ok=True)
-    plot_2d_particle_scatter_over_time(u_traj_data, (0, 1), "px_pz_particles",
+    os.makedirs("figures/sos_4D", exist_ok=True)
+    plot_2d_particle_scatter_over_time(u_traj_data, (0, 2), "cart_pos_pole_angle_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_6D/mc_particles_px_pz.png",
+                                       save_path="figures/sos_4D/mc_particles_cart_pos_pole_angle.png",
                                        show_plot=True)
-    plot_2d_particle_scatter_over_time(u_traj_data, (3, 4), "vx_vz_particles",
+    plot_2d_particle_scatter_over_time(u_traj_data, (1, 3), "cart_vel_pole_angular_vel_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_6D/mc_particles_vx_vz.png",
-                                       show_plot=True)
-    plot_2d_particle_scatter_over_time(u_traj_data, (2, 5), "theta_omega_particles",
-                                       sample_limit=10000,
-                                       save_path="figures/sos_6D/mc_particles_theta_omega.png",
+                                       save_path="figures/sos_4D/mc_particles_cart_vel_pole_angular_vel.png",
                                        show_plot=True)
 
     #input("Continue to training...")
@@ -251,21 +246,17 @@ if __name__ == "__main__":
     print("\n")
     for i, belief in enumerate(beliefs):
         with torch.no_grad():
-            auc = mc_auc(6, lambda u : belief(torch.from_numpy(u)).numpy(), n_samples=10000)
+            auc = mc_auc(4, lambda u : belief(torch.from_numpy(u)).numpy(), n_samples=10000)
             print(f"Belief {i} auc: ", auc)
 
 
-    os.makedirs("figures/sos_6D", exist_ok=True)
-    # Using state indices: [0:px, 1:pz, 2:theta, 3:vx, 4:vz, 5:omega]
-    plot_2d_marginals_over_time(beliefs, (0, 1), "px_pz",
+    os.makedirs("figures/sos_4D", exist_ok=True)
+    # Using state indices: [0:cart_pos, 1:cart_vel, 2:pole_angle, 3:pole_angular_vel]
+    plot_2d_marginals_over_time(beliefs, (0, 2), "cart_pos_pole_angle",
                                 resolution=60,
-                                save_path="figures/sos_6D/marginals_px_pz.png",
+                                save_path="figures/sos_4D/marginals_cart_pos_pole_angle.png",
                                 show_plot=True)
-    plot_2d_marginals_over_time(beliefs, (3, 4), "vx_vz",
+    plot_2d_marginals_over_time(beliefs, (1, 3), "cart_vel_pole_angular_vel",
                                 resolution=60,
-                                save_path="figures/sos_6D/marginals_vx_vz.png",
-                                show_plot=True)
-    plot_2d_marginals_over_time(beliefs, (2, 5), "theta_omega",
-                                resolution=60,
-                                save_path="figures/sos_6D/marginals_theta_omega.png",
+                                save_path="figures/sos_4D/marginals_cart_vel_pole_angular_vel.png",
                                 show_plot=True)

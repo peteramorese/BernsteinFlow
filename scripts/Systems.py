@@ -316,6 +316,56 @@ class DisturbedDubinsCar(DiscreteTimeStochasticSystem):
 
         return np.array([x_next, y_next, theta_next])
 
+class CartPole(DiscreteTimeStochasticSystem):
+    def __init__(self, dt: float,
+                 m_c: float = 1.0,   # cart mass
+                 m_p: float = 0.1,   # pole mass
+                 l: float = 0.5,     # half pole length
+                 g: float = 9.81,
+                 covariance: np.ndarray = 0.001*np.eye(4)):
+        """
+        Cart-pole system (open-loop, no control).
+        State: [cart position, cart velocity, pole angle, pole angular velocity]
+
+        Args:
+            dt : time step
+            m_c : cart mass
+            m_p : pole mass
+            l : half-length of the pole
+            g : gravity
+            covariance : 4x4 process noise covariance (additive Gaussian)
+        """
+        def additive_gaussian():
+            return stats.multivariate_normal.rvs(mean=np.zeros(4), cov=covariance)
+
+        super().__init__(dim=4, v_dist=additive_gaussian)
+
+        self.dt, self.m_c, self.m_p, self.l, self.g = dt, m_c, m_p, l, g
+
+    def next_state(self, x: np.ndarray, v: np.ndarray):
+        p, p_dot, theta, theta_dot = x
+        m_c, m_p, l, g = self.m_c, self.m_p, self.l, self.g
+
+        # No control force (u = 0)
+        u = 0.0
+
+        # Equations of motion (continuous time)
+        total_mass = m_c + m_p
+        sin_th, cos_th = np.sin(theta), np.cos(theta)
+
+        temp = (u + m_p * l * theta_dot**2 * sin_th) / total_mass
+        theta_acc = (g * sin_th - cos_th * temp) / (l * (4.0/3.0 - (m_p * cos_th**2) / total_mass))
+        p_acc = temp - (m_p * l * theta_acc * cos_th) / total_mass
+
+        # Euler integration
+        p_next      = p + self.dt * p_dot
+        p_dot_next  = p_dot + self.dt * p_acc
+        theta_next  = theta + self.dt * theta_dot
+        theta_dot_next = theta_dot + self.dt * theta_acc
+
+        return np.array([p_next, p_dot_next, theta_next, theta_dot_next]) + v
+
+
 class PlanarQuadrotor(DiscreteTimeStochasticSystem):
     def __init__(self, dt: float,
                  waypoint: np.ndarray = np.array([0.0, 0.0]),   # [px_ref, pz_ref]
@@ -344,8 +394,8 @@ class PlanarQuadrotor(DiscreteTimeStochasticSystem):
         self.waypoint = np.asarray(waypoint, dtype=float).reshape(2,)
 
         # PD gains (tune as needed)
-        self.kp_pos = np.array([2.0, 5.0])   # [x, z]
-        self.kd_pos = np.array([1.0, 3.0])
+        self.kp_pos = np.array([2.0, 2.0])   # [x, z]
+        self.kd_pos = np.array([1.0, 1.0])
         self.kp_theta = 5.0
         self.kd_theta = 3.0
 
