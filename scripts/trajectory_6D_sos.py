@@ -209,7 +209,8 @@ if __name__ == "__main__":
 
     Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
-    Up_dataloader = DataLoader(Up_dataset, batch_size=512, shuffle=True, pin_memory=use_gpu)
+    Up_dataloader = DataLoader(Up_dataset, batch_size=256, shuffle=True, pin_memory=use_gpu)
+    Up_dataloader_refine = DataLoader(Up_dataset, batch_size=2048, shuffle=True, pin_memory=use_gpu)
 
     ## Create initial state and transition models
 
@@ -223,8 +224,8 @@ if __name__ == "__main__":
     transition_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
     optimize(transition_model, Up_dataloader, trans_optimizer, epochs=100)
-    #trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
-    #optimize(transition_model, Up_dataloader, trans_optimizer, epochs=50)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
+    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=50)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
