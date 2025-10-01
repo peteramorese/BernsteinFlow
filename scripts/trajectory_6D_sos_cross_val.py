@@ -1,27 +1,30 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
-#from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
 from sos_form.SOSModel import optimize
-from sos_form.BetaModel import BetaSOSModel
 from sos_form.SumBetaModel import SumBetaSOSModel
-from sos_form.PowerFunctionModel import PowerFunctionSOSModel
-from sos_form.SignomialModel import SignomialSOSModel
 
-from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, mc_auc
+from bernstein_flow.Tools import create_transition_data_matrix, mc_auc
 
-from .Systems import PlanarQuadrotor, sample_trajectories, sample_io_pairs
-from .Visualization import interactive_transformer_plot, state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
+from .Systems import PlanarQuadrotor, sample_trajectories
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.widgets as widgets
-from mpl_toolkits.mplot3d import Axes3D
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from scipy.stats import multivariate_normal
 import os
+import json
+import traceback
 
 
 DTYPE = torch.float64
+
+# ---- Cross-Validation Parameters ---- #
+regularization_weights = [1e-2, 1e-3]
+n_values = [5, 7]
+n_terms_values = [10, 15]
+n_epochs_values = [150]
+n_traj_values = [4000, 10000]  
+
 
 # ---- Plot 2D marginals over time using SumBetaMarginalSOSModel ----
 def plot_2d_marginals_over_time(beliefs_list, keep_pair, pair_name,
@@ -137,8 +140,9 @@ def plot_2d_particle_scatter_over_time(u_traj_list, keep_pair, pair_name,
     else:
         plt.close(fig)
 
-def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experiment_dir, 
-                         system, gdt, traj_data, u_traj_data, device, use_gpu, DTYPE):
+def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experiment_dir,
+                         system, gdt, traj_data, u_traj_data, u_test_traj_data,
+                         device, use_gpu, DTYPE, n_traj_used: int):
     """
     Run a single experiment with given parameters and save results.
     """
@@ -162,6 +166,7 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
         f.write(f"n: {n}\n")
         f.write(f"n_terms: {n_terms}\n")
         f.write(f"n_epochs: {n_epochs}\n")
+        f.write(f"n_traj: {n_traj_used}\n")
         f.write(f"device: {device}\n")
         f.write(f"use_gpu: {use_gpu}\n")
     
@@ -198,9 +203,9 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
     print("Training transition model...")
     transition_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs//2)
+    _, best_trans_loss_1 = optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs//2)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
-    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=n_epochs//2)
+    _, best_trans_loss_2 = optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=n_epochs//2)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model")
@@ -214,9 +219,9 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)
     init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
-    optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs//2)
+    _, best_init_loss_1 = optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs//2)
     init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-4)
-    optimize(init_state_model, U0_dataloader_refine, init_optimizer, epochs=n_epochs//2)
+    _, best_init_loss_2 = optimize(init_state_model, U0_dataloader_refine, init_optimizer, epochs=n_epochs//2)
 
     init_state_model.to(device=torch.device("cpu"))
     print("Done training init state model")
@@ -226,12 +231,19 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
     for i in range(timesteps):
         beliefs.append(transition_model.propagate(beliefs[i], n_terms=n_terms))
 
-    # Calculate AUC for each belief
-    print("\nBelief AUC values:")
+    # Calculate AUC and test log-likelihood for each belief at corresponding timestep
+    print("\nBelief metrics:")
+    auc_values = []
+    test_avg_log_liks = []
     for i, belief in enumerate(beliefs):
         with torch.no_grad():
             auc = mc_auc(6, lambda u : belief(torch.from_numpy(u)).numpy(), n_samples=10000)
-            print(f"Belief {i} auc: {auc}")
+            auc_values.append(float(auc))
+            # Evaluate avg log-likelihood on test u-space data at timestep i
+            U_test_i = u_test_traj_data[i]
+            ll = np.mean(np.log(belief(torch.from_numpy(U_test_i)).numpy() + 1e-12))
+            test_avg_log_liks.append(float(ll))
+            print(f"t={i}: auc={auc:.6f}, test_avg_loglik={ll:.6f}")
 
     # Generate and save plots
     print("Generating plots...")
@@ -264,6 +276,21 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
                                        save_path=os.path.join(experiment_dir, "mc_particles_theta_omega.png"),
                                        show_plot=False)
     
+    # Save results.json
+    results = {
+        "best_transition_loss": float(min(best_trans_loss_1, best_trans_loss_2)),
+        "best_init_loss": float(min(best_init_loss_1, best_init_loss_2)),
+        "auc_per_timestep": auc_values,
+        "test_avg_loglik_per_timestep": test_avg_log_liks,
+        "n_traj": int(n_traj_used),
+        "n": int(n),
+        "n_terms": int(n_terms),
+        "n_epochs": int(n_epochs),
+        "regularization_weight": float(regularization_weight)
+    }
+    with open(os.path.join(experiment_dir, "results.json"), 'w') as f:
+        json.dump(results, f, indent=2)
+
     print(f"Experiment completed. Results saved to: {experiment_dir}")
     
     # Clean up memory
@@ -275,7 +302,6 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
     
     return True
 
-
 if __name__ == "__main__":
     import itertools
     from datetime import datetime
@@ -286,8 +312,8 @@ if __name__ == "__main__":
     # Dimension
     dim = system.dim()
 
-    # Number of trajectories
-    n_traj = 4000
+    # Number of trajectories (pool); will subsample per experiment to allow tuning n_traj
+    n_traj_pool = max(n_traj_values)
 
     # Time horizon
     training_timesteps = 10
@@ -300,12 +326,12 @@ if __name__ == "__main__":
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
     # Sample trajectory data once for all experiments
-    print("Sampling trajectory data...")
-    traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
+    print("Sampling trajectory data pool...")
+    traj_data_pool = sample_trajectories(system, init_state_sampler, timesteps, n_traj_pool)
+    test_traj_data_pool = sample_trajectories(system, init_state_sampler, timesteps + 1, n_traj_pool)
 
     # Moment match the GDT to all of the data over the whole horizon
-    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=5.0*np.array([1.0, 1.0, 0.7, 5.0, 5.0, 0.7]))
-    u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
+    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data_pool), variance_pads=5.0*np.array([1.0, 1.0, 0.7, 5.0, 5.0, 0.7]))
 
     # GPU setup
     use_gpu = True
@@ -313,11 +339,6 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if use_gpu else torch.device("cpu")
     print("device: ", device)
 
-    # Parameter grid for cross-validation
-    regularization_weights = [1e-5, 1e-3]
-    n_values = [3, 5, 7]
-    n_terms_values = [5, 10, 15]
-    n_epochs_values = [100]
     
     # Create root directory for all experiments
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -336,20 +357,28 @@ if __name__ == "__main__":
         f.write(f"n_epochs_values: {n_epochs_values}\n")
     
     # Run all parameter combinations
-    total_experiments = len(regularization_weights) * len(n_values) * len(n_terms_values) * len(n_epochs_values)
+    total_experiments = len(regularization_weights) * len(n_values) * len(n_terms_values) * len(n_epochs_values) * len(n_traj_values)
     experiment_count = 0
     
-    for reg_weight, n, n_terms, n_epochs in itertools.product(regularization_weights, n_values, n_terms_values, n_epochs_values):
+    for reg_weight, n, n_terms, n_epochs, n_traj in itertools.product(regularization_weights, n_values, n_terms_values, n_epochs_values, n_traj_values):
         experiment_count += 1
         print(f"\n{'='*80}")
         print(f"EXPERIMENT {experiment_count}/{total_experiments}")
         print(f"{'='*80}")
         
         # Create experiment directory name
-        exp_name = f"exp_{experiment_count:03d}_reg{reg_weight:.0e}_n{n}_terms{n_terms}_epochs{n_epochs}"
+        exp_name = f"exp_{experiment_count:03d}_reg{reg_weight:.0e}_n{n}_terms{n_terms}_epochs{n_epochs}_traj{n_traj}"
         experiment_dir = os.path.join(root_dir, exp_name)
         
         try:
+            # Subsample pooled trajectories to requested n_traj for this experiment
+            idx = np.random.choice(traj_data_pool[0].shape[0], size=n_traj, replace=False)
+            traj_data = [X[idx] for X in traj_data_pool]
+            test_idx = np.random.choice(test_traj_data_pool[0].shape[0], size=n_traj, replace=False)
+            test_traj_data = [X[test_idx] for X in test_traj_data_pool]
+            u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
+            u_test_traj_data = [gdt.X_to_U(X_data) for X_data in test_traj_data]
+
             # Run the experiment
             success = run_single_experiment(
                 regularization_weight=reg_weight,
@@ -361,9 +390,11 @@ if __name__ == "__main__":
                 gdt=gdt,
                 traj_data=traj_data,
                 u_traj_data=u_traj_data,
+                u_test_traj_data=u_test_traj_data,
                 device=device,
                 use_gpu=use_gpu,
-                DTYPE=DTYPE
+                DTYPE=DTYPE,
+                n_traj_used=n_traj
             )
             
             if success:
@@ -372,12 +403,15 @@ if __name__ == "__main__":
                 print(f"✗ Experiment {experiment_count} failed")
                 
         except Exception as e:
+            tb = traceback.format_exc()
             print(f"✗ Experiment {experiment_count} failed with error: {str(e)}")
-            # Create error log
+            # Create error log with full traceback
             error_file = os.path.join(experiment_dir, "error_log.txt")
             os.makedirs(experiment_dir, exist_ok=True)
             with open(error_file, 'w') as f:
-                f.write(f"Experiment failed with error:\n{str(e)}\n")
+                f.write("Experiment failed with error and traceback:\n")
+                f.write(str(e) + "\n\n")
+                f.write(tb)
         
         # Force garbage collection and memory cleanup
         import gc

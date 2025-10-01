@@ -489,5 +489,5 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
         model.load_state_dict(best_state)
         print(f"\n Restored best model (NLL loss={best_loss:.4f})")
 
-    return model
+    return model, best_loss
     
