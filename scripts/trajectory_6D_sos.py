@@ -206,37 +206,39 @@ if __name__ == "__main__":
     U0_data_torch = torch.tensor(U0_data, dtype=DTYPE)
     U0_dataset = TensorDataset(U0_data_torch)
     U0_dataloader = DataLoader(U0_dataset, batch_size=256, shuffle=True, pin_memory=use_gpu)
+    U0_dataloader_refine = DataLoader(U0_dataset, batch_size=2048, shuffle=True, pin_memory=use_gpu)
 
     Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
     Up_dataloader = DataLoader(Up_dataset, batch_size=512, shuffle=True, pin_memory=use_gpu)
+    Up_dataloader_refine = DataLoader(Up_dataset, batch_size=2048, shuffle=True, pin_memory=use_gpu)
 
     ## Create initial state and transition models
 
 
     n = 5
-    n_terms = 8
+    n_terms = 10
     #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=60.0, mu=0.1, min_Q_eigval=1e-8)
-    transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, min_alpha_beta=0.5, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-3)
+    transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
 
     print("Training transition model...")
     transition_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
     optimize(transition_model, Up_dataloader, trans_optimizer, epochs=100)
-    #trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
-    #optimize(transition_model, Up_dataloader, trans_optimizer, epochs=50)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
+    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=50)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
 
-    init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.5, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-3)
+    init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
 
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
     optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=100)
-    #trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-4)
-    #optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=50)
+    trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-4)
+    optimize(init_state_model, U0_dataloader_refine, trans_optimizer, epochs=50)
 
     init_state_model.to(device=torch.device("cpu"))
     print("Done training init state model \n")
