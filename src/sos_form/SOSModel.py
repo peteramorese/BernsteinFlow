@@ -248,8 +248,8 @@ class SOSModel(torch.nn.Module):
             g_x = torch.einsum("pi,ij,pj->p", phi_x_vals, R, phi_x_vals)
             g_y = torch.einsum("pi,ij,pj->p", phi_y_vals, R, phi_y_vals)
 
-            g_x = torch.clamp(g_x, min=1e-10)
-            g_y = torch.clamp(g_y, min=1e-10)
+            g_x = torch.clamp(g_x, min=1e-5)
+            g_y = torch.clamp(g_y, min=1e-8)
 
             #print("g_x: ", g_x)
             #print("g_y: ", g_y)
