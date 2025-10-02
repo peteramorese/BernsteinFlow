@@ -20,8 +20,8 @@ import traceback
 DTYPE = torch.float64
 
 # ---- Cross-Validation Parameters ---- #
-regularization_weights = [1e-4]
-n_values = [5, 10, 15]
+regularization_weights = [1e-3]
+n_values = [15, 18, 20]
 n_terms_values = [0]
 n_epochs_values = [100]
 n_traj_values = [10000]  
@@ -229,8 +229,8 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
     transition_model = BetaSOSModel(dy=dim, 
                                     dx=dim, 
                                     n=n, 
-                                    min_alpha_beta=0.1, 
-                                    max_alpha_beta=80.0, 
+                                    min_alpha_beta=0.2, 
+                                    max_alpha_beta=60.0, 
                                     mu=0.1, 
                                     min_Q_eigval=1e-8, 
                                     regularization_weight=regularization_weight)
@@ -250,8 +250,8 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
                                     n=n, 
                                     conditional=False, 
                                     reference_factor_model=transition_model, 
-                                    min_alpha_beta=0.4, 
-                                    max_alpha_beta=100.0, 
+                                    min_alpha_beta=0.2, 
+                                    max_alpha_beta=60.0, 
                                     mu=0.1, 
                                     min_Q_eigval=1e-8, 
                                     regularization_weight=1e-4)
