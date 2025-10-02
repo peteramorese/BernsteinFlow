@@ -1,3 +1,4 @@
+import re
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 #from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
 from sos_form.SOSModel import optimize
@@ -140,7 +141,7 @@ def plot_2d_particle_scatter_over_time(u_traj_list, keep_pair, pair_name,
 if __name__ == "__main__":
 
     # System model
-    system = CartPole(dt=0.1, covariance=0.01 * np.eye(4))
+    system = CartPole(dt=0.2, covariance=0.05 * np.eye(4), l=1.0)
 
     # Dimension
     dim = system.dim()
@@ -158,8 +159,8 @@ if __name__ == "__main__":
 
     def init_state_sampler():
         # 4D state: [cart_pos, cart_vel, pole_angle, pole_angular_vel] near equilibrium
-        mean = np.array([0.0, 0.0, 0.0, 0.0])
-        cov = np.diag([0.1, 0.1, 0.1, 0.1])
+        mean = np.array([0.0, 2.0, 0.5, 0.0])
+        cov = np.diag([0.1, 0.1, 0.3, 0.1])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
     #io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-5.0, -5.0], region_uppers=[5.0, 5.0])
@@ -211,22 +212,23 @@ if __name__ == "__main__":
     ## Create initial state and transition models
 
 
-    n = 5
-    n_terms = 10
-    #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=60.0, mu=0.1, min_Q_eigval=1e-8)
-    transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
+    n = 16
+    #n_terms = 13
+    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=80.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-3)
+    #transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, min_alpha_beta=0.1, max_alpha_beta=60.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-3)
 
     print("Training transition model...")
     transition_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=100)
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
-    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=50)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=80)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
+    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=100)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
 
-    init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
+    init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=80.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-3)
+    #init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=60.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-3)
 
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)
@@ -240,8 +242,8 @@ if __name__ == "__main__":
 
     beliefs = [init_state_model]
     for i in range(timesteps):
-        #beliefs.append(transition_model.propagate(beliefs[i]))
-        beliefs.append(transition_model.propagate(beliefs[i], n_terms=n_terms))
+        beliefs.append(transition_model.propagate(beliefs[i]))
+        ##beliefs.append(transition_model.propagate(beliefs[i], n_terms=n_terms))
 
     print("\n")
     for i, belief in enumerate(beliefs):

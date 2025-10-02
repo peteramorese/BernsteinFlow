@@ -16,7 +16,7 @@ class SOSModel(torch.nn.Module):
                 conditional : bool = True,
                 reference_factor_model = None,
                 mu : float = 1.0,
-                npsd_penalty : float = 1.0,
+                npsd_penalty : float = 10.0,
                 min_Q_eigval : float = 1e-6,
                 fixed_phi_params = None,
                 fixed_psi_params = None,
@@ -160,7 +160,8 @@ class SOSModel(torch.nn.Module):
                 input("...")
 
             # Compute the max eigenvalue of M to rescale Q. All e-vals of Q are guaranteed to be real and non-negative.
-            lambda_M_vals = torch.real(torch.linalg.eigvals(M))
+            M_evals = torch.linalg.eigvals(M)
+            lambda_M_vals = torch.real(M_evals)
             lambda_M_max = torch.max(lambda_M_vals)
             #lambda_M_max = torch.tensor(1.0, device=self.Q_uc.device, dtype=self.Q_uc.dtype)
 
@@ -249,20 +250,19 @@ class SOSModel(torch.nn.Module):
             g_y = torch.einsum("pi,ij,pj->p", phi_y_vals, R, phi_y_vals)
 
             g_x = torch.clamp(g_x, min=1e-5)
-            g_y = torch.clamp(g_y, min=1e-8)
+            g_y = torch.clamp(g_y, min=1e-7)
 
             #print("g_x: ", g_x)
             #print("g_y: ", g_y)
             #print("f: ", f)
 
             # Compute density in log space
-            log_density = torch.log(f + 1e-8) + torch.log(g_y) - torch.log(g_x) 
-            #if torch.any(torch.isnan(log_density)) or torch.any(torch.isinf(log_density)):
-            #    print("log_density is nan or inf")
-            #    print("f: ", f)
-            #    print("g_y: ", g_y)
-            #    print("g_x: ", g_x)
-            #    input("...")
+            log_density = torch.log(f + 1e-7) + torch.log(g_y) - torch.log(g_x) 
+            if torch.any(torch.isnan(log_density)) or torch.any(torch.isinf(log_density)):
+                print("log_density is nan or inf. g_x: ", g_x)
+                #print("f: ", f)
+                #print("g_y: ", g_y)
+                #print("g_x: ", g_x)
         else:
             assert yx.shape[1] == self.dy
             y = yx
@@ -349,10 +349,11 @@ class SOSModel(torch.nn.Module):
     #    return self.npsd_penalty * (torch.exp(s_min) - 1.0)
     
     def is_psd(self):
-        _, R = self.get_QR_matrices()
-        #Q_eigvals = torch.linalg.eigvalsh(Q)
-        R_eigvals = torch.linalg.eigvalsh(R)
-        return torch.all(R_eigvals > 1e-10)
+        with torch.no_grad():
+            _, R = self.get_QR_matrices()
+            #Q_eigvals = torch.linalg.eigvalsh(Q)
+            R_eigvals = torch.linalg.eigvalsh(R)
+            return torch.all(R_eigvals > 1e-10)
     
 
     def fixed_point_residual(self):

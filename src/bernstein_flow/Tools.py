@@ -4,7 +4,7 @@ from scipy.spatial import Rectangle
 
 def create_transition_data_matrix(trajectory_data, separate=False):
     """
-    Create a data matrix of (x_{k+1}, x_k) pairs from trajectory data.
+    Create a data matrix of (x_k, x_{k+1}) pairs from trajectory data.
 
     Parameters:
     -----------
