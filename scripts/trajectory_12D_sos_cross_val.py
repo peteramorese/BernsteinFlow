@@ -5,7 +5,7 @@ from sos_form.SumBetaModel import SumBetaSOSModel
 
 from bernstein_flow.Tools import create_transition_data_matrix, mc_auc
 
-from .Systems import PlanarQuadrotor, sample_trajectories
+from .Systems import Quadcopter, sample_trajectories
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -24,7 +24,7 @@ regularization_weights = [1e-4]
 n_values = [5, 10, 15]
 n_terms_values = [0]
 n_epochs_values = [100]
-n_traj_values = [4000]  
+n_traj_values = [10000]  
 
 
 # ---- Plot 2D marginals over time using SumBetaMarginalSOSModel ----
@@ -54,14 +54,14 @@ def plot_2d_marginals_over_time(beliefs_list, keep_pair, pair_name, gdt,
     ys = np.linspace(y_min, y_max, resolution)
     XX, YY = np.meshgrid(xs, ys)
     
-    # Create full 6D points for evaluation
-    pts_6d = np.zeros((resolution * resolution, dim_total))
-    pts_6d[:, keep_pair[0]] = XX.ravel()
-    pts_6d[:, keep_pair[1]] = YY.ravel()
+    # Create full 12D points for evaluation
+    pts_12d = np.zeros((resolution * resolution, dim_total))
+    pts_12d[:, keep_pair[0]] = XX.ravel()
+    pts_12d[:, keep_pair[1]] = YY.ravel()
     
     # Fill other dimensions with their means
     for dim in dims_to_integrate:
-        pts_6d[:, dim] = gdt.means[dim]
+        pts_12d[:, dim] = gdt.means[dim]
 
     # Evaluate each belief separately with individual color scaling
     grids = []
@@ -70,7 +70,7 @@ def plot_2d_marginals_over_time(beliefs_list, keep_pair, pair_name, gdt,
             marginal_model = belief.marginalize(dims_to_integrate)
             
             # Convert to U space for model evaluation
-            pts_u = gdt.X_to_U(pts_6d)
+            pts_u = gdt.X_to_U(pts_12d)
             pts_u_2d = pts_u[:, keep_pair]
             
             # Get U space density
@@ -80,12 +80,12 @@ def plot_2d_marginals_over_time(beliefs_list, keep_pair, pair_name, gdt,
             def u_density_func(u_2d):
                 return marginal_model(torch.from_numpy(u_2d).to(dtype=DTYPE)).cpu().numpy()
             
-            # For marginal density, we need to create a 6D function that evaluates the marginal
-            def u_density_6d_func(u_6d):
-                u_2d = u_6d[:, keep_pair]
+            # For marginal density, we need to create a 12D function that evaluates the marginal
+            def u_density_12d_func(u_12d):
+                u_2d = u_12d[:, keep_pair]
                 return marginal_model(torch.from_numpy(u_2d).to(dtype=DTYPE)).cpu().numpy()
             
-            x_density = gdt.x_density(pts_6d, u_density_6d_func)
+            x_density = gdt.x_density(pts_12d, u_density_12d_func)
             Z = x_density.reshape(resolution, resolution)
             grids.append(Z)
 
@@ -226,10 +226,6 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
     Up_dataloader_refine = DataLoader(Up_dataset, batch_size=2048, shuffle=True, pin_memory=use_gpu)
 
     # Create models
-    #transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, 
-    #                                  min_alpha_beta=0.4, max_alpha_beta=100.0, 
-    #                                  mu=0.1, min_Q_eigval=1e-8, 
-    #                                  regularization_weight=regularization_weight)
     transition_model = BetaSOSModel(dy=dim, 
                                     dx=dim, 
                                     n=n, 
@@ -248,12 +244,6 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model")
-
-    #init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, 
-    #                                  conditional=False, reference_factor_model=transition_model, 
-    #                                  min_alpha_beta=0.4, max_alpha_beta=100.0, 
-    #                                  mu=0.1, min_Q_eigval=1e-8, 
-    #                                  regularization_weight=regularization_weight)
 
     init_state_model = BetaSOSModel(dy=dim, 
                                     dx=0, 
@@ -280,7 +270,6 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
     beliefs = [init_state_model]
     for i in range(timesteps):
         beliefs.append(transition_model.propagate(beliefs[i]))
-        #beliefs.append(transition_model.propagate(beliefs[i], n_terms=n_terms))
 
     # Calculate AUC and test log-likelihood for each belief at corresponding timestep
     print("\nBelief metrics:")
@@ -288,7 +277,7 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
     test_avg_log_liks = []
     for i, belief in enumerate(beliefs):
         with torch.no_grad():
-            auc = mc_auc(6, lambda u : belief(torch.from_numpy(u)).numpy(), n_samples=10000)
+            auc = mc_auc(12, lambda u : belief(torch.from_numpy(u)).numpy(), n_samples=10000)
             auc_values.append(float(auc))
             # Evaluate avg log-likelihood on test u-space data at timestep i
             U_test_i = u_test_traj_data[i]
@@ -304,9 +293,11 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
     os.makedirs(belief_density_dir, exist_ok=True)
     
     # Marginal plots - save individual timesteps
+    # Using state indices: [0:px, 1:py, 2:pz, 3:vx, 4:vy, 5:vz, 6:phi, 7:theta, 8:psi, 9:p, 10:q, 11:r]
     for t, belief in enumerate(beliefs):
         # Create individual plots for each timestep
-        for pair, pair_name in [((0, 1), "px_pz"), ((3, 4), "vx_vz"), ((2, 5), "theta_omega")]:
+        for pair, pair_name in [((0, 1), "px_py"), ((3, 4), "vx_vy"), ((6, 7), "phi_theta"), 
+                               ((9, 10), "p_q"), ((2, 5), "pz_vz"), ((8, 11), "psi_r")]:
             plot_2d_marginals_over_time([belief], pair, pair_name, gdt,
                                         resolution=60,
                                         save_path=os.path.join(belief_density_dir, f"{pair_name}_t{t:02d}.pdf"),
@@ -342,9 +333,8 @@ if __name__ == "__main__":
     import itertools
     from datetime import datetime
 
-    # System model
-    #system = PlanarQuadrotor(dt=0.03, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
-    system = PlanarQuadrotor(dt=0.01, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
+    # System model - 12D Quadcopter
+    system = Quadcopter(dt=0.10, covariance=0.05 * np.eye(12), waypoint=np.array([10.0, 0.0, 1.0]))
 
     # Dimension
     dim = system.dim()
@@ -357,11 +347,10 @@ if __name__ == "__main__":
     timesteps = training_timesteps
 
     def init_state_sampler():
-        # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
-        #mean = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        #cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
-        mean = np.array([0.0, 0.0, 0.1, 50.0, 0.0, 0.0])
-        cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
+        # 12D state: [px, py, pz, vx, vy, vz, phi, theta, psi, p, q, r]
+        # Start near hover at origin with small initial conditions
+        mean = np.array([0.0, 0.0, 0.0, 0.0, 30.0, -30.0, 0.0, 0.0, -0.8, 0.8, 0.0, 0.0])
+        cov = np.diag([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
     # Sample trajectory data once for all experiments
@@ -370,8 +359,7 @@ if __name__ == "__main__":
     test_traj_data_pool = sample_trajectories(system, init_state_sampler, timesteps + 1, n_traj_pool)
 
     # Moment match the GDT to all of the data over the whole horizon
-    #gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data_pool), variance_pads=5.0*np.array([1.0, 1.0, 0.7, 5.0, 5.0, 0.7]))
-    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data_pool), variance_pads=[5.2, 5.2, 3.1, 5.2, 5.2, 3.1])
+    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data_pool), variance_pads=[5.2, 5.2, 5.2, 5.2, 5.2, 5.2, 3.1, 3.1, 3.1, 3.1, 3.1, 3.1])
 
     # GPU setup
     use_gpu = True
@@ -382,7 +370,7 @@ if __name__ == "__main__":
     
     # Create root directory for all experiments
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    root_dir = os.path.join("benchmarks", f"sos_6D_cross_val_{timestamp}")
+    root_dir = os.path.join("benchmarks", f"sos_12D_cross_val_{timestamp}")
     os.makedirs(root_dir, exist_ok=True)
     
     # Generate shared MC particles plots once
@@ -391,7 +379,8 @@ if __name__ == "__main__":
     os.makedirs(mc_particles_dir, exist_ok=True)
     
     for t in range(len(traj_data_pool)):
-        for pair, pair_name in [((0, 1), "px_pz"), ((3, 4), "vx_vz"), ((2, 5), "theta_omega")]:
+        for pair, pair_name in [((0, 1), "px_py"), ((3, 4), "vx_vy"), ((6, 7), "phi_theta"), 
+                               ((9, 10), "p_q"), ((2, 5), "pz_vz"), ((8, 11), "psi_r")]:
             plot_2d_particle_scatter_over_time([traj_data_pool[t]], pair, pair_name, gdt,
                                                sample_limit=10000,
                                                save_path=os.path.join(mc_particles_dir, f"{pair_name}_t{t:02d}.pdf"),
