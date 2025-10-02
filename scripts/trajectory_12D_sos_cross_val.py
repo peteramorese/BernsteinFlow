@@ -21,7 +21,7 @@ import traceback
 DTYPE = torch.float64
 
 # ---- Cross-Validation Parameters ---- #
-regularization_weights = [1e-2]
+regularization_weights = [1e-1, 1e-1]
 n_values = [15, 18]
 n_terms_values = [0]
 n_epochs_values = [100]
