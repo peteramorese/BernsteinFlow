@@ -18,6 +18,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from scipy.stats import multivariate_normal
+from scipy.linalg import block_diag
 import os
 
 
@@ -137,16 +138,97 @@ def plot_2d_particle_scatter_over_time(u_traj_list, keep_pair, pair_name,
     else:
         plt.close(fig)
 
+def plot_2d_particle_scatter_over_time_X(x_traj_list, keep_pair, pair_name,
+                                         sample_limit=None, save_path=None, show_plot=True):
+    """
+    Plot 2D marginal trajectory particles in X-space over time for a given
+    pair of state indices. x_traj_list is a list of length T with arrays (N_t, dx).
+    keep_pair: tuple of two indices to keep for scatter.
+    """
+    keep_pair = tuple(int(i) for i in keep_pair)
+    T = len(x_traj_list)
+
+    # Determine consistent axis limits from data (no [0,1] clipping)
+    xs_all = []
+    ys_all = []
+    for X in x_traj_list:
+        xs_all.append(X[:, keep_pair[0]])
+        ys_all.append(X[:, keep_pair[1]])
+    x_min = float(np.min([x.min() for x in xs_all]))
+    x_max = float(np.max([x.max() for x in xs_all]))
+    y_min = float(np.min([y.min() for y in ys_all]))
+    y_max = float(np.max([y.max() for y in ys_all]))
+    # Add proportional padding
+    x_range = x_max - x_min
+    y_range = y_max - y_min
+    pad_x = 0.05 * x_range if x_range > 0 else 1.0
+    pad_y = 0.05 * y_range if y_range > 0 else 1.0
+    x_min, x_max = x_min - pad_x, x_max + pad_x
+    y_min, y_max = y_min - pad_y, y_max + pad_y
+
+    n_cols = min(5, T)
+    n_rows = (T + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3.0*n_cols, 3.0*n_rows), squeeze=False)
+    for k in range(T):
+        X = x_traj_list[k]
+        if sample_limit is not None and X.shape[0] > sample_limit:
+            idx = np.random.choice(X.shape[0], size=sample_limit, replace=False)
+            Xplot = X[idx]
+        else:
+            Xplot = X
+        r = k // n_cols
+        c = k % n_cols
+        ax = axes[r][c]
+        ax.scatter(Xplot[:, keep_pair[0]], Xplot[:, keep_pair[1]], s=3, alpha=0.5)
+        ax.set_xlim([x_min, x_max])
+        ax.set_ylim([y_min, y_max])
+        ax.set_title(f"t={k}")
+        ax.set_xlabel("x[{}]".format(keep_pair[0]))
+        ax.set_ylabel("x[{}]".format(keep_pair[1]))
+    for k in range(T, n_rows*n_cols):
+        r = k // n_cols
+        c = k % n_cols
+        axes[r][c].axis('off')
+    fig.suptitle(f"2D particle scatter over time (X-space): {pair_name}")
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    if save_path is not None:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        fig.savefig(save_path, dpi=150)
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
+
 if __name__ == "__main__":
 
-    # System model - 12D Quadcopter
-    system = Quadcopter(dt=0.10, covariance=0.05 * np.eye(12), waypoint=np.array([10.0, 0.0, 1.0]))
+    # System model - 12D Quadcopter (Preset C)
+    # Build correlated covariance blocks
+    cov_posvel = 0.03 * np.ones((6, 6))
+    np.fill_diagonal(cov_posvel, 0.06)
+    cov_angles = 0.0005 * np.eye(3)  # further reduce angle noise
+    cov_rates = 0.01 * np.eye(3)     # much lower rate noise to reduce oscillations
+    quad_covariance = block_diag(cov_posvel, cov_angles, cov_rates)
+
+    system = Quadcopter(
+        dt=0.05,
+        waypoint=np.array([15.0, 15.0, 5.0]),
+        thrust_max=30.0,
+        torque_limits=np.array([1.5, 1.5, 0.8]),  # limit aggressive rotations
+        covariance=quad_covariance,
+    )
+    # Tuning to keep Euler angles moderate and reduce rate oscillations
+    system.c_w = 0.15  # increase angular damping further
+    system.kp_pos = np.array([1.2, 1.2, 2.5])
+    system.kd_pos = np.array([0.8, 0.8, 1.5])
+    system.kp_ang = np.array([2.0, 2.0, 1.5])
+    system.kd_ang = np.array([2.0, 2.0, 1.0])
+    system.rate_filter_alpha = 0.2  # stronger rate smoothing
 
     # Dimension
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 10000
+    n_traj = 1000
 
     # Number of training epochs
     n_epochs_init = 100
@@ -158,16 +240,34 @@ if __name__ == "__main__":
 
     def init_state_sampler():
         # 12D state: [px, py, pz, vx, vy, vz, phi, theta, psi, p, q, r]
-        # Start near hover at origin with small initial conditions
-        mean = np.array([0.0, 0.0, 0.0, 0.0, 30.0, -30.0, 0.0, 0.0, -0.8, 0.8, 0.0, 0.0])
-        cov = np.diag([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05])
+        # Preset C initial distribution
+        mean = np.array([
+            -8.0, -8.0, 0.8,
+            10.0, 5.0, 0.0,
+            0.00, 0.00, 0.00,
+            0.0, -0.1, 0.1,
+        ])
+        cov = np.diag([
+            1.5, 1.5, 0.5,
+            6.0, 6.0, 2.5,
+            0.01, 0.01, 0.01,
+            0.35, 0.35, 0.35,
+        ])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
     #io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-5.0, -5.0], region_uppers=[5.0, 5.0])
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
-    # Moment match the GDT to all of the data over the whole horizon
-    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[5.2, 5.2, 5.2, 5.2, 5.2, 5.2, 3.1, 3.1, 3.1, 3.1, 3.1, 3.1])
+    # Moment match the GDT to all of the data over the whole horizon (Preset C pads)
+    gdt = GaussianDistTransform.moment_match_data(
+        np.vstack(traj_data),
+        variance_pads=[
+            10.0, 10.0, 7.0,
+            10.0, 10.0, 7.0,
+            1.0, 1.0, 1.0,
+            2.5, 2.5, 2.5,
+        ],
+    )
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
 
@@ -180,6 +280,32 @@ if __name__ == "__main__":
                                        sample_limit=10000,
                                        save_path="figures/sos_12D/mc_particles_vx_vy.png",
                                        show_plot=True)
+    plot_2d_particle_scatter_over_time(u_traj_data, (6, 7), "phi_theta_particles",
+                                       sample_limit=10000,
+                                       save_path="figures/sos_12D/mc_particles_phi_theta.png",
+                                       show_plot=True)
+    plot_2d_particle_scatter_over_time(u_traj_data, (9, 10), "p_q_particles",
+                                       sample_limit=10000,
+                                       save_path="figures/sos_12D/mc_particles_p_q.png",
+                                       show_plot=True)
+
+    # X-space particle scatter plots for the same pairs
+    plot_2d_particle_scatter_over_time_X(traj_data, (0, 1), "px_py_particles_X",
+                                         sample_limit=10000,
+                                         save_path="figures/sos_12D/mc_particles_px_py_X.png",
+                                         show_plot=True)
+    plot_2d_particle_scatter_over_time_X(traj_data, (3, 4), "vx_vy_particles_X",
+                                         sample_limit=10000,
+                                         save_path="figures/sos_12D/mc_particles_vx_vy_X.png",
+                                         show_plot=True)
+    plot_2d_particle_scatter_over_time_X(traj_data, (6, 7), "phi_theta_particles_X",
+                                         sample_limit=10000,
+                                         save_path="figures/sos_12D/mc_particles_phi_theta_X.png",
+                                         show_plot=True)
+    plot_2d_particle_scatter_over_time_X(traj_data, (9, 10), "p_q_particles_X",
+                                         sample_limit=10000,
+                                         save_path="figures/sos_12D/mc_particles_p_q_X.png",
+                                         show_plot=True)
 
     #input("Continue to training...")
 

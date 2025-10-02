@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from scipy.stats import multivariate_normal
+from scipy.linalg import block_diag
 import os
 import json
 import traceback
@@ -20,8 +21,8 @@ import traceback
 DTYPE = torch.float64
 
 # ---- Cross-Validation Parameters ---- #
-regularization_weights = [1e-3]
-n_values = [15, 18, 20]
+regularization_weights = [1e-2]
+n_values = [15, 18]
 n_terms_values = [0]
 n_epochs_values = [100]
 n_traj_values = [10000]  
@@ -230,7 +231,7 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
                                     dx=dim, 
                                     n=n, 
                                     min_alpha_beta=0.2, 
-                                    max_alpha_beta=60.0, 
+                                    max_alpha_beta=50.0, 
                                     mu=0.1, 
                                     min_Q_eigval=1e-8, 
                                     regularization_weight=regularization_weight)
@@ -251,7 +252,7 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
                                     conditional=False, 
                                     reference_factor_model=transition_model, 
                                     min_alpha_beta=0.2, 
-                                    max_alpha_beta=60.0, 
+                                    max_alpha_beta=50.0, 
                                     mu=0.1, 
                                     min_Q_eigval=1e-8, 
                                     regularization_weight=1e-4)
@@ -333,8 +334,28 @@ if __name__ == "__main__":
     import itertools
     from datetime import datetime
 
-    # System model - 12D Quadcopter
-    system = Quadcopter(dt=0.10, covariance=0.05 * np.eye(12), waypoint=np.array([10.0, 0.0, 1.0]))
+    # System model - 12D Quadcopter (Preset C)
+    # Build correlated covariance blocks
+    cov_posvel = 0.03 * np.ones((6, 6))
+    np.fill_diagonal(cov_posvel, 0.06)
+    cov_angles = 0.0005 * np.eye(3)  # further reduce angle noise
+    cov_rates = 0.01 * np.eye(3)     # much lower rate noise to reduce oscillations
+    quad_covariance = block_diag(cov_posvel, cov_angles, cov_rates)
+
+    system = Quadcopter(
+        dt=0.05,
+        waypoint=np.array([15.0, 15.0, 5.0]),
+        thrust_max=30.0,
+        torque_limits=np.array([1.5, 1.5, 0.8]),  # limit aggressive rotations
+        covariance=quad_covariance,
+    )
+    # Tuning to keep Euler angles moderate and reduce rate oscillations
+    system.c_w = 0.15  # increase angular damping further
+    system.kp_pos = np.array([1.2, 1.2, 2.5])
+    system.kd_pos = np.array([0.8, 0.8, 1.5])
+    system.kp_ang = np.array([2.0, 2.0, 1.5])
+    system.kd_ang = np.array([2.0, 2.0, 1.0])
+    system.rate_filter_alpha = 0.2  # stronger rate smoothing
 
     # Dimension
     dim = system.dim()
@@ -348,9 +369,19 @@ if __name__ == "__main__":
 
     def init_state_sampler():
         # 12D state: [px, py, pz, vx, vy, vz, phi, theta, psi, p, q, r]
-        # Start near hover at origin with small initial conditions
-        mean = np.array([0.0, 0.0, 0.0, 0.0, 30.0, -30.0, 0.0, 0.0, -0.8, 0.8, 0.0, 0.0])
-        cov = np.diag([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05])
+        # Preset C initial distribution
+        mean = np.array([
+            -8.0, -8.0, 0.8,
+            10.0, 5.0, 0.0,
+            0.00, 0.00, 0.00,
+            0.0, -0.1, 0.1,
+        ])
+        cov = np.diag([
+            1.5, 1.5, 0.5,
+            6.0, 6.0, 2.5,
+            0.01, 0.01, 0.01,
+            0.35, 0.35, 0.35,
+        ])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
     # Sample trajectory data once for all experiments
@@ -358,8 +389,16 @@ if __name__ == "__main__":
     traj_data_pool = sample_trajectories(system, init_state_sampler, timesteps, n_traj_pool)
     test_traj_data_pool = sample_trajectories(system, init_state_sampler, timesteps + 1, n_traj_pool)
 
-    # Moment match the GDT to all of the data over the whole horizon
-    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data_pool), variance_pads=[5.2, 5.2, 5.2, 5.2, 5.2, 5.2, 3.1, 3.1, 3.1, 3.1, 3.1, 3.1])
+    # Moment match the GDT to all of the data over the whole horizon (Preset C pads)
+    gdt = GaussianDistTransform.moment_match_data(
+        np.vstack(traj_data_pool),
+        variance_pads=[
+            10.0, 10.0, 7.0,
+            10.0, 10.0, 7.0,
+            1.0, 1.0, 1.0,
+            2.5, 2.5, 2.5,
+        ],
+    )
 
     # GPU setup
     use_gpu = True

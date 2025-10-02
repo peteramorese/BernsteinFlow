@@ -486,7 +486,7 @@ class Quadcopter(DiscreteTimeStochasticSystem):
                  J: np.ndarray = np.diag([0.02, 0.02, 0.04]),
                  g: float = 9.81,
                  c_v: float = 0.05,          # translational linear damping
-                 c_w: float = 0.02,          # angular linear damping
+                 c_w: float = 0.05,          # angular linear damping
                  thrust_min: float = 0.0,
                  thrust_max: float = 20.0,
                  torque_limits: np.ndarray = np.array([1.0, 1.0, 0.5]),  # |tau_x|,|tau_y|,|tau_z|
@@ -512,14 +512,18 @@ class Quadcopter(DiscreteTimeStochasticSystem):
         self.thrust_min = float(thrust_min)
         self.thrust_max = float(thrust_max)
         self.torque_limits = np.asarray(torque_limits, dtype=float).reshape(3,)
+        
+        # Rate smoothing filter (exponential moving average)
+        self.rate_filter_alpha = 0.3  # smoothing factor (0=no smoothing, 1=no filtering)
+        self.filtered_rates = np.zeros(3)  # [p, q, r] filtered
 
         # Outer-loop (position) gains
         self.kp_pos = np.array([2.0, 2.0, 4.0])
         self.kd_pos = np.array([1.2, 1.2, 2.0])
 
         # Inner-loop (attitude) gains
-        self.kp_ang = np.array([8.0, 8.0, 6.0])   # for [phi, theta, psi] errors
-        self.kd_ang = np.array([2.5, 2.5, 1.5])   # for [p, q, r] errors
+        self.kp_ang = np.array([2.0, 2.0, 1.5])   # for [phi, theta, psi] errors
+        self.kd_ang = np.array([1.5, 1.5, 0.5])   # for [p, q, r] errors
 
     # ---- utilities ----
     @staticmethod
@@ -549,9 +553,9 @@ class Quadcopter(DiscreteTimeStochasticSystem):
         cphi, sphi = np.cos(phi), np.sin(phi)
         cth, sth   = np.cos(theta), np.sin(theta)
 
-        # Avoid singularity at cos(theta)=0 (|theta|=pi/2). Clamp if needed.
-        if np.isclose(cth, 0.0):
-            cth = 1e-6
+        # Avoid singularity at cos(theta)=0 (|theta|=pi/2). Clamp magnitude to avoid huge gains.
+        if np.isclose(cth, 0.0) or abs(cth) < 0.2:
+            cth = 0.2 if cth >= 0 else -0.2
 
         E = np.array([
             [1, sphi*sth/cth, cphi*sth/cth],
@@ -649,6 +653,17 @@ class Quadcopter(DiscreteTimeStochasticSystem):
 
         # Euler integration
         x_next = x + self.dt * xdot
+        
+        # Apply rate smoothing to reduce chaotic oscillations
+        raw_rates = x_next[9:12]  # [p, q, r]
+        self.filtered_rates = (self.rate_filter_alpha * raw_rates + 
+                              (1 - self.rate_filter_alpha) * self.filtered_rates)
+        x_next[9:12] = self.filtered_rates
+
+        # Wrap Euler angles to [-pi, pi] to prevent unbounded growth
+        x_next[6] = (x_next[6] + np.pi) % (2*np.pi) - np.pi  # phi
+        x_next[7] = (x_next[7] + np.pi) % (2*np.pi) - np.pi  # theta
+        x_next[8] = (x_next[8] + np.pi) % (2*np.pi) - np.pi  # psi
 
         return x_next + v
 
