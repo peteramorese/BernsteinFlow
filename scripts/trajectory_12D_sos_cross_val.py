@@ -240,7 +240,7 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
     _, best_trans_loss_1 = optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
-    _, best_trans_loss_2 = optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=n_epochs//4)
+    _, best_trans_loss_2 = optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=n_epochs//2)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model")
@@ -254,7 +254,7 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
                                     max_alpha_beta=100.0, 
                                     mu=0.1, 
                                     min_Q_eigval=1e-8, 
-                                    regularization_weight=regularization_weight)
+                                    regularization_weight=1e-4)
 
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)
