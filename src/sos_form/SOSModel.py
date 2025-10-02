@@ -173,6 +173,8 @@ class SOSModel(torch.nn.Module):
             #print("(prescale) M lambda vals: \n", torch.real(torch.linalg.eigvals(M)))
 
             # Rescale Q and M to make the nullspace of M non trivial
+            if lambda_M_max < 0:
+                print("lambda_M_max is negative")
             Q = Q_unscaled / lambda_M_max
             M = M / lambda_M_max
 

@@ -466,3 +466,193 @@ class PlanarQuadrotor(DiscreteTimeStochasticSystem):
         dx = self._dynamics(x, u)
         x_next = x + self.dt * dx   # Euler step (matches style of your other systems)
         return x_next + v
+    
+
+class Quadcopter(DiscreteTimeStochasticSystem):
+    """
+    12D quadcopter with closed-loop waypoint tracking (autonomous).
+    State x = [px, py, pz, vx, vy, vz, phi, theta, psi, p, q, r]
+        - positions (world), linear velocities (world),
+          Euler angles ZYX = (roll=phi, pitch=theta, yaw=psi),
+          body rates (p,q,r) in body frame.
+    Control (internal): total thrust T and body torques tau = [tau_x, tau_y, tau_z].
+    Noise: additive Gaussian (12D).
+    """
+
+    def __init__(self, dt: float,
+                 waypoint: np.ndarray = np.array([0.0, 0.0, 1.0]),  # target position (x,y,z)
+                 yaw_ref: float = 0.0,
+                 m: float = 1.0,
+                 J: np.ndarray = np.diag([0.02, 0.02, 0.04]),
+                 g: float = 9.81,
+                 c_v: float = 0.05,          # translational linear damping
+                 c_w: float = 0.02,          # angular linear damping
+                 thrust_min: float = 0.0,
+                 thrust_max: float = 20.0,
+                 torque_limits: np.ndarray = np.array([1.0, 1.0, 0.5]),  # |tau_x|,|tau_y|,|tau_z|
+                 covariance: np.ndarray = 0.001 * np.eye(12)):
+
+        def additive_gaussian():
+            return stats.multivariate_normal.rvs(mean=np.zeros(12), cov=covariance)
+
+        super().__init__(dim=12, v_dist=additive_gaussian)
+
+        # Params
+        self.dt = float(dt)
+        self.m = float(m)
+        self.J = np.asarray(J, dtype=float)
+        self.Jinv = np.linalg.inv(self.J)
+        self.g = float(g)
+        self.c_v = float(c_v)
+        self.c_w = float(c_w)
+
+        self.waypoint = np.asarray(waypoint, dtype=float).reshape(3,)
+        self.yaw_ref = float(yaw_ref)
+
+        self.thrust_min = float(thrust_min)
+        self.thrust_max = float(thrust_max)
+        self.torque_limits = np.asarray(torque_limits, dtype=float).reshape(3,)
+
+        # Outer-loop (position) gains
+        self.kp_pos = np.array([2.0, 2.0, 4.0])
+        self.kd_pos = np.array([1.2, 1.2, 2.0])
+
+        # Inner-loop (attitude) gains
+        self.kp_ang = np.array([8.0, 8.0, 6.0])   # for [phi, theta, psi] errors
+        self.kd_ang = np.array([2.5, 2.5, 1.5])   # for [p, q, r] errors
+
+    # ---- utilities ----
+    @staticmethod
+    def _rot_zyx(phi, theta, psi):
+        """Rotation matrix R (world <- body) from ZYX Euler angles."""
+        cphi, sphi = np.cos(phi), np.sin(phi)
+        cth,  sth  = np.cos(theta), np.sin(theta)
+        cpsi, spsi = np.cos(psi), np.sin(psi)
+
+        Rz = np.array([[ cpsi, -spsi, 0],
+                       [ spsi,  cpsi, 0],
+                       [    0,     0, 1]])
+        Ry = np.array([[ cth, 0, sth],
+                       [   0, 1,   0],
+                       [-sth, 0, cth]])
+        Rx = np.array([[1,   0,    0],
+                       [0, cphi, -sphi],
+                       [0, sphi,  cphi]])
+        return Rz @ Ry @ Rx
+
+    @staticmethod
+    def _euler_rate_matrix(phi, theta):
+        """
+        Map body rates Ω=[p,q,r] to Euler angle rates [phi_dot, theta_dot, psi_dot].
+        ZYX convention.
+        """
+        cphi, sphi = np.cos(phi), np.sin(phi)
+        cth, sth   = np.cos(theta), np.sin(theta)
+
+        # Avoid singularity at cos(theta)=0 (|theta|=pi/2). Clamp if needed.
+        if np.isclose(cth, 0.0):
+            cth = 1e-6
+
+        E = np.array([
+            [1, sphi*sth/cth, cphi*sth/cth],
+            [0,      cphi,         -sphi],
+            [0, sphi/cth,     cphi/cth]
+        ])
+        return E
+
+    # ---- controller ----
+    def _state_feedback(self, x: np.ndarray):
+        """
+        Compute (T, tau) from state. Tracks self.waypoint at yaw = self.yaw_ref.
+        Small-angle compatible position-to-attitude conversion.
+        """
+        # Unpack
+        p = x[0:3]      # [px, py, pz] world
+        v = x[3:6]      # [vx, vy, vz] world
+        phi, theta, psi = x[6], x[7], x[8]
+        pqr = x[9:12]   # [p, q, r] body
+
+        # --- Outer-loop position PD -> desired accel in world ---
+        pos_err = self.waypoint - p
+        vel_err = -v
+        a_des = self.kp_pos * pos_err + self.kd_pos * vel_err  # world-frame desired accel
+
+        # Add gravity compensation in thrust computation later
+
+        # --- Convert a_des to desired (phi, theta) given desired yaw ---
+        # For small-to-moderate angles (classic quad formula)
+        cpsi, spsi = np.cos(self.yaw_ref), np.sin(self.yaw_ref)
+        ax, ay, az = a_des
+        # Desired roll/pitch to realize horizontal accelerations
+        phi_des   = ( ax * spsi - ay * cpsi ) / self.g
+        theta_des = ( ax * cpsi + ay * spsi ) / self.g
+
+        # Total thrust to realize vertical accel
+        T_des = self.m * (self.g + az)
+
+        # Desired yaw
+        psi_des = self.yaw_ref
+
+        # --- Inner-loop attitude PD (Euler angle + rate) -> body torques ---
+        ang_err = np.array([phi_des - phi, theta_des - theta, psi_des - psi])
+        # Wrap yaw error to [-pi, pi] for smoothness
+        ang_err[2] = (ang_err[2] + np.pi) % (2*np.pi) - np.pi
+
+        rate_err = -pqr
+
+        tau = self.kp_ang * ang_err + self.kd_ang * rate_err  # desired torques (approx)
+
+        # Saturate
+        T = float(np.clip(T_des, self.thrust_min, self.thrust_max))
+        tau = np.clip(tau, -self.torque_limits, self.torque_limits)
+
+        return T, tau
+
+    # ---- continuous-time dynamics (xdot = f(x, u)) ----
+    def _dynamics(self, x: np.ndarray, T: float, tau: np.ndarray):
+        # Unpack state
+        px, py, pz, vx, vy, vz, phi, theta, psi, p, q, r = x
+
+        # Rotation and mappings
+        R = self._rot_zyx(phi, theta, psi)        # world <- body
+        e3 = np.array([0.0, 0.0, 1.0])
+
+        # Forces: gravity + thrust along body + linear drag
+        a_world = (T / self.m) * (R @ e3) - self.g * e3 - self.c_v * np.array([vx, vy, vz])
+
+        # Angular dynamics: J*Ωdot = tau - Ω×(JΩ) - damping
+        Omega = np.array([p, q, r])
+        Omega_dot = self.Jinv @ (tau - np.cross(Omega, self.J @ Omega) - self.c_w * Omega)
+
+        # Euler angle rates
+        E = self._euler_rate_matrix(phi, theta)
+        euler_dot = E @ Omega
+
+        # Assemble xdot
+        xdot = np.zeros(12)
+        xdot[0:3] = np.array([vx, vy, vz])
+        xdot[3:6] = a_world
+        xdot[6:9] = euler_dot
+        xdot[9:12] = Omega_dot
+        return xdot
+
+    def next_state(self, x: np.ndarray, v: np.ndarray):
+        """
+        Autonomous closed-loop: x_{k+1} = x_k + dt * f(x_k, u(x_k)) + v_k
+        (Forward Euler integration; swap to semi-implicit or RK4 if desired.)
+        """
+        # Control from current state
+        T, tau = self._state_feedback(x)
+
+        # Derivatives
+        xdot = self._dynamics(x, T, tau)
+
+        # Euler integration
+        x_next = x + self.dt * xdot
+
+        return x_next + v
+
+    def set_waypoint(self, waypoint: np.ndarray, yaw_ref: float | None = None):
+        self.waypoint = np.asarray(waypoint, dtype=float).reshape(3,)
+        if yaw_ref is not None:
+            self.yaw_ref = float(yaw_ref)

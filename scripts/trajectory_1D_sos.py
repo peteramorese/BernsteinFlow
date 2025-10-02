@@ -214,11 +214,11 @@ if __name__ == "__main__":
 
     n = 4
     n_terms = 5
-    #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=50.0, mu=0.01, min_Q_eigval=1e-8)
+    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=50.0, mu=0.05, min_Q_eigval=1e-8)
     #transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, m=m, min_alpha_beta=0.1, sigma_init=10.0, sigma_max=500, eta=0.8)
     #transition_model = PowerFunctionSOSModel(dy=dim, dx=dim, n=n, m=m, min_exp=0.0, sigma_init=10.0, sigma_max=500, max_exp=30.0)
     #transition_model = SignomialSOSModel(dy=dim, dx=dim, n=n, m=m, n_terms=5, min_exp=0.0, sigma_init=10.0, sigma_max=300, max_exp=30.0)
-    transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, min_alpha_beta=0.1, max_alpha_beta=50.0, mu=0.01, min_Q_eigval=1e-8)
+    #transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, min_alpha_beta=0.1, max_alpha_beta=50.0, mu=0.01, min_Q_eigval=1e-8)
 
 
 
@@ -227,13 +227,13 @@ if __name__ == "__main__":
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
     optimize(transition_model, Up_dataloader, trans_optimizer, epochs=100)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
-    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=3)
+    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=50)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
 
-    #init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False,reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=50.0, mu=0.01, min_Q_eigval=1e-8)
-    init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=50.0, mu=0.01, min_Q_eigval=1e-8)
+    init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False,reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=50.0, mu=0.05, min_Q_eigval=1e-8)
+    #init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=50.0, mu=0.01, min_Q_eigval=1e-8)
 
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)

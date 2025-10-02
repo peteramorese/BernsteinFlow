@@ -8,7 +8,7 @@ from sos_form.SignomialModel import SignomialSOSModel
 
 from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, mc_auc
 
-from .Systems import PlanarQuadrotor, sample_trajectories, sample_io_pairs
+from .Systems import Quadcopter, sample_trajectories, sample_io_pairs
 from .Visualization import interactive_transformer_plot, state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
 
 import numpy as np
@@ -139,8 +139,8 @@ def plot_2d_particle_scatter_over_time(u_traj_list, keep_pair, pair_name,
 
 if __name__ == "__main__":
 
-    # System model
-    system = PlanarQuadrotor(dt=0.01, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
+    # System model - 12D Quadcopter
+    system = Quadcopter(dt=0.10, covariance=0.05 * np.eye(12), waypoint=np.array([10.0, 0.0, 1.0]))
 
     # Dimension
     dim = system.dim()
@@ -157,32 +157,28 @@ if __name__ == "__main__":
     timesteps = training_timesteps
 
     def init_state_sampler():
-        # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
-        mean = np.array([0.0, 0.0, 0.1, 50.0, 0.0, 0.0])
-        cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
+        # 12D state: [px, py, pz, vx, vy, vz, phi, theta, psi, p, q, r]
+        # Start near hover at origin with small initial conditions
+        mean = np.array([0.0, 0.0, 0.0, 0.0, 30.0, -30.0, 0.0, 0.0, -0.8, 0.8, 0.0, 0.0])
+        cov = np.diag([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
     #io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-5.0, -5.0], region_uppers=[5.0, 5.0])
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
     # Moment match the GDT to all of the data over the whole horizon
-    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[5.2, 5.2, 3.1, 5.2, 5.2, 3.1])
-    #gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[0.2, 0.2])
+    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[5.2, 5.2, 5.2, 5.2, 5.2, 5.2, 3.1, 3.1, 3.1, 3.1, 3.1, 3.1])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
 
-    os.makedirs("figures/sos_6D", exist_ok=True)
-    plot_2d_particle_scatter_over_time(u_traj_data, (0, 1), "px_pz_particles",
+    os.makedirs("figures/sos_12D", exist_ok=True)
+    plot_2d_particle_scatter_over_time(u_traj_data, (0, 1), "px_py_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_6D/mc_particles_px_pz.png",
+                                       save_path="figures/sos_12D/mc_particles_px_py.png",
                                        show_plot=True)
-    plot_2d_particle_scatter_over_time(u_traj_data, (3, 4), "vx_vz_particles",
+    plot_2d_particle_scatter_over_time(u_traj_data, (3, 4), "vx_vy_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_6D/mc_particles_vx_vz.png",
-                                       show_plot=True)
-    plot_2d_particle_scatter_over_time(u_traj_data, (2, 5), "theta_omega_particles",
-                                       sample_limit=10000,
-                                       save_path="figures/sos_6D/mc_particles_theta_omega.png",
+                                       save_path="figures/sos_12D/mc_particles_vx_vy.png",
                                        show_plot=True)
 
     #input("Continue to training...")
@@ -252,21 +248,17 @@ if __name__ == "__main__":
     print("\n")
     for i, belief in enumerate(beliefs):
         with torch.no_grad():
-            auc = mc_auc(6, lambda u : belief(torch.from_numpy(u)).numpy(), n_samples=10000)
+            auc = mc_auc(12, lambda u : belief(torch.from_numpy(u)).numpy(), n_samples=10000)
             print(f"Belief {i} auc: ", auc)
 
 
-    os.makedirs("figures/sos_6D", exist_ok=True)
-    # Using state indices: [0:px, 1:pz, 2:theta, 3:vx, 4:vz, 5:omega]
-    plot_2d_marginals_over_time(beliefs, (0, 1), "px_pz",
+    os.makedirs("figures/sos_12D", exist_ok=True)
+    # Using state indices: [0:px, 1:py, 2:pz, 3:vx, 4:vy, 5:vz, 6:phi, 7:theta, 8:psi, 9:p, 10:q, 11:r]
+    plot_2d_marginals_over_time(beliefs, (0, 1), "px_py",
                                 resolution=60,
-                                save_path="figures/sos_6D/marginals_px_pz.png",
+                                save_path="figures/sos_12D/marginals_px_py.png",
                                 show_plot=True)
-    plot_2d_marginals_over_time(beliefs, (3, 4), "vx_vz",
+    plot_2d_marginals_over_time(beliefs, (3, 4), "vx_vy",
                                 resolution=60,
-                                save_path="figures/sos_6D/marginals_vx_vz.png",
-                                show_plot=True)
-    plot_2d_marginals_over_time(beliefs, (2, 5), "theta_omega",
-                                resolution=60,
-                                save_path="figures/sos_6D/marginals_theta_omega.png",
+                                save_path="figures/sos_12D/marginals_vx_vy.png",
                                 show_plot=True)

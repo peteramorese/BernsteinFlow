@@ -19,11 +19,11 @@ import traceback
 DTYPE = torch.float64
 
 # ---- Cross-Validation Parameters ---- #
-regularization_weights = [1e-2, 1e-3]
+regularization_weights = [4e-4]
 n_values = [5, 7]
 n_terms_values = [10, 15]
-n_epochs_values = [150]
-n_traj_values = [4000, 10000]  
+n_epochs_values = [100]
+n_traj_values = [4000]  
 
 
 # ---- Plot 2D marginals over time using SumBetaMarginalSOSModel ----
@@ -203,9 +203,9 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
     print("Training transition model...")
     transition_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
-    _, best_trans_loss_1 = optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs//2)
+    _, best_trans_loss_1 = optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
-    _, best_trans_loss_2 = optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=n_epochs//2)
+    _, best_trans_loss_2 = optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=n_epochs//4)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model")
@@ -219,9 +219,9 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)
     init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
-    _, best_init_loss_1 = optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs//2)
+    _, best_init_loss_1 = optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs)
     init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-4)
-    _, best_init_loss_2 = optimize(init_state_model, U0_dataloader_refine, init_optimizer, epochs=n_epochs//2)
+    _, best_init_loss_2 = optimize(init_state_model, U0_dataloader_refine, init_optimizer, epochs=n_epochs//4)
 
     init_state_model.to(device=torch.device("cpu"))
     print("Done training init state model")
@@ -307,7 +307,8 @@ if __name__ == "__main__":
     from datetime import datetime
 
     # System model
-    system = PlanarQuadrotor(dt=0.03, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
+    #system = PlanarQuadrotor(dt=0.03, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
+    system = PlanarQuadrotor(dt=0.01, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
 
     # Dimension
     dim = system.dim()
@@ -321,7 +322,9 @@ if __name__ == "__main__":
 
     def init_state_sampler():
         # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
-        mean = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        #mean = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        #cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
+        mean = np.array([0.0, 0.0, 0.1, 50.0, 0.0, 0.0])
         cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
@@ -331,7 +334,8 @@ if __name__ == "__main__":
     test_traj_data_pool = sample_trajectories(system, init_state_sampler, timesteps + 1, n_traj_pool)
 
     # Moment match the GDT to all of the data over the whole horizon
-    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data_pool), variance_pads=5.0*np.array([1.0, 1.0, 0.7, 5.0, 5.0, 0.7]))
+    #gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data_pool), variance_pads=5.0*np.array([1.0, 1.0, 0.7, 5.0, 5.0, 0.7]))
+    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data_pool), variance_pads=[5.2, 5.2, 3.1, 5.2, 5.2, 3.1])
 
     # GPU setup
     use_gpu = True

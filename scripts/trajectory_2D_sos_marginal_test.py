@@ -435,18 +435,20 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 5000
+    n_traj = 1000
 
     # Number of training epochs
     n_epochs_init = 100
     n_epochs_tran = 1000
 
     # Time horizon
-    training_timesteps = 10
+    training_timesteps = 3
     timesteps = training_timesteps
 
+    init_mode_means = [np.array([0.5, 0.5]), np.array([-0.5, -0.5])]
     def init_state_sampler():
-        return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
+        mode = np.random.randint(0, 2)
+        return multivariate_normal.rvs(mean=init_mode_means[mode], cov = np.diag([0.2, 0.2]))
 
     io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-5.0, -5.0], region_uppers=[5.0, 5.0])
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
@@ -489,13 +491,13 @@ if __name__ == "__main__":
     print("Training transition model...")
     transition_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=80)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=5)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
 
     #init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=25.0, mu=0.1, min_Q_eigval=1e-8)
-    init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=40.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-7)
+    init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=40.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-4)
 
     #init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=25.0, mu=0.1, min_Q_eigval=1e-8)
 
