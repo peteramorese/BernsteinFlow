@@ -146,7 +146,7 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 4000
+    n_traj = 10000
 
     # Number of training epochs
     n_epochs_init = 100
@@ -212,9 +212,9 @@ if __name__ == "__main__":
     ## Create initial state and transition models
 
 
-    n = 15
+    n = 14
     #n_terms = 10
-    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=80.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-4)
+    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=80.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
     #transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
 
     print("Training transition model...")
