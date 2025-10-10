@@ -16,10 +16,8 @@ class SOSModel(torch.nn.Module):
                 conditional : bool = True,
                 reference_factor_model = None,
                 mu : float = 1.0,
-                npsd_penalty : float = 1.0,
-                M_rank_penalty : float = 10.0,
-                n_null_directions : int = 4,
-                min_Q_eigval : float = 1e-2,
+                npsd_penalty : float = 10.0,
+                min_Q_eigval : float = 1e-6,
                 fixed_phi_params = None,
                 fixed_psi_params = None,
                 fixed_Q = None,
@@ -47,9 +45,9 @@ class SOSModel(torch.nn.Module):
         self.psi_param_dim = psi_param_dim
         self.mu = mu
         self.npsd_penalty = npsd_penalty
-        self.M_rank_penalty = M_rank_penalty
+        #self.M_rank_penalty = M_rank_penalty
         self.min_Q_eigval = min_Q_eigval
-        self.n_null_directions = n_null_directions
+        #self.n_null_directions = n_null_directions
         self.conditional = conditional
         self.fixed_params = False
 
@@ -131,7 +129,7 @@ class SOSModel(torch.nn.Module):
         raise NotImplementedError()
     
     def regularization_loss(self):
-        return torch.tensor(0.0, dtype=self.phi_params_uc.dtype, device=self.phi_params_uc.device)
+        return torch.tensor(0.0, dtype=self.Q_uc.dtype, device=self.Q_uc.device)
 
     def get_QR_matrices(self, E4 : torch.Tensor = None):
         n = self.n
@@ -160,9 +158,13 @@ class SOSModel(torch.nn.Module):
                 print("Q_unscaled: \n", Q_unscaled)
                 #print("E4: \n", E4)
                 input("...")
+
             # Compute the max eigenvalue of M to rescale Q. All e-vals of Q are guaranteed to be real and non-negative.
-            lambda_M_vals = torch.real(torch.linalg.eigvals(M))
+            M_evals = torch.linalg.eigvals(M)
+            lambda_M_vals = torch.real(M_evals)
             lambda_M_max = torch.max(lambda_M_vals)
+            #lambda_M_max = torch.tensor(1.0, device=self.Q_uc.device, dtype=self.Q_uc.dtype)
+
             
             #M_null_mask = (lambda_M_vals < 1e-8)
             #if
@@ -171,6 +173,8 @@ class SOSModel(torch.nn.Module):
             #print("(prescale) M lambda vals: \n", torch.real(torch.linalg.eigvals(M)))
 
             # Rescale Q and M to make the nullspace of M non trivial
+            if lambda_M_max < 0:
+                print("lambda_M_max is negative")
             Q = Q_unscaled / lambda_M_max
             M = M / lambda_M_max
 
@@ -183,8 +187,8 @@ class SOSModel(torch.nn.Module):
             I = torch.eye(n*n, dtype=Q.dtype, device=Q.device)
             A = I - M
 
-            with torch.no_grad():
-                print("A rank: ", torch.linalg.matrix_rank(A), " dim: ", A.shape)
+            #with torch.no_grad():
+            #    print("A rank: ", torch.linalg.matrix_rank(A), " dim: ", A.shape)
 
             r_proj_vec = self._project_null(A, R_u_sym.reshape(-1))
 
@@ -195,7 +199,7 @@ class SOSModel(torch.nn.Module):
             # Optional: symmetrize (can be omitted if E4, Q are guaranteed symmetric)
             R_proj = 0.5 * (R_proj + R_proj.T)
 
-            return Q, R_proj, lambda_M_vals
+            return Q, R_proj #, lambda_M_vals
         elif self.fixed_params:
             return self.fp_Q, self.fp_R
         else:
@@ -210,9 +214,9 @@ class SOSModel(torch.nn.Module):
 
             Q = Q_unscaled / normalization_constant
 
-            return Q, self.ref_R, torch.tensor(0.0, device=Q.device, dtype=Q.dtype)
+            return Q, self.ref_R #, torch.tensor(0.0, device=Q.device, dtype=Q.dtype)
 
-    def _project_null(self, A : torch.Tensor, v : torch.Tensor, lam : float = 1e-8):
+    def _project_null(self, A : torch.Tensor, v : torch.Tensor, lam : float = 1e-6):
         Ax = A @ v                                 # (m,)
         G  = A @ A.T
         G  = G + lam * torch.eye(G.shape[-1], device=A.device, dtype=A.dtype)
@@ -239,7 +243,7 @@ class SOSModel(torch.nn.Module):
             psi_y_vals = self.psi(y)
 
             if Q is None or R is None:
-                Q, R, _ = self.get_QR_matrices()
+                Q, R = self.get_QR_matrices()
 
             phi_psi_vals = phi_x_vals * psi_y_vals
 
@@ -247,21 +251,20 @@ class SOSModel(torch.nn.Module):
             g_x = torch.einsum("pi,ij,pj->p", phi_x_vals, R, phi_x_vals)
             g_y = torch.einsum("pi,ij,pj->p", phi_y_vals, R, phi_y_vals)
 
-            g_x = torch.clamp(g_x, min=1e-10)
-            g_y = torch.clamp(g_y, min=1e-10)
+            g_x = torch.clamp(g_x, min=1e-5)
+            g_y = torch.clamp(g_y, min=1e-7)
 
             #print("g_x: ", g_x)
             #print("g_y: ", g_y)
             #print("f: ", f)
 
             # Compute density in log space
-            log_density = torch.log(f + 1e-8) + torch.log(g_y + 1e-8) - torch.log(g_x + 1e-8) 
-            #if torch.any(torch.isnan(log_density)) or torch.any(torch.isinf(log_density)):
-            #    print("log_density is nan or inf")
-            #    print("f: ", f)
-            #    print("g_y: ", g_y)
-            #    print("g_x: ", g_x)
-            #    input("...")
+            log_density = torch.log(f + 1e-7) + torch.log(g_y) - torch.log(g_x) 
+            if torch.any(torch.isnan(log_density)) or torch.any(torch.isinf(log_density)):
+                print("log_density is nan or inf. g_x: ", g_x)
+                #print("f: ", f)
+                #print("g_y: ", g_y)
+                #print("g_x: ", g_x)
         else:
             assert yx.shape[1] == self.dy
             y = yx
@@ -288,24 +291,24 @@ class SOSModel(torch.nn.Module):
 
     def loss(self, yx : torch.Tensor):
         assert not self.fixed_params
-        Q, R, lambda_M_vals = self.get_QR_matrices()
+        Q, R = self.get_QR_matrices()
         #density = self(yx, return_log_density=True)
         log_density = self(yx, return_log_density=True, Q=Q, R=R)
         #log_density = torch.log(density + 1e-10)
         nll_loss = -log_density.mean()
 
         logdet_loss = self.logdet_barrier_loss(Q=Q, R=R)
-        M_rank_loss = self.M_rank_loss(lambda_M_vals)
+        #M_rank_loss = self.M_rank_loss(lambda_M_vals) if self.M_rank_penalty > 0.0 else torch.tensor(0.0, device=Q.device, dtype=Q.dtype) #, lambda_M_vals
         regularization_loss = self.regularization_loss()
 
-        loss = nll_loss + logdet_loss + regularization_loss + M_rank_loss
+        loss = nll_loss + logdet_loss + regularization_loss #+ M_rank_loss
 
         #print("loss: \n", loss)
         #input("...")
         #if torch.isinf(loss):
         #    print("loss is nan")
         #    input("...")
-        return loss, nll_loss, logdet_loss, regularization_loss, M_rank_loss
+        return loss, nll_loss, logdet_loss, regularization_loss #, M_rank_loss
     
     def M_rank_loss(self, lambda_M_vals):
         #print("lambda_M_vals: ", lambda_M_vals)
@@ -313,8 +316,8 @@ class SOSModel(torch.nn.Module):
         #print("M rank loss: ", self.M_rank_penalty * torch.sum(torch.abs(lambda_M_vals - 1.0)) / self.n)
         #input("...")
         abs_evals = torch.abs(lambda_M_vals - 1.0)
-        print("evals: ", lambda_M_vals)
-        input("...")
+        #print("evals: ", lambda_M_vals)
+        #input("...")
         #sorted_evals = torch.sort(abs_evals)[0]
         null_directions_to_penalize = abs_evals[:self.n_null_directions]
         #print("null_directions: ", null_directions)
@@ -327,8 +330,12 @@ class SOSModel(torch.nn.Module):
     def logdet_barrier_loss(self, Q = None, R = None):
         assert not self.fixed_params
         if Q is None or R is None:
-            Q, R, _ = self.get_QR_matrices()
+            Q, R = self.get_QR_matrices()
 
+
+        #ldb = torch.relu(-self.mu * torch.logdet(R))
+        #return ldb
+        #if torch.isinf(ldb):
 
         eigvals = torch.linalg.eigvalsh(R)
         #print(" in loss eigvals: ", eigvals)
@@ -344,10 +351,11 @@ class SOSModel(torch.nn.Module):
     #    return self.npsd_penalty * (torch.exp(s_min) - 1.0)
     
     def is_psd(self):
-        _, R, _ = self.get_QR_matrices()
-        #Q_eigvals = torch.linalg.eigvalsh(Q)
-        R_eigvals = torch.linalg.eigvalsh(R)
-        return torch.all(R_eigvals > 1e-10)
+        with torch.no_grad():
+            _, R = self.get_QR_matrices()
+            #Q_eigvals = torch.linalg.eigvalsh(Q)
+            R_eigvals = torch.linalg.eigvalsh(R)
+            return torch.all(R_eigvals > 1e-10)
     
 
     def fixed_point_residual(self):
@@ -364,7 +372,7 @@ class SOSModel(torch.nn.Module):
             rhs        : the RHS matrix for inspection
         """
         # Contract over (k,l): tmp[i,j] = sum_{k,l} R[k,l] * E4[k,l,i,j]
-        Q, R, _ = self.get_QR_matrices()
+        Q, R = self.get_QR_matrices()
         E4 = self.gram_tensor()
         tmp = torch.tensordot(R, E4, dims=([0, 1], [0, 1]))    # (n,n)
         rhs = Q * tmp                                           # (n,n)
@@ -374,7 +382,7 @@ class SOSModel(torch.nn.Module):
         max_abs = resid.abs().max()
         return resid, abs_norm, rel_norm, max_abs, rhs
     
-    def propagate(self, belief_model):
+    def propagate(self, belief_model, **kwargs):
         assert self.conditional 
         assert isinstance(belief_model, SOSModel)
         
@@ -383,7 +391,7 @@ class SOSModel(torch.nn.Module):
         # TEST
         cross_E4 = cross_E4.permute(2, 3, 0, 1)
 
-        Q_belief, R, _ = belief_model.get_QR_matrices()
+        Q_belief, R = belief_model.get_QR_matrices()
         Q_self, _ = self.get_QR_matrices()
         
         contracted = torch.einsum('kl,klij->ij', Q_belief, cross_E4)
@@ -397,7 +405,8 @@ class SOSModel(torch.nn.Module):
                                     fixed_phi_params=self.get_phi_params(), 
                                     fixed_psi_params=self.get_psi_params(), 
                                     fixed_Q=Q_new, 
-                                    fixed_R=R)
+                                    fixed_R=R,
+                                    **kwargs)
         
         return new_belief_model
 
@@ -412,12 +421,12 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
         model.train()
         optimizer.zero_grad()
         # loss
-        loss, nll_loss, logdet_loss, regularization_loss, M_rank_loss = model.loss(data)
+        loss, nll_loss, logdet_loss, regularization_loss = model.loss(data)
         #print("loss: ", loss)
         #input("...")
         loss.backward()
         optimizer.step()
-        return loss.item(), nll_loss.item(), logdet_loss.item(), regularization_loss.item(), M_rank_loss.item()
+        return loss.item(), nll_loss.item(), logdet_loss.item(), regularization_loss.item()
 
     stdout_buffer = []
     best_loss = float("inf")
@@ -426,7 +435,7 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
     for epoch in range(epochs):
         start_time = time.time()
         total_loss = 0.0
-        nll_loss_val, constraint_loss_val, regularization_loss_val, M_rank_loss_val = 0.0, 0.0, 0.0, 0.0
+        nll_loss_val, constraint_loss_val, regularization_loss_val = 0.0, 0.0, 0.0
 
         for x_batch in data_loader:
             # Handle the case where DataLoader returns a list of tensors
@@ -438,18 +447,18 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
             # Ensure x_batch is 2D
             if x_batch.dim() == 1:
                 x_batch = x_batch.unsqueeze(0)
-            loss, nll_loss, constraint_loss, regularization_loss, M_rank_loss = train_step(x_batch)
+            loss, nll_loss, constraint_loss, regularization_loss = train_step(x_batch)
             total_loss += loss
             nll_loss_val += nll_loss  # just track last batch for logging
             constraint_loss_val += constraint_loss
             regularization_loss_val += regularization_loss
-            M_rank_loss_val += M_rank_loss
+            #M_rank_loss_val += M_rank_loss
 
         avg_loss = total_loss / len(data_loader)
         avg_nll_loss = nll_loss_val / len(data_loader)
         avg_constraint_loss = constraint_loss_val / len(data_loader)
         avg_regularization_loss = regularization_loss_val / len(data_loader)
-        avg_M_rank_loss = M_rank_loss_val / len(data_loader)
+        #avg_M_rank_loss = M_rank_loss_val / len(data_loader)
         is_psd = model.is_psd()
         # --- Save best model in RAM ---
         if use_best and avg_nll_loss < best_loss and is_psd:
@@ -464,7 +473,7 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
                 f"NLL: {avg_nll_loss:.4f}, "
                 f"LDB: {avg_constraint_loss:.4f}, "
                 f"Reg: {avg_regularization_loss:.4f}, "
-                f"M Rank: {avg_M_rank_loss:.4f}, "
+                #f"M Rank: {avg_M_rank_loss:.4f}, "
                 f"PSD: {is_psd}, "
                 f"time: {time.time() - start_time:.3f}")
 
@@ -483,5 +492,5 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
         model.load_state_dict(best_state)
         print(f"\n Restored best model (NLL loss={best_loss:.4f})")
 
-    return model
+    return model, best_loss
     
