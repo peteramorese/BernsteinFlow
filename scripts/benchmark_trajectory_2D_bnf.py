@@ -1,7 +1,8 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
 from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, avg_log_likelihood, empirical_prob_in_region
-from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct, mc_auc, integrate
+from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct
+from bernstein_flow.SparsePolynomial import mc_auc, integrate
 from bernstein_flow.Propagate import propagate_bfm
 
 from .Systems import VanDerPol, BistableOscillator, sample_trajectories
@@ -96,30 +97,33 @@ if __name__ == "__main__":
     Up_dataset = TensorDataset(Up_data_torch)
     Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=use_gpu)
 
-    # Create initial state and transition models
-    degrees_i = [15, 15]
-    deg_incr_i = None #[10, 10]
-    init_state_model = BernsteinFlowModel(dim=dim, 
-                                          degrees=degrees_i, 
-                                          dtype=DTYPE, 
-                                          device=device, 
-                                          deg_incr=deg_incr_i)
+    ## Create initial state and transition models
+    #degrees_i = [15, 15]
+    #deg_incr_i = None #[10, 10]
+    #init_state_model = BernsteinFlowModel(dim=dim, 
+    #                                      degrees=degrees_i, 
+    #                                      dtype=DTYPE, 
+    #                                      device=device, 
+    #                                      deg_incr=deg_incr_i)
 
-    print(f"Created init state model with {init_state_model.n_parameters()} parameters")
+    #print(f"Created init state model with {init_state_model.n_parameters()} parameters")
 
-    # Train the Init model
-    init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
-    print("Training initial state model...")
-    start = time.time()
-    optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, proj_max_iterations=200, proj_tol=5e-4, proj_min_thresh=1e-3)
-    init_train_time = time.time() - start
-    print("Done training initial state model \n")
-    init_state_model = init_state_model.to(device=cpu_device)
+    ## Train the Init model
+    #init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
+    #print("Training initial state model...")
+    #start = time.time()
+    #optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, proj_max_iterations=200, proj_tol=5e-4, proj_min_thresh=1e-3)
+    #init_train_time = time.time() - start
+    #print("Done training initial state model \n")
+    #init_state_model = init_state_model.to(device=cpu_device)
 
-    degrees_t = [15, 15]
-    cond_degrees_t = [15, 15]
-    deg_incr_t = None #[0, 0]
-    cond_deg_incr_t = None #[0, 0]
+    #degrees_t = [15, 15]
+    #cond_degrees_t = [15, 15]
+    #deg_incr_t = None #[0, 0]
+    #cond_deg_incr_t = None #[0, 0]
+
+    degrees_t = [30, 30]
+    cond_degrees_t = [30, 30]
     transition_model = ConditionalBernsteinFlowModel(dim=dim, 
                                                      conditional_dim=dim, 
                                                      degrees=degrees_t, 
