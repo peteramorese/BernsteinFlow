@@ -77,6 +77,18 @@ class SOSModel(torch.nn.Module):
             self.Q_uc = torch.nn.Parameter(torch.randn(self.n, self.n))
 
         
+    def n_parameters(self):
+        n_params = 0
+        if self.conditional:
+            n_params += torch.numel(self.phi_params_uc)
+            n_params += torch.numel(self.psi_params_uc)
+            n_params += torch.numel(self.Q_uc)
+            n_params += torch.numel(self.R_uc)
+        else:
+            n_params += torch.numel(self.psi_params_uc)
+            n_params += torch.numel(self.Q_uc)
+        return n_params
+
 
 
     #def __get_phi(self, x : torch.Tensor):

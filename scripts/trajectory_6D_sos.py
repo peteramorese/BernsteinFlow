@@ -146,10 +146,10 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 4000
+    n_traj = 100
 
     # Number of training epochs
-    n_epochs_init = 100
+    n_epochs_init = 10
     n_epochs_tran = 1000
 
     # Time horizon
@@ -219,6 +219,7 @@ if __name__ == "__main__":
     n = 15
     #n_terms = 10
     transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=80.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-4)
+    print("Transition model parameters: ", transition_model.n_parameters())
     #transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
 
     print("Training transition model...")
@@ -232,6 +233,7 @@ if __name__ == "__main__":
     print("Done training transition model \n")
 
     init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-4)
+    print("Init state model parameters: ", init_state_model.n_parameters())
     #init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
 
     print("Training init state model...")

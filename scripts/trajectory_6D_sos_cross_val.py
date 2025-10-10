@@ -394,7 +394,7 @@ if __name__ == "__main__":
         for pair, pair_name in [((0, 1), "px_pz"), ((3, 4), "vx_vz"), ((2, 5), "theta_omega")]:
             plot_2d_particle_scatter_over_time([traj_data_pool[t]], pair, pair_name, gdt,
                                                sample_limit=10000,
-                                               save_path=os.path.join(mc_particles_dir, f"{pair_name}_t{t:02d}.pdf"),
+                                               save_path=os.path.join(mc_particles_dir, f"{pair_name}_t{t:02d}.png"),
                                                show_plot=False)
     
     # Save overall experiment info
