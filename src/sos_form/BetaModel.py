@@ -107,9 +107,6 @@ class BetaSOSModel(SOSModel):
             psi_beta_k = psi_beta_d[None, None, k_idx, None]    # (1, 1, n, 1)
             psi_beta_l = psi_beta_d[None, None, None, l_idx]   # (1, 1, 1, n)
             
-            # The integral of the product of four beta PDFs is:
-            # B(αᵢ + αⱼ + αₖ + αₗ - 3, βᵢ + βⱼ + βₖ + βₗ - 3) / 
-            # (B(αᵢ, βᵢ) * B(αⱼ, βⱼ) * B(αₖ, βₖ) * B(αₗ, βₗ))
             
             # Sum all alpha and beta parameters
             total_alpha = phi_alpha_i + phi_alpha_j + psi_alpha_k + psi_alpha_l - 3
@@ -216,10 +213,6 @@ class TensorMarginalSOSModel(torch.nn.Module):
     Marginalized SOS model that stores the exact 4-tensor coefficients
     after integrating out some dimensions.
 
-    Density is:
-        p(z) = sum_{i,j,k,l} T[i,j,k,l] *
-               phi_i(z) * phi_j(z) * psi_k(z) * psi_l(z)
-    where z ∈ [0,1]^{d'} with reduced dimension.
     """
     def __init__(self, phi_params, psi_params, coeff_tensor,
                  min_alpha_beta=1.0, max_alpha_beta=50.0):
@@ -239,7 +232,6 @@ class TensorMarginalSOSModel(torch.nn.Module):
         self.max_alpha_beta = max_alpha_beta
 
     def phi(self, z):
-        """Evaluate phi basis functions at z (shape (p, dz)) -> (p, n)."""
         alpha = self.phi_params[:, :self.dz].unsqueeze(0)  # (1,n,dz)
         beta  = self.phi_params[:, self.dz:].unsqueeze(0)
         log_z = torch.log(z + 1e-8)[:, None, :]             # (p,1,dz)
@@ -251,7 +243,6 @@ class TensorMarginalSOSModel(torch.nn.Module):
         return torch.exp(log_phi.sum(dim=2))  # (p,n)
 
     def psi(self, z):
-        """Evaluate psi basis functions at z (shape (p, dz)) -> (p, n)."""
         alpha = self.psi_params[:, :self.dz].unsqueeze(0)  # (1,n,dz)
         beta  = self.psi_params[:, self.dz:].unsqueeze(0)
         log_z = torch.log(z + 1e-8)[:, None, :]             # (p,1,dz)
@@ -274,7 +265,6 @@ class TensorMarginalSOSModel(torch.nn.Module):
         phi_z = self.phi(z)   # (p,n)
         psi_z = self.psi(z)   # (p,n)
 
-        # dens[p] = sum_{i,j,k,l} T[i,j,k,l] * phi_z[p,i]*phi_z[p,j]*psi_z[p,k]*psi_z[p,l]
         dens = torch.einsum("ijkl,pi,pj,pk,pl->p", self.coeff_tensor, phi_z, phi_z, psi_z, psi_z)
 
         if return_log:
