@@ -12,6 +12,8 @@ pip install -r requirements.txt
 pip install -e .
 ```
 #### Run
+The scripts labeled with "_cross_val" contain the experiments seen in the manuscript. To run a script,
 ```
-
+python -m scripts.trajectory_6D_sos_cross_val.py
 ```
+and a folder containing all of the files will be generated in the benchmarks directory. The scripts labeled "benchmark_" are used for generating data for the comparison.
