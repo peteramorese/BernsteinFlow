@@ -139,34 +139,56 @@ def plot_2d_particle_scatter_over_time(u_traj_list, keep_pair, pair_name,
 
 if __name__ == "__main__":
 
-    # System model
-    system = PlanarQuadrotor(dt=0.01, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
+    # System model - Modified for more interesting trajectories
+    # Create structured covariance: more position noise, less angular noise
+    cov_pos = 0.1 * np.eye(2)  # Position noise (px, pz)
+    cov_vel = 0.08 * np.eye(2)  # Velocity noise (vx, vz) 
+    cov_ang = 0.005 * np.eye(2)  # Angular noise (theta, omega) - much smaller
+    quad_covariance = np.block([[cov_pos, np.zeros((2, 2)), np.zeros((2, 2))],
+                               [np.zeros((2, 2)), cov_vel, np.zeros((2, 2))],
+                               [np.zeros((2, 2)), np.zeros((2, 2)), cov_ang]])
+    
+    system = PlanarQuadrotor(
+        dt=0.05,  # Slightly larger timestep for more interesting dynamics
+        covariance=quad_covariance, 
+        waypoint=np.array([8.0, 3.0])  # More challenging waypoint
+    )
+    
+    # Tune controller for more interesting but stable behavior
+    system.kp_pos = np.array([1.5, 2.0])  # Moderate position gains
+    system.kd_pos = np.array([0.8, 1.2])  # Moderate velocity damping
+    system.kp_theta = 3.0  # Stronger attitude control for stability
+    system.kd_theta = 2.0  # Stronger angular damping
+    system.c_v = 0.03  # Reduce linear damping for more interesting motion
+    system.c_w = 0.05  # Increase angular damping for stability
 
     # Dimension
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 100
+    n_traj = 1000
 
     # Number of training epochs
     n_epochs_init = 10
     n_epochs_tran = 1000
 
     # Time horizon
-    training_timesteps = 10
+    training_timesteps = 20
     timesteps = training_timesteps
 
     def init_state_sampler():
-        # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
-        mean = np.array([0.0, 0.0, 0.1, 50.0, 0.0, 0.0])
-        cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
+        # 6D state: [px, pz, theta, vx, vz, omega] - More diverse initial conditions
+        # Start from various positions around the origin with some initial velocity
+        mean = np.array([-2.0, 1.0, 0.0, 2.0, 1.0, 0.0])  # Start away from origin with some velocity
+        cov = np.diag([2.0, 1.5, 0.02, 1.0, 0.8, 0.02])  # Larger position/velocity variance, smaller angular
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
     #io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-5.0, -5.0], region_uppers=[5.0, 5.0])
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
     # Moment match the GDT to all of the data over the whole horizon
-    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[5.2, 5.2, 3.1, 5.2, 5.2, 3.1])
+    # Updated variance_pads for more interesting trajectories: [px, pz, theta, vx, vz, omega]
+    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[8.0, 6.0, 1.0, 8.0, 3.0, 1.0])
     #gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[0.2, 0.2])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
@@ -183,6 +205,16 @@ if __name__ == "__main__":
     plot_2d_particle_scatter_over_time(u_traj_data, (2, 5), "theta_omega_particles",
                                        sample_limit=10000,
                                        save_path="figures/sos_6D/mc_particles_theta_omega.png",
+                                       show_plot=True)
+    
+    # Additional plots to visualize the interesting trajectories
+    plot_2d_particle_scatter_over_time(u_traj_data, (0, 3), "px_vx_particles",
+                                       sample_limit=10000,
+                                       save_path="figures/sos_6D/mc_particles_px_vx.png",
+                                       show_plot=True)
+    plot_2d_particle_scatter_over_time(u_traj_data, (1, 4), "pz_vz_particles",
+                                       sample_limit=10000,
+                                       save_path="figures/sos_6D/mc_particles_pz_vz.png",
                                        show_plot=True)
 
     #input("Continue to training...")

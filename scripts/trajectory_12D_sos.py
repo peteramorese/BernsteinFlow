@@ -231,7 +231,7 @@ if __name__ == "__main__":
     n_traj = 1000
 
     # Number of training epochs
-    n_epochs_init = 100
+    n_epochs_init = 10
     n_epochs_tran = 1000
 
     # Time horizon
@@ -338,22 +338,24 @@ if __name__ == "__main__":
     ## Create initial state and transition models
 
 
-    n = 14
+    n = 18
     #n_terms = 10
     transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=80.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
+    print("Transition model number of parameters: ", sum(p.numel() for p in transition_model.parameters()))
     #transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
 
     print("Training transition model...")
     transition_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=100)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=10)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
-    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=50)
+    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=5)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
 
     init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-4)
+    print("Init model number of parameters: ", sum(p.numel() for p in init_state_model.parameters()))
     #init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
 
     print("Training init state model...")

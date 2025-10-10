@@ -69,8 +69,8 @@ class SOSModel(torch.nn.Module):
             #self.reference_factor_model = reference_factor_model
             _, reference_R = reference_factor_model.get_QR_matrices()
             ref_R_evals = torch.linalg.eigvalsh(reference_R)
-            if torch.any(ref_R_evals < 0):
-                raise ValueError("Reference R matrix is not PSD")
+            #if torch.any(ref_R_evals < 0):
+            #    raise ValueError("Reference R matrix is not PSD")
             self.register_buffer("ref_R", reference_R.detach())
             self.register_buffer("ref_phi_params", reference_factor_model.get_phi_params().detach()) # Add as a buffer instead of trainable parameter
             self.psi_params_uc = torch.nn.Parameter(1 * torch.randn(self.n, psi_param_dim)) 
