@@ -141,7 +141,7 @@ def plot_mc_particles_histograms(u_traj_data, x_range=(0.1, 0.9), bins=50, save_
 if __name__ == "__main__":
 
     # System model
-    system = CubicMap(dt=0.05, alpha=0.8, variance=0.5)
+    system = CubicMap(dt=0.1, alpha=0.8, variance=0.5)
 
     # Dimension
     dim = system.dim()
@@ -161,7 +161,8 @@ if __name__ == "__main__":
     def init_state_sampler():
         mode = np.random.randint(0, 2)
         #return float(mode) * norm.rvs(loc=np.array([1.0]), scale = 1.2) + (1.0 - float(mode)) * norm.rvs(loc=np.array([-1.0]), scale = 1.2)
-        return float(mode) * norm.rvs(loc=np.array([init_mode_means[mode]]), scale = 0.5) + (1.0 - float(mode)) * norm.rvs(loc=np.array([init_mode_means[mode]]), scale = 0.5)
+        #return float(mode) * norm.rvs(loc=np.array([init_mode_means[mode]]), scale = 0.5) + (1.0 - float(mode)) * norm.rvs(loc=np.array([init_mode_means[mode]]), scale = 0.5)
+        return norm.rvs(loc=np.array([init_mode_means[0]]), scale = 0.5) 
 
 
     io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-2.0], region_uppers=[2.0])
@@ -173,7 +174,7 @@ if __name__ == "__main__":
     gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[2.5])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
-    #interactive_state_distribution_plot_1D(u_traj_data)
+    interactive_state_distribution_plot_1D(u_traj_data)
 
     # Create the data matrices for training
     X0_data = traj_data[0]
@@ -313,9 +314,10 @@ if __name__ == "__main__":
     
     def np_true_init_x_density(x):
         from scipy.stats import norm
-        density1 = 0.5 * norm.pdf(x, loc=init_mode_means[0], scale=0.5)
-        density2 = 0.5 * norm.pdf(x, loc=init_mode_means[1], scale=0.5)
-        return density1 + density2
+        #density2 = 0.5 * norm.pdf(x, loc=init_mode_means[1], scale=0.5)
+        #return density1 + density2
+        density1 = norm.pdf(x, loc=init_mode_means[0], scale=0.5)
+        return density1
 
     np_true_init_u_density = lambda u : gdt.u_density(u, np_true_init_x_density)
 

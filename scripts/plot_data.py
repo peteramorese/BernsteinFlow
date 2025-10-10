@@ -10,17 +10,18 @@ import json
 #]
 
 ## 12 timestep bnf vs true AG
-#ag_dens_est_files = [
-#    ("Grid (learned)", "./benchmarks/trajectory_2D_grid_2025y_07m_25d_21h_23m_16s/data.json", {"linestyle":'-', "color":'red'}),
-#    ("WSASOS (learned)", "./benchmarks/trajectory_2D_wsasos_2025y_07m_25d_20h_23m_48s/data.json", {"linestyle":'-', "color":'green'}),
-#    ("EKF (learned)", "./benchmarks/trajectory_2D_ekf_2025y_07m_25d_18h_59m_47s/data.json", {"linestyle":'-', "color":'orange'}),
-#    ("Grid (true)", "./benchmarks/trajectory_2D_TRUE_grid_2025y_08m_01d_19h_56m_15s/data.json", {"linestyle":'--', "color":'red'}),
-#    ("WSASOS (true)", "./benchmarks/trajectory_2D_TRUE_wsasos_2025y_08m_01d_19h_58m_24s/data.json", {"linestyle":'--', "color":'green'}),
-#    ("EKF (true)", "./benchmarks/trajectory_2D_TRUE_ekf_2025y_08m_01d_19h_56m_15s/data.json", {"linestyle":'--', "color":'orange'}),
-#    ("BNF (d=10)", "./benchmarks/trajectory_2D_bnf_2025y_08m_02d_08h_07m_42s/data.json", {"linestyle":'-', "color":'cyan'}),
-#    ("BNF (d=20)", "./benchmarks_backup/trajectory_2D_bnf_2025y_08m_01d_21h_23m_27s/data.json", {"linestyle":'-', "color":'blue'}),
-#    ("BNF (d=30)", "./benchmarks/trajectory_2D_bnf_2025y_07m_27d_04h_24m_04s/data.json", {"linestyle":'-', "color":'black'}),
-#]
+ag_dens_est_files = [
+    ("Grid", "./benchmarks/trajectory_2D_grid_2025y_07m_25d_21h_23m_16s/data.json", {"linestyle":'-', "color":'red'}),
+    ("WSASOS", "./benchmarks/trajectory_2D_wsasos_2025y_07m_25d_20h_23m_48s/data.json", {"linestyle":'-', "color":'green'}),
+    ("EKF", "./benchmarks/trajectory_2D_ekf_2025y_07m_25d_18h_59m_47s/data.json", {"linestyle":'-', "color":'black'}),
+    #("Grid (true)", "./benchmarks/trajectory_2D_TRUE_grid_2025y_08m_01d_19h_56m_15s/data.json", {"linestyle":'--', "color":'red'}),
+    #("WSASOS (true)", "./benchmarks/trajectory_2D_TRUE_wsasos_2025y_08m_01d_19h_58m_24s/data.json", {"linestyle":'--', "color":'green'}),
+    #("EKF (true)", "./benchmarks/trajectory_2D_TRUE_ekf_2025y_08m_01d_19h_56m_15s/data.json", {"linestyle":'--', "color":'orange'}),
+    #("BNF (d=10)", "./benchmarks/trajectory_2D_bnf_2025y_08m_02d_08h_07m_42s/data.json", {"linestyle":'-', "color":'cyan'}),
+    #("BNF (d=20)", "./benchmarks_backup/trajectory_2D_bnf_2025y_08m_01d_21h_23m_27s/data.json", {"linestyle":'-', "color":'blue'}),
+    ("BNF (d=30)", "./benchmarks/trajectory_2D_bnf_2025y_07m_27d_04h_24m_04s/data.json", {"linestyle":'-', "color":'orange'}),
+    ("SoS (n=25)", "./benchmarks/trajectory_2D_sos_beta_2025y_10m_03d_09h_46m_52s/data.json", {"linestyle":'-', "color":'blue'}),
+]
 
 ## 12 timestep bnf vs true NAG
 #nag_dens_est_files = [
@@ -55,7 +56,8 @@ nag_bnf_deg_files = [
 if __name__ == "__main__":
 
     #filenames = ag_bnf_deg_files
-    filenames = ag_bnf_deg_files
+    #filenames = ag_bnf_deg_files
+    filenames = ag_dens_est_files
 
     allh_list = []
     for label, file, settings in filenames:

@@ -1,7 +1,7 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
 from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, avg_log_likelihood, empirical_prob_in_region
-from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct, mc_auc, integrate
+#from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct, mc_auc, integrate
 from bernstein_flow.Propagate import propagate_bfm
 
 from .Systems import VanDerPol, BistableOscillator, sample_trajectories
@@ -116,8 +116,10 @@ if __name__ == "__main__":
     print("Done training initial state model \n")
     init_state_model = init_state_model.to(device=cpu_device)
 
-    degrees_t = [15, 15]
-    cond_degrees_t = [15, 15]
+    #degrees_t = [15, 15]
+    #cond_degrees_t = [15, 15]
+    degrees_t = [30, 30]
+    cond_degrees_t = [20, 20]
     deg_incr_t = None #[0, 0]
     cond_deg_incr_t = None #[0, 0]
     transition_model = ConditionalBernsteinFlowModel(dim=dim, 
