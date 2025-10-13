@@ -1,7 +1,7 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
-from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, avg_log_likelihood, empirical_prob_in_region
-from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct, mc_auc, integrate
+from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, avg_log_likelihood, empirical_prob_in_region, mc_auc
+from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct, integrate
 from bernstein_flow.Propagate import propagate_bfm
 
 from .Systems import VanDerPol, BistableOscillator, sample_trajectories
@@ -50,12 +50,15 @@ if __name__ == "__main__":
     n_test_traj = 10000
 
     # Number of training epochs
-    n_epochs_init = 2#3000
-    n_epochs_tran = 2#150
+    n_epochs_init = 3000
+    n_epochs_tran = 150
 
     # Time horizon
     training_timesteps = 10
     timesteps = 12
+
+    # Number of iterations
+    n_iterations = 10
 
     # Region of integration
     roi = Rectangle(mins=[-1.0, -1.0], maxes=[1.0, 1.0])
@@ -63,108 +66,170 @@ if __name__ == "__main__":
     def init_state_sampler():
         return multivariate_normal.rvs(mean=np.array([0.2, 0.1]), cov = np.diag([0.2, 0.2]))
 
+    # Initialize lists to collect metrics across iterations
+    all_init_train_times = []
+    all_tran_train_times = []
+    all_prop_times = []
+    all_allhs = []
+    all_mc_aucs = []
+
+    # Run multiple iterations
+    for iteration in range(n_iterations):
+        print(f"\n=== ITERATION {iteration + 1}/{n_iterations} ===")
+        
+        # Generate fresh data for each iteration
+        traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
+        test_traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_test_traj)
+
+        # Moment match the GDT to all of the data over the whole horizon
+        #gdt = GaussianDistTransform(means=np.array([0.0, 0.0]), variances=[0.3, 1.0])
+        gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[2.2, 2.2])
+
+        u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
+
+        # Create the data matrices for training
+        X0_data = traj_data[0]
+        Xp_data = create_transition_data_matrix(traj_data[:training_timesteps])
+
+        # Convert the data to the U space for training
+        U0_data = gdt.X_to_U(X0_data) # Initial state data
+        Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data
+
+        use_gpu = True
+        if use_gpu:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            device = torch.device("cpu")
+        cpu_device = torch.device("cpu")
+
+        # Create data loader
+        U0_data_torch = torch.tensor(U0_data, dtype=DTYPE)
+        U0_dataset = TensorDataset(U0_data_torch)
+        U0_dataloader = DataLoader(U0_dataset, batch_size=128, shuffle=True, pin_memory=use_gpu)
+
+        Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
+        Up_dataset = TensorDataset(Up_data_torch)
+        Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=use_gpu)
+
+        # Create initial state and transition models
+        degrees_i = [20, 20]
+        deg_incr_i = None #[10, 10]
+        init_state_model = BernsteinFlowModel(dim=dim, 
+                                              degrees=degrees_i, 
+                                              dtype=DTYPE, 
+                                              device=device, 
+                                              deg_incr=deg_incr_i)
+
+        print(f"Created init state model with {init_state_model.n_parameters()} parameters")
+
+        # Train the Init model
+        init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
+        print("Training initial state model...")
+        start = time.time()
+        optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, proj_max_iterations=200, proj_tol=5e-4, proj_min_thresh=1e-3)
+        init_train_time = time.time() - start
+        print("Done training initial state model \n")
+        init_state_model = init_state_model.to(device=cpu_device)
+
+        degrees_t = [20, 20]
+        cond_degrees_t = [20, 20]
+        deg_incr_t = None #[0, 0]
+        cond_deg_incr_t = None #[0, 0]
+        transition_model = ConditionalBernsteinFlowModel(dim=dim, 
+                                                         conditional_dim=dim, 
+                                                         degrees=degrees_t, 
+                                                         conditional_degrees=cond_degrees_t, 
+                                                         dtype=DTYPE, 
+                                                         device=device, 
+                                                         deg_incr=deg_incr_t, 
+                                                         cond_deg_incr=cond_deg_incr_t)
+
+        print(f"Created transition model with {transition_model.n_parameters()} parameters")
+
+        print("Training transition model...")
+        start = time.time()
+        trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
+        optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran, log_buffer_size=20, proj_max_iterations=200, proj_tol=5e-4, proj_min_thresh=1e-3)
+        tran_train_time = time.time() - start
+        print("Done training transition model \n")
+
+        # Store training times for this iteration
+        all_init_train_times.append(init_train_time)
+        all_tran_train_times.append(tran_train_time)
+
+        # Compute the propagated polynomials
+        init_model_tfs = init_state_model.get_density_factor_polys(dtype=np.float128)
+        trans_model_tfs = transition_model.get_density_factor_polys(dtype=np.float128)
+
+        # Convert ROI to u space
+        u_roi = gdt.rectangle_x_to_u(roi)
+
+        p_init = poly_product_bernstein_direct(init_model_tfs)
+        p_transition = poly_product_bernstein_direct(trans_model_tfs)
+        density_polynomials = [p_init]
+        prop_times = []
+        mc_aucs = []
+        allhs = []
+        for k in range(1, timesteps):
+            start = time.time()
+            p_curr = propagate_bfm([density_polynomials[k-1]], [p_transition])
+            prop_times.append(time.time() - start)
+            mc_aucs.append(mc_auc(dim, p_curr, n_samples=10000))
+            print(f"Computed p(x{k}) in {prop_times[-1]:.2f} seconds")
+
+            # Compute the log likelihood using the x density
+            x_allh = avg_log_likelihood(test_traj_data[k], lambda x : gdt.x_density(x, p_curr))
+            print(f" - Average log likelihood: {x_allh:.3f}")
+            allhs.append(x_allh)
+
+            density_polynomials.append(p_curr)
+
+        # Store metrics for this iteration
+        all_prop_times.append(prop_times)
+        all_allhs.append(allhs)
+        all_mc_aucs.append(mc_aucs)
+
+    print(f"\n=== COMPUTING STATISTICS ACROSS {n_iterations} ITERATIONS ===")
+    
+    # Compute means and variances
+    init_train_times_mean = np.mean(all_init_train_times)
+    init_train_times_var = np.var(all_init_train_times)
+    tran_train_times_mean = np.mean(all_tran_train_times)
+    tran_train_times_var = np.var(all_tran_train_times)
+    
+    # For propagation times and log likelihoods, compute means and variances for each timestep
+    prop_times_means = []
+    prop_times_vars = []
+    allhs_means = []
+    allhs_vars = []
+    mc_aucs_means = []
+    mc_aucs_vars = []
+    
+    for k in range(timesteps - 1):  # timesteps - 1 because we start from k=1
+        # Collect values for this timestep across all iterations
+        prop_times_k = [all_prop_times[i][k] for i in range(n_iterations)]
+        allhs_k = [all_allhs[i][k] for i in range(n_iterations)]
+        mc_aucs_k = [all_mc_aucs[i][k] for i in range(n_iterations)]
+        
+        # Compute statistics
+        prop_times_means.append(np.mean(prop_times_k))
+        prop_times_vars.append(np.var(prop_times_k))
+        allhs_means.append(np.mean(allhs_k))
+        allhs_vars.append(np.var(allhs_k))
+        mc_aucs_means.append(np.mean(mc_aucs_k))
+        mc_aucs_vars.append(np.var(mc_aucs_k))
+    
+    print(f"Initial training time - Mean: {init_train_times_mean:.3f}s, Variance: {init_train_times_var:.6f}")
+    print(f"Transition training time - Mean: {tran_train_times_mean:.3f}s, Variance: {tran_train_times_var:.6f}")
+    print(f"Propagation times - Means: {prop_times_means}")
+    print(f"Propagation times - Variances: {prop_times_vars}")
+    print(f"Log likelihoods - Means: {allhs_means}")
+    print(f"Log likelihoods - Variances: {allhs_vars}")
+
+    # Use the last iteration's data for visualization (or could average across iterations)
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
     test_traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_test_traj)
-
-    # Moment match the GDT to all of the data over the whole horizon
-    #gdt = GaussianDistTransform(means=np.array([0.0, 0.0]), variances=[0.3, 1.0])
     gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[2.2, 2.2])
-
-    u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
-
-    # Create the data matrices for training
-    X0_data = traj_data[0]
-    Xp_data = create_transition_data_matrix(traj_data[:training_timesteps])
-
-    # Convert the data to the U space for training
-    U0_data = gdt.X_to_U(X0_data) # Initial state data
-    Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data
-
-    use_gpu = True
-    if use_gpu:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    else:
-        device = torch.device("cpu")
-    cpu_device = torch.device("cpu")
-
-    # Create data loader
-    U0_data_torch = torch.tensor(U0_data, dtype=DTYPE)
-    U0_dataset = TensorDataset(U0_data_torch)
-    U0_dataloader = DataLoader(U0_dataset, batch_size=128, shuffle=True, pin_memory=use_gpu)
-
-    Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
-    Up_dataset = TensorDataset(Up_data_torch)
-    Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=use_gpu)
-
-    # Create initial state and transition models
-    degrees_i = [15, 15]
-    deg_incr_i = None #[10, 10]
-    init_state_model = BernsteinFlowModel(dim=dim, 
-                                          degrees=degrees_i, 
-                                          dtype=DTYPE, 
-                                          device=device, 
-                                          deg_incr=deg_incr_i)
-
-    print(f"Created init state model with {init_state_model.n_parameters()} parameters")
-
-    # Train the Init model
-    init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
-    print("Training initial state model...")
-    start = time.time()
-    optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, proj_max_iterations=200, proj_tol=5e-4, proj_min_thresh=1e-3)
-    init_train_time = time.time() - start
-    print("Done training initial state model \n")
-    init_state_model = init_state_model.to(device=cpu_device)
-
-    degrees_t = [15, 15]
-    cond_degrees_t = [15, 15]
-    deg_incr_t = None #[0, 0]
-    cond_deg_incr_t = None #[0, 0]
-    transition_model = ConditionalBernsteinFlowModel(dim=dim, 
-                                                     conditional_dim=dim, 
-                                                     degrees=degrees_t, 
-                                                     conditional_degrees=cond_degrees_t, 
-                                                     dtype=DTYPE, 
-                                                     device=device, 
-                                                     deg_incr=deg_incr_t, 
-                                                     cond_deg_incr=cond_deg_incr_t)
-
-    print(f"Created transition model with {transition_model.n_parameters()} parameters")
-
-    print("Training transition model...")
-    start = time.time()
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran, log_buffer_size=20, proj_max_iterations=200, proj_tol=5e-4, proj_min_thresh=1e-3)
-    tran_train_time = time.time() - start
-    print("Done training transition model \n")
-
-
-    # Compute the propagated polynomials
-    init_model_tfs = init_state_model.get_density_factor_polys(dtype=np.float128)
-    trans_model_tfs = transition_model.get_density_factor_polys(dtype=np.float128)
-
-    # Convert ROI to u space
-    u_roi = gdt.rectangle_x_to_u(roi)
-
-    p_init = poly_product_bernstein_direct(init_model_tfs)
-    p_transition = poly_product_bernstein_direct(trans_model_tfs)
-    density_polynomials = [p_init]
-    prop_times = []
-    mc_aucs = []
-    allhs = []
-    for k in range(1, timesteps):
-        start = time.time()
-        p_curr = propagate_bfm([density_polynomials[k-1]], [p_transition])
-        prop_times.append(time.time() - start)
-        mc_aucs.append(mc_auc(p_curr, n_samples=10000))
-        print(f"Computed p(x{k}) in {prop_times[-1]:.2f} seconds")
-
-        # Compute the log likelihood using the x density
-        x_allh = avg_log_likelihood(test_traj_data[k], lambda x : gdt.x_density(x, p_curr))
-        print(f" - Average log likelihood: {x_allh:.3f}")
-        allhs.append(x_allh)
-
-        density_polynomials.append(p_curr)
 
     x_bounds = [-5.0, 5.0, -5.0, 5.0]
     def pdf_plotter(k : int):
@@ -185,6 +250,7 @@ if __name__ == "__main__":
     benchmark_fields["n_epochs_tran"] = n_epochs_tran
     benchmark_fields["training_timesteps"] = training_timesteps
     benchmark_fields["timesteps"] = timesteps
+    benchmark_fields["n_iterations"] = n_iterations
     benchmark_fields["device"] = device.type
     benchmark_fields["init_degrees"] = degrees_i
     benchmark_fields["init_deg_incr"] = deg_incr_i
@@ -194,11 +260,31 @@ if __name__ == "__main__":
     benchmark_fields["tran_cond_deg_incr"] = cond_deg_incr_t
     benchmark_fields["init_model_params"] = init_state_model.n_parameters()
     benchmark_fields["tran_model_params"] = transition_model.n_parameters()
-    benchmark_fields["init_train_time"] = init_train_time
-    benchmark_fields["tran_train_time"] = tran_train_time
-    benchmark_fields["prop_times"] = prop_times
-    benchmark_fields["mc_auc"] = mc_aucs
-    benchmark_fields["average_log_likelihood"] = allhs
+    
+    # Training times - means and variances
+    benchmark_fields["init_train_time_mean"] = init_train_times_mean
+    benchmark_fields["init_train_time_var"] = init_train_times_var
+    benchmark_fields["tran_train_time_mean"] = tran_train_times_mean
+    benchmark_fields["tran_train_time_var"] = tran_train_times_var
+    
+    # Propagation times - means and variances for each timestep
+    benchmark_fields["prop_times_means"] = prop_times_means
+    benchmark_fields["prop_times_vars"] = prop_times_vars
+    
+    # MC AUC - means and variances for each timestep
+    benchmark_fields["mc_auc_means"] = mc_aucs_means
+    benchmark_fields["mc_auc_vars"] = mc_aucs_vars
+    
+    # Average log likelihood - means and variances for each timestep
+    benchmark_fields["average_log_likelihood_means"] = allhs_means
+    benchmark_fields["average_log_likelihood_vars"] = allhs_vars
+    
+    # Raw data from all iterations (for reference)
+    benchmark_fields["all_init_train_times"] = all_init_train_times
+    benchmark_fields["all_tran_train_times"] = all_tran_train_times
+    benchmark_fields["all_prop_times"] = all_prop_times
+    benchmark_fields["all_allhs"] = all_allhs
+    benchmark_fields["all_mc_aucs"] = all_mc_aucs
 
 
     experiment_name = f"trajectory_2D_bnf_{curr_date_time}"

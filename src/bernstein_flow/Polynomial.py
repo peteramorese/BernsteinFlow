@@ -150,7 +150,6 @@ def decasteljau(p : Polynomial, x : np.ndarray):
     degrees = [s - 1 for s in p_ten.shape]
 
     expand_shape = (batch_size,) + p_ten.shape
-    print(p_ten[:, :, 0])
     current_coeffs = np.broadcast_to(p_ten, expand_shape) 
     # Iterate over each of the 'd' dimensions to apply De Casteljau's algorithm.
     for i in range(d):
