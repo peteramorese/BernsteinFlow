@@ -50,12 +50,12 @@ if __name__ == "__main__":
     n_test_traj = 10000
 
     # Number of training epochs
-    n_epochs_init = 3000
+    n_epochs_init = 1000
     n_epochs_tran = 150
 
     # Time horizon
     training_timesteps = 10
-    timesteps = 12
+    timesteps = 9
 
     # Number of iterations
     n_iterations = 10
@@ -133,6 +133,8 @@ if __name__ == "__main__":
 
         degrees_t = [20, 20]
         cond_degrees_t = [20, 20]
+        #degrees_t = [10, 10]
+        #cond_degrees_t = [10, 10]
         deg_incr_t = None #[0, 0]
         cond_deg_incr_t = None #[0, 0]
         transition_model = ConditionalBernsteinFlowModel(dim=dim, 
