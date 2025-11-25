@@ -40,9 +40,9 @@ if __name__ == "__main__":
     # ============================================================================
     methods_to_run = [
         "sos",
-        "gpgmm_ekf",
-        "gpgmm_wsasos",
-        "gpgmm_grid",
+        #"gpgmm_ekf",
+        #"gpgmm_wsasos",
+        #"gpgmm_grid",
         "true_gmm_ekf",
         "true_gmm_wsasos",
         "true_gmm_grid"
@@ -71,10 +71,12 @@ if __name__ == "__main__":
 
     # Time horizon
     training_timesteps = 10
-    timesteps = training_timesteps
+    timesteps = 15
 
     # Number of trials
     num_trials = 15
+    
+    n_sos = 20
     
     # Grid method parameters (for 6D: [px, pz, theta, vx, vz, omega])
     # Bounds: [px_min, px_max, pz_min, pz_max, theta_min, theta_max, 
@@ -83,13 +85,15 @@ if __name__ == "__main__":
     grid_resolution = 3  # Lower resolution for 6D to keep it feasible
     max_mixands = 5000
     max_time = 1000
+    n_components_init_ekf = 50
+    n_components_init_wsasos = 10
 
     sos_tran_params = {
         "min_alpha_beta": 0.1,
-        "max_alpha_beta": 80.0,
+        "max_alpha_beta": 100.0,
         "mu": 0.1,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-4
+        "regularization_weight": 5e-3
     }
     sos_init_params = {
         "min_alpha_beta": 0.4,
@@ -155,7 +159,7 @@ if __name__ == "__main__":
         # Run SOS experiments
         sos_ll, sos_prop_times = run_trials_sos(
             traj_data_train_sos, traj_data_test, sos_figures_dir, 
-            num_trials=num_trials, gdt=gdt, n=15, 
+            num_trials=num_trials, gdt=gdt, n=n_sos, 
             n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran,
             tran_params=sos_tran_params, init_params=sos_init_params
         )
@@ -170,7 +174,7 @@ if __name__ == "__main__":
             os.path.join(benchmark_dir, "gpgmm_ekf_figures"),
             num_trials=num_trials,
             propagation_method='ekf',
-            n_components_init=10,
+            n_components_init=n_components_init_ekf,
             n_epochs_tran=n_epochs_tran,
             save_figures=False
         )
@@ -184,7 +188,7 @@ if __name__ == "__main__":
             os.path.join(benchmark_dir, "gpgmm_wsasos_figures"),
             num_trials=num_trials,
             propagation_method='wsasos',
-            n_components_init=10,
+            n_components_init=n_components_init_wsasos,
             n_epochs_tran=n_epochs_tran,
             max_mixands=max_mixands,
             max_time=max_time,

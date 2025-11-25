@@ -193,9 +193,17 @@ class MultivariateGPModel:
 
 
 def fit_gp(Xp : torch.Tensor, X : torch.Tensor, num_epochs=100, lr=0.1, device='cpu', dtype=torch.float64, print_interval=None):
+    # Auto-detect GPU if device is 'cpu' and GPU is available
+    if device == 'cpu' and torch.cuda.is_available():
+        device = 'cuda'
+    
     dim = X.shape[1]
-    likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=dim, rank=1).to(dtype=dtype)
-    model = MultitaskGP(X, Xp, likelihood).to(dtype=dtype)
+    likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=dim, rank=1).to(device=device, dtype=dtype)
+    model = MultitaskGP(X, Xp, likelihood).to(device=device, dtype=dtype)
+    
+    # Move input tensors to device
+    X = X.to(device=device)
+    Xp = Xp.to(device=device)
 
     model.train()
     likelihood.train()

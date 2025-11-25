@@ -102,7 +102,7 @@ def run_trials_gpgmm(train_data, test_data, save_directory, num_trials,
         # Fit initial state model
         print("Fitting initial state model...")
         start = time.time()
-        init_state_model = fit_gmm(X0_data, n_components=n_components_init, covariance_type='full')
+        init_state_model = fit_gmm(X0_data, n_components=n_components_init, covariance_type='full', reg_covar=1e-4)
         init_train_time = time.time() - start
         
         # Fit transition model
