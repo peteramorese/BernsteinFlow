@@ -109,7 +109,7 @@ def run_trials_gpgmm(train_data, test_data, save_directory, num_trials,
         print("Fitting transition state model...")
         start = time.time()
         transition_model = fit_gp(Xp=Xp_data_torch[:, dim:], X=Xp_data_torch[:, :dim], 
-                                  num_epochs=n_epochs_tran, dtype=DTYPE)
+                                  num_epochs=n_epochs_tran, dtype=DTYPE, print_interval=10)
         tran_train_time = time.time() - start
         print("Done training models!\n")
         

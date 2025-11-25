@@ -192,7 +192,7 @@ class MultivariateGPModel:
         return H.numpy() if is_np else H
 
 
-def fit_gp(Xp : torch.Tensor, X : torch.Tensor, num_epochs=100, lr=0.1, device='cpu', dtype=torch.float64):
+def fit_gp(Xp : torch.Tensor, X : torch.Tensor, num_epochs=100, lr=0.1, device='cpu', dtype=torch.float64, print_interval=None):
     dim = X.shape[1]
     likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=dim, rank=1).to(dtype=dtype)
     model = MultitaskGP(X, Xp, likelihood).to(dtype=dtype)
@@ -212,7 +212,8 @@ def fit_gp(Xp : torch.Tensor, X : torch.Tensor, num_epochs=100, lr=0.1, device='
         optimizer.step()
 
         line = f"Epoch {epoch+1}: Loss = {loss:.6f}, time: {time.time() - start_time:.3f}"
-        print(line)
+        if print_interval is None or (epoch + 1) % print_interval == 0 or epoch == 0:
+            print(line)
 
     return MultivariateGPModel(model, likelihood)
 

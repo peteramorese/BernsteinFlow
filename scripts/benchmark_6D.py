@@ -39,7 +39,7 @@ if __name__ == "__main__":
     #   - "true_gmm_grid"
     # ============================================================================
     methods_to_run = [
-        #"sos",
+        "sos",
         #"gpgmm_ekf",
         #"gpgmm_wsasos",
         #"gpgmm_grid",
@@ -56,13 +56,13 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj_train_sos = 400 
-    n_traj_train_gpgmm = 100
-    n_traj_test = 1000
+    n_traj_train_sos = 4000 
+    n_traj_train_gpgmm = 400
+    n_traj_test = 10000
 
     # Number of training epochs
-    n_epochs_init = 40
-    n_epochs_tran = 40
+    n_epochs_init = 100
+    n_epochs_tran = 100
 
     # Variance pads
     variance_pads = [5.2, 5.2, 3.1, 5.2, 5.2, 3.1]
@@ -72,15 +72,30 @@ if __name__ == "__main__":
     timesteps = training_timesteps
 
     # Number of trials
-    num_trials = 2
+    num_trials = 15
     
     # Grid method parameters (for 6D: [px, pz, theta, vx, vz, omega])
     # Bounds: [px_min, px_max, pz_min, pz_max, theta_min, theta_max, 
     #          vx_min, vx_max, vz_min, vz_max, omega_min, omega_max]
     x_bounds_6d = [-2.0, 2.0, -2.0, 2.0, -1.0, 1.0, 45.0, 55.0, -5.0, 5.0, -1.0, 1.0]
-    grid_resolution = 4  # Lower resolution for 6D to keep it feasible
+    grid_resolution = 3  # Lower resolution for 6D to keep it feasible
     max_mixands = 5000
-    max_time = 80
+    max_time = 1000
+
+    sos_tran_params = {
+        "min_alpha_beta": 0.1,
+        "max_alpha_beta": 80.0,
+        "mu": 0.1,
+        "min_Q_eigval": 1e-8,
+        "regularization_weight": 1e-4
+    }
+    sos_init_params = {
+        "min_alpha_beta": 0.4,
+        "max_alpha_beta": 100.0,
+        "mu": 0.1,
+        "min_Q_eigval": 1e-8,
+        "regularization_weight": 1e-4
+    }
 
     def init_state_sampler():
         # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
@@ -136,7 +151,8 @@ if __name__ == "__main__":
         sos_ll, sos_prop_times = run_trials_sos(
             traj_data_train_sos, traj_data_test, sos_figures_dir, 
             num_trials=num_trials, gdt=gdt, n=15, 
-            n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran
+            n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran,
+            tran_params=sos_tran_params, init_params=sos_init_params
         )
 
     # Run GPGMM experiments with different propagation methods

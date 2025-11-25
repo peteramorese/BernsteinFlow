@@ -434,7 +434,8 @@ def optimize(model, data_loader : DataLoader, optimizer, epochs=100, train_with_
              proj_max_iterations=50,
              proj_tol=1e-2,
              proj_min_thresh=1e-2,
-             log_buffer_size = 20):
+             log_buffer_size = 20,
+             print_interval=None):
 
     stdout_buffer = []
 
@@ -448,15 +449,22 @@ def optimize(model, data_loader : DataLoader, optimizer, epochs=100, train_with_
         avg_loss = total_loss / len(data_loader)
         
         line = f"Epoch {epoch+1}: Avg Loss = {avg_loss:.6f}, time: {time.time() - start_time:.3f}"
-        stdout_buffer.append(line)
-        if len(stdout_buffer) <= log_buffer_size:
-            print(line)
+        
+        if print_interval is not None:
+            # Simple printing mode: print every print_interval epochs
+            if (epoch + 1) % print_interval == 0 or epoch == 0:
+                print(line)
         else:
-            stdout_buffer.pop(0)
-            sys.stdout.write("\033[F" * len(stdout_buffer))
-            for l in stdout_buffer:
-                sys.stdout.write("\033[K")
-                print(l)
+            # Fancy stdout buffer rewriting mode
+            stdout_buffer.append(line)
+            if len(stdout_buffer) <= log_buffer_size:
+                print(line)
+            else:
+                stdout_buffer.pop(0)
+                sys.stdout.write("\033[F" * len(stdout_buffer))
+                for l in stdout_buffer:
+                    sys.stdout.write("\033[K")
+                    print(l)
     
     # Do a feasible projection at the end of training to make sure the model is a valid distribution
     if not train_with_hard_constraint:

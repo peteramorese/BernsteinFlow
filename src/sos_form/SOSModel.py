@@ -369,7 +369,8 @@ class SOSModel(torch.nn.Module):
 def optimize(model : SOSModel, data_loader : DataLoader, optimizer, 
              epochs=100, 
              log_buffer_size=20, 
-             use_best=True):
+             use_best=True,
+             print_interval=None):
     torch.autograd.set_detect_anomaly(True)
 
     def train_step(data):
@@ -425,15 +426,21 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
                 f"PSD: {is_psd}, "
                 f"time: {time.time() - start_time:.3f}")
 
-        stdout_buffer.append(line)
-        if len(stdout_buffer) <= log_buffer_size:
-            print(line)
+        if print_interval is not None:
+            # Simple printing mode: print every print_interval epochs
+            if (epoch + 1) % print_interval == 0 or epoch == 0:
+                print(line)
         else:
-            stdout_buffer.pop(0)
-            sys.stdout.write("\033[F" * len(stdout_buffer))
-            for l in stdout_buffer:
-                sys.stdout.write("\033[K")
-                print(l)
+            # Fancy stdout buffer rewriting mode
+            stdout_buffer.append(line)
+            if len(stdout_buffer) <= log_buffer_size:
+                print(line)
+            else:
+                stdout_buffer.pop(0)
+                sys.stdout.write("\033[F" * len(stdout_buffer))
+                for l in stdout_buffer:
+                    sys.stdout.write("\033[K")
+                    print(l)
 
     # --- Restore best model before returning ---
     if use_best and best_state is not None:
