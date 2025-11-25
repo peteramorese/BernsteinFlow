@@ -40,9 +40,9 @@ if __name__ == "__main__":
     # ============================================================================
     methods_to_run = [
         "sos",
-        #"gpgmm_ekf",
-        #"gpgmm_wsasos",
-        #"gpgmm_grid",
+        "gpgmm_ekf",
+        "gpgmm_wsasos",
+        "gpgmm_grid",
         "true_gmm_ekf",
         "true_gmm_wsasos",
         "true_gmm_grid"
@@ -54,6 +54,8 @@ if __name__ == "__main__":
 
     # Dimension
     dim = system.dim()
+
+    ###########################################################################################
 
     # Number of trajectories
     n_traj_train_sos = 4000 
@@ -96,6 +98,9 @@ if __name__ == "__main__":
         "min_Q_eigval": 1e-8,
         "regularization_weight": 1e-4
     }
+    ###########################################################################################
+
+
 
     def init_state_sampler():
         # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
