@@ -5,6 +5,7 @@ import matplotlib.widgets as widgets
 
 import numpy as np
 import torch
+import os
 
 def interactive_transformer_plot(model, dim, cond_dim = 0, dtype = torch.float32):
     """
@@ -384,137 +385,6 @@ def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True,
     plt.show()
     return
 
-#def state_distribution_plot_2D(trajectory_data, pdf_func=None, interactive=True, bounds=None):
-#    """
-#    Plots a (interactive) scatter plot of 2D state distributions across time steps.
-#    
-#    If pdf_func is provided, adds a second subplot to visualize a 2D density.
-#
-#    Parameters:
-#    -----------
-#    trajectory_data : list of np.ndarray
-#        A list of length k, where each element is a (p x 2) array.
-#        Each array contains p samples from the 2D state distribution at a specific time step.
-#
-#    pdf_func : Optional[Callable[[int], Tuple[np.ndarray, np.ndarray, np.ndarray]]]
-#        A function that takes a timestep index `k` and returns (X, Y, Z) for a 2D density plot,
-#        where X and Y are meshgrids and Z is the density evaluated over them.
-#    """
-#    k = len(trajectory_data)
-#    if k == 0:
-#        raise ValueError("trajectory_data must be a non-empty list")
-#
-#    scatter_size = 5
-#
-#    all_data = np.vstack(trajectory_data)
-#    if bounds is not None:
-#        x_min, x_max, y_min, y_max = bounds
-#        #print("xmin: ", x_min, " xmax: ", x_max)
-#    else:
-#        x_min, x_max = np.min(all_data[:, 0]), np.max(all_data[:, 0])
-#        y_min, y_max = np.min(all_data[:, 1]), np.max(all_data[:, 1])
-#        #print("xmin: ", x_min, " xmax: ", x_max)
-#
-#    if not interactive:
-#        if pdf_func is not None:
-#            fig, axes = plt.subplots(2, k, figsize=(4*k, 8), squeeze=False)
-#            scatter_axes = axes[0]
-#            pdf_axes = axes[1]
-#        else:
-#            fig, scatter_axes = plt.subplots(1, k, figsize=(4*k, 4), squeeze=False)
-#            scatter_axes = scatter_axes[0]
-#            pdf_axes = None
-#
-#        for t in range(k):
-#            ax = scatter_axes[t]
-#            #plot_data_2D(ax, trajectory_data[t])
-#            ax.scatter(trajectory_data[t][:, 0], trajectory_data[t][:, 1], alpha=0.3, s=scatter_size)
-#            ax.set_xlim(x_min, x_max)
-#            ax.set_ylim(y_min, y_max)
-#            ax.set_xlabel("State dim 1")
-#            ax.set_ylabel("State dim 2")
-#            ax.set_title(f"Timestep {t}")
-#
-#            if pdf_func is not None:
-#                ax_pdf = pdf_axes[t]
-#                X, Y, Z = pdf_func(t)
-#                plot_density_2D(ax_pdf, X, Y, Z)
-#                #ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
-#                ax_pdf.set_xlim(x_min, x_max)
-#                ax_pdf.set_ylim(y_min, y_max)
-#                ax_pdf.set_xlabel("x1")
-#                ax_pdf.set_ylabel("x2")
-#                ax_pdf.set_title(f"PDF {t}")
-#
-#        plt.tight_layout()
-#        #plt.show()
-#        return fig, axes
-#
-#    if pdf_func is not None:
-#        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-#        ax_scatter, ax_pdf = axes
-#    else:
-#        fig, ax_scatter = plt.subplots(figsize=(6, 6))
-#        ax_pdf = None
-#
-#    plt.subplots_adjust(bottom=0.25)
-#
-#    # Set global axis limits
-#    ax_scatter.set_xlim(x_min, x_max)
-#    ax_scatter.set_ylim(y_min, y_max)
-#    ax_scatter.set_xlabel("State dimension 1")
-#    ax_scatter.set_ylabel("State dimension 2")
-#    ax_scatter.set_title("State Distribution at Timestep 0")
-#
-#    # Initial scatter
-#    #plot_data_2D(ax_scatter, trajectory_data[0])
-#    scatter = ax_scatter.scatter(trajectory_data[0][:, 0], trajectory_data[0][:, 1], alpha=0.3, s=scatter_size)
-#
-#    # Initial density plot if pdf_func is provided
-#    if pdf_func is not None:
-#        X, Y, Z = pdf_func(0)
-#        #pdf_plot = ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
-#        plot_density_2D(ax_pdf, X, Y, Z)
-#        ax_pdf.set_xlim(x_min, x_max)
-#        ax_pdf.set_ylim(y_min, y_max)
-#        ax_pdf.set_title("PDF at Timestep 0")
-#        ax_pdf.set_xlabel("x1")
-#        ax_pdf.set_ylabel("x2")
-#
-#    # Slider axis and widget
-#    slider_ax = plt.axes([0.15, 0.1, 0.7, 0.05])  # [left, bottom, width, height]
-#    timestep_slider = widgets.Slider(
-#        ax=slider_ax,
-#        label='Timestep',
-#        valmin=0,
-#        valmax=k - 1,
-#        valinit=0,
-#        valstep=1,
-#        color='steelblue'
-#    )
-#
-#    def update(val):
-#        t = int(timestep_slider.val)
-#
-#        # Update scatter plot
-#        scatter.set_offsets(trajectory_data[t])
-#        ax_scatter.set_title(f"State Distribution at Timestep {t}")
-#
-#        # Update PDF plot
-#        if pdf_func is not None:
-#            for c in ax_pdf.collections:
-#                c.remove()
-#            X, Y, Z = pdf_func(t)
-#            plot_density_2D(ax_pdf, X, Y, Z)
-#            #ax_pdf.contourf(X, Y, Z, levels=50, cmap='viridis')
-#            ax_pdf.set_title(f"PDF at Timestep {t}")
-#
-#        fig.canvas.draw_idle()
-#
-#    timestep_slider.on_changed(update)
-#    plt.show()
-#    return 
-
 def interactive_state_distribution_plot_1D(trajectory_data, pdf_func=None, bins=30):
     """
     Plots an interactive histogram of 1D state distributions across time steps.
@@ -631,3 +501,116 @@ def plot_data_1D(ax : plt.Axes, data : np.ndarray, bins=10):
 def plot_data_2D(ax : plt.Axes, data : np.ndarray):
     assert data.shape[1] == 2
     ax.scatter(data[:, 0], data[:, 1], alpha=0.5, s=1)
+
+def plot_2d_marginals_over_time(beliefs_list, keep_pair, pair_name,
+                                resolution=60, save_path=None, show_plot=True):
+    """
+    Plot 2D marginal densities over time for given dimension pair.
+    keep_pair: tuple of two indices to keep (others are integrated out)
+    pair_name: string for titles/filenames
+    """
+    dim_total = beliefs_list[0].dy
+    keep_pair = tuple(int(i) for i in keep_pair)
+    dims_to_integrate = [d for d in range(dim_total) if d not in keep_pair]
+
+    # Evaluate each belief separately with individual color scaling
+    grids = []
+    xs = np.linspace(0.05, 0.95, resolution)
+    ys = np.linspace(0.05, 0.95, resolution)
+    XX, YY = np.meshgrid(xs, ys)
+    pts = np.stack([XX.ravel(), YY.ravel()], axis=1)
+
+    with torch.no_grad():
+        for belief in beliefs_list:
+            marginal_model = belief.marginalize(dims_to_integrate)
+            zz = marginal_model(torch.from_numpy(pts).to(dtype=torch.float64)).cpu().numpy()
+            Z = zz.reshape(resolution, resolution)
+            grids.append(Z)
+
+    # Layout
+    t = len(beliefs_list)
+    n_cols = min(5, t)
+    n_rows = (t + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3.2*n_cols, 3.0*n_rows), squeeze=False)
+    for k, Z in enumerate(grids):
+        r = k // n_cols
+        c = k % n_cols
+        ax = axes[r][c]
+        # Individual color scaling for each subplot
+        cf = ax.contourf(XX, YY, Z, levels=30)
+        ax.set_title(f"t={k}")
+        ax.set_xlabel("u[{}]".format(keep_pair[0]))
+        ax.set_ylabel("u[{}]".format(keep_pair[1]))
+    # Hide unused axes
+    for k in range(t, n_rows*n_cols):
+        r = k // n_cols
+        c = k % n_cols
+        axes[r][c].axis('off')
+    fig.suptitle(f"2D marginal over time: {pair_name}")
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    # Note: No global colorbar since each subplot has its own scale
+    if save_path is not None:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        fig.savefig(save_path, dpi=150)
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
+
+def plot_2d_particle_scatter_over_time(u_traj_list, keep_pair, pair_name,
+                                       sample_limit=None, save_path=None, show_plot=True):
+    """
+    Plot 2D marginal trajectory particles (in U-space) over time for a given
+    pair of state indices. u_traj_list is a list of length T with arrays (N_t, dy).
+    keep_pair: tuple of two indices to keep for scatter.
+    """
+    keep_pair = tuple(int(i) for i in keep_pair)
+    T = len(u_traj_list)
+
+    # Determine consistent axis limits from data (clipped to [0,1])
+    xs_all = []
+    ys_all = []
+    for U in u_traj_list:
+        xs_all.append(U[:, keep_pair[0]])
+        ys_all.append(U[:, keep_pair[1]])
+    x_min = float(np.clip(np.min([x.min() for x in xs_all]), 0.0, 1.0))
+    x_max = float(np.clip(np.max([x.max() for x in xs_all]), 0.0, 1.0))
+    y_min = float(np.clip(np.min([y.min() for y in ys_all]), 0.0, 1.0))
+    y_max = float(np.clip(np.max([y.max() for y in ys_all]), 0.0, 1.0))
+    # Ensure some padding
+    pad = 0.02
+    x_min, x_max = max(0.0, x_min - pad), min(1.0, x_max + pad)
+    y_min, y_max = max(0.0, y_min - pad), min(1.0, y_max + pad)
+
+    n_cols = min(5, T)
+    n_rows = (T + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3.0*n_cols, 3.0*n_rows), squeeze=False)
+    for k in range(T):
+        U = u_traj_list[k]
+        if sample_limit is not None and U.shape[0] > sample_limit:
+            idx = np.random.choice(U.shape[0], size=sample_limit, replace=False)
+            Uplot = U[idx]
+        else:
+            Uplot = U
+        r = k // n_cols
+        c = k % n_cols
+        ax = axes[r][c]
+        ax.scatter(Uplot[:, keep_pair[0]], Uplot[:, keep_pair[1]], s=3, alpha=0.5)
+        ax.set_xlim([x_min, x_max])
+        ax.set_ylim([y_min, y_max])
+        ax.set_title(f"t={k}")
+        ax.set_xlabel("u[{}]".format(keep_pair[0]))
+        ax.set_ylabel("u[{}]".format(keep_pair[1]))
+    for k in range(T, n_rows*n_cols):
+        r = k // n_cols
+        c = k % n_cols
+        axes[r][c].axis('off')
+    fig.suptitle(f"2D particle scatter over time: {pair_name}")
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    if save_path is not None:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        fig.savefig(save_path, dpi=150)
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)

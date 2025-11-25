@@ -46,12 +46,13 @@ class GMModel:
         new_covariances = [np.diag(cov) for cov in self.covariances]
         return GMModel(self.means, new_covariances, self.weights)
 
-def fit_gmm(X, n_components=1, covariance_type='diag', random_state=None):
+def fit_gmm(X, n_components=1, covariance_type='diag', random_state=None, reg_covar=1e-6):
     X = np.asarray(X)
     gmm = GaussianMixture(
         n_components=n_components,
         covariance_type=covariance_type,
-        random_state=random_state
+        random_state=random_state,
+        reg_covar=reg_covar
     )
     gmm.fit(X)
     return GMModel.from_sklearn_gmm(gmm)
