@@ -41,7 +41,7 @@ if __name__ == "__main__":
     #   - "nf"
     # ============================================================================
     methods_to_run = [
-        #"sos",
+        "sos",
         #"gpgmm_ekf",
         #"gpgmm_wsasos",
         #"gpgmm_grid",
@@ -176,7 +176,7 @@ if __name__ == "__main__":
         sos_ll, sos_prop_times = run_trials_sos(
             traj_data_train_sos, traj_data_test, sos_figures_dir, 
             num_trials=num_trials, gdt=gdt, n=n_sos, 
-            n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, n_epochs_tran_refine=n_epochs_tran_refine,
+            n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, n_epochs_tran_fine=n_epochs_tran_refine,
             tran_params=sos_tran_params, init_params=sos_init_params
         )
 
