@@ -1,8 +1,8 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
-from bernstein_flow.Model import BernsteinFlowModel, ConditionalBernsteinFlowModel, optimize
-from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, avg_log_likelihood, empirical_prob_in_region
-#from bernstein_flow.Polynomial import poly_eval, bernstein_to_monomial, poly_product, poly_product_bernstein_direct, mc_auc, integrate
-from bernstein_flow.Propagate import propagate_bfm
+from sos_form.BetaModel import BetaSOSModel
+from sos_form.SOSModel import optimize
+
+from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, mc_auc, avg_log_likelihood, empirical_prob_in_region
 
 from .Systems import VanDerPol, BistableOscillator, sample_trajectories
 from .Visualization import interactive_transformer_plot, state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
@@ -50,8 +50,8 @@ if __name__ == "__main__":
     n_test_traj = 10000
 
     # Number of training epochs
-    n_epochs_init = 2#3000
-    n_epochs_tran = 2#150
+    n_epochs_init = 300#3000
+    n_epochs_tran = 200#150
 
     # Time horizon
     training_timesteps = 10
@@ -78,7 +78,7 @@ if __name__ == "__main__":
 
     # Convert the data to the U space for training
     U0_data = gdt.X_to_U(X0_data) # Initial state data
-    Up_data = np.hstack([gdt.X_to_U(Xp_data[:, :dim]), gdt.X_to_U(Xp_data[:, dim:])])  # Transition kernel data
+    Up_data = np.hstack([gdt.X_to_U(Xp_data[:, dim:]), gdt.X_to_U(Xp_data[:, :dim])])  # Transition kernel data (y, x order)
 
     use_gpu = True
     if use_gpu:
@@ -94,84 +94,95 @@ if __name__ == "__main__":
 
     Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
-    Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=use_gpu)
+    Up_dataloader = DataLoader(Up_dataset, batch_size=256, shuffle=True, pin_memory=use_gpu)
 
-    ## Create initial state and transition models
-    #degrees_i = [15, 15]
-    #deg_incr_i = None #[10, 10]
-    #init_state_model = BernsteinFlowModel(dim=dim, 
-    #                                      degrees=degrees_i, 
-    #                                      dtype=DTYPE, 
-    #                                      device=device, 
-    #                                      deg_incr=deg_incr_i)
-
-    #print(f"Created init state model with {init_state_model.n_parameters()} parameters")
-
-    ## Train the Init model
-    #init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
-    #print("Training initial state model...")
-    #start = time.time()
-    #optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, proj_max_iterations=200, proj_tol=5e-4, proj_min_thresh=1e-3)
-    #init_train_time = time.time() - start
-    #print("Done training initial state model \n")
-    #init_state_model = init_state_model.to(device=cpu_device)
-
-    #degrees_t = [15, 15]
-    #cond_degrees_t = [15, 15]
-    #deg_incr_t = None #[0, 0]
-    #cond_deg_incr_t = None #[0, 0]
-
-    degrees_t = [30, 30]
-    cond_degrees_t = [30, 30]
-    transition_model = ConditionalBernsteinFlowModel(dim=dim, 
-                                                     conditional_dim=dim, 
-                                                     degrees=degrees_t, 
-                                                     conditional_degrees=cond_degrees_t, 
-                                                     dtype=DTYPE, 
-                                                     device=device, 
-                                                     deg_incr=deg_incr_t, 
-                                                     cond_deg_incr=cond_deg_incr_t)
+    # Create initial state and transition models using SOS Beta model
+    n_basis = 25  # Number of basis functions
+    
+    # Create transition model first (needed as reference for init state model)
+    transition_model = BetaSOSModel(dy=dim, 
+                                   dx=dim, 
+                                   n=n_basis, 
+                                   min_alpha_beta=0.1, 
+                                   max_alpha_beta=100.0, 
+                                   mu=0.1, 
+                                   min_Q_eigval=1e-8, 
+                                   regularization_weight=5e-5)
 
     print(f"Created transition model with {transition_model.n_parameters()} parameters")
 
     print("Training transition model...")
     start = time.time()
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran, log_buffer_size=20, proj_max_iterations=200, proj_tol=5e-4, proj_min_thresh=1e-3)
+    transition_model.to(device=device, dtype=DTYPE)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
+    _, best_trans_loss_1 = optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
+    _, best_trans_loss_2 = optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran//2)
     tran_train_time = time.time() - start
     print("Done training transition model \n")
+    transition_model = transition_model.to(device=cpu_device)
 
+    # Now create init state model with reference to transition model
+    init_state_model = BetaSOSModel(dy=dim, 
+                                   dx=0, 
+                                   n=n_basis, 
+                                   conditional=False, 
+                                   reference_factor_model=transition_model,
+                                   min_alpha_beta=0.1, 
+                                   max_alpha_beta=100.0, 
+                                   mu=0.1, 
+                                   min_Q_eigval=1e-8, 
+                                   regularization_weight=1e-4)
 
-    # Compute the propagated polynomials
-    init_model_tfs = init_state_model.get_density_factor_polys(dtype=np.float128)
-    trans_model_tfs = transition_model.get_density_factor_polys(dtype=np.float128)
+    print(f"Created init state model with {init_state_model.n_parameters()} parameters")
 
-    # Convert ROI to u space
-    u_roi = gdt.rectangle_x_to_u(roi)
+    # Train the Init model
+    init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
+    print("Training initial state model...")
+    start = time.time()
+    init_state_model.to(device=device, dtype=DTYPE)
+    _, best_init_loss_1 = optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init)
+    init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-4)
+    _, best_init_loss_2 = optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init//2)
+    init_train_time = time.time() - start
+    print("Done training initial state model \n")
+    init_state_model = init_state_model.to(device=cpu_device)
 
-    p_init = poly_product_bernstein_direct(init_model_tfs)
-    p_transition = poly_product_bernstein_direct(trans_model_tfs)
-    density_polynomials = [p_init]
+    # Propagate beliefs using SOS model propagation
+    beliefs = [init_state_model]
     prop_times = []
     mc_aucs = []
     allhs = []
+    
     for k in range(1, timesteps):
         start = time.time()
-        p_curr = propagate_bfm([density_polynomials[k-1]], [p_transition])
+        # Propagate belief using SOS model
+        new_belief = transition_model.propagate(beliefs[k-1])
         prop_times.append(time.time() - start)
-        mc_aucs.append(mc_auc(p_curr, n_samples=10000))
-        print(f"Computed p(x{k}) in {prop_times[-1]:.2f} seconds")
+        
+        # Calculate MC AUC for the belief
+        with torch.no_grad():
+            mc_auc_val = mc_auc(dim, lambda u: new_belief(torch.from_numpy(u).to(dtype=DTYPE)).detach().cpu().numpy(), n_samples=10000)
+        mc_aucs.append(mc_auc_val)
+        print(f"Computed belief at timestep {k} in {prop_times[-1]:.2f} seconds")
 
         # Compute the log likelihood using the x density
-        x_allh = avg_log_likelihood(test_traj_data[k], lambda x : gdt.x_density(x, p_curr))
+        def x_density_func(x):
+            u = gdt.X_to_U(x)
+            return gdt.x_density(x, lambda u: new_belief(torch.from_numpy(u).to(dtype=DTYPE)).detach().cpu().numpy())
+        
+        x_allh = avg_log_likelihood(test_traj_data[k], x_density_func)
         print(f" - Average log likelihood: {x_allh:.3f}")
         allhs.append(x_allh)
 
-        density_polynomials.append(p_curr)
+        beliefs.append(new_belief)
 
     x_bounds = [-5.0, 5.0, -5.0, 5.0]
     def pdf_plotter(k : int):
-        return grid_eval(lambda x : gdt.x_density(x, density_polynomials[k]), x_bounds, dtype=DTYPE)
+        def x_density_func(x):
+            u = gdt.X_to_U(x)
+            return gdt.x_density(x, lambda u: beliefs[k](torch.from_numpy(u).to(dtype=DTYPE)).detach().cpu().numpy())
+        return grid_eval(x_density_func, x_bounds, dtype=DTYPE)
 
     state_dist_fig, _ = state_distribution_plot_2D(traj_data, pdf_plotter, interactive=False, bounds=x_bounds)
     particle_figs, pdf_figs = state_distribution_plot_2D(traj_data, pdf_plotter, interactive=False, bounds=x_bounds, separate_figures=True, exclude_ticks=False)
@@ -189,12 +200,12 @@ if __name__ == "__main__":
     benchmark_fields["training_timesteps"] = training_timesteps
     benchmark_fields["timesteps"] = timesteps
     benchmark_fields["device"] = device.type
-    benchmark_fields["init_degrees"] = degrees_i
-    benchmark_fields["init_deg_incr"] = deg_incr_i
-    benchmark_fields["tran_degrees"] = degrees_t
-    benchmark_fields["tran_deg_incr"] = deg_incr_t
-    benchmark_fields["tran_cond_degrees"] = cond_degrees_t
-    benchmark_fields["tran_cond_deg_incr"] = cond_deg_incr_t
+    benchmark_fields["n_basis"] = n_basis
+    benchmark_fields["min_alpha_beta"] = 0.1
+    benchmark_fields["max_alpha_beta"] = 80.0
+    benchmark_fields["mu"] = 0.1
+    benchmark_fields["min_Q_eigval"] = 1e-8
+    benchmark_fields["regularization_weight"] = 1e-4
     benchmark_fields["init_model_params"] = init_state_model.n_parameters()
     benchmark_fields["tran_model_params"] = transition_model.n_parameters()
     benchmark_fields["init_train_time"] = init_train_time
@@ -204,7 +215,7 @@ if __name__ == "__main__":
     benchmark_fields["average_log_likelihood"] = allhs
 
 
-    experiment_name = f"trajectory_2D_bnf_{curr_date_time}"
+    experiment_name = f"trajectory_2D_sos_beta_{curr_date_time}"
 
     save_figure_bundle(particle_figs, f"./benchmarks/{experiment_name}/particle")
     save_figure_bundle(pdf_figs, f"./benchmarks/{experiment_name}/pdf")
@@ -212,5 +223,3 @@ if __name__ == "__main__":
 
     with open(f"./benchmarks/{experiment_name}/data.json", "w") as f:
         json.dump(benchmark_fields, f, indent=4)
-
-

@@ -8,7 +8,7 @@ from sos_form.SignomialModel import SignomialSOSModel
 
 from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, mc_auc
 
-from .Systems import Quadcopter, sample_trajectories, sample_io_pairs
+from .Systems import PlanarQuadrotor, sample_trajectories, sample_io_pairs
 from .Visualization import interactive_transformer_plot, state_distribution_plot_2D, plot_density_2D, plot_density_2D_surface, plot_data_2D
 
 import numpy as np
@@ -18,7 +18,6 @@ from mpl_toolkits.mplot3d import Axes3D
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from scipy.stats import multivariate_normal
-from scipy.linalg import block_diag
 import os
 
 
@@ -138,91 +137,30 @@ def plot_2d_particle_scatter_over_time(u_traj_list, keep_pair, pair_name,
     else:
         plt.close(fig)
 
-def plot_2d_particle_scatter_over_time_X(x_traj_list, keep_pair, pair_name,
-                                         sample_limit=None, save_path=None, show_plot=True):
-    """
-    Plot 2D marginal trajectory particles in X-space over time for a given
-    pair of state indices. x_traj_list is a list of length T with arrays (N_t, dx).
-    keep_pair: tuple of two indices to keep for scatter.
-    """
-    keep_pair = tuple(int(i) for i in keep_pair)
-    T = len(x_traj_list)
-
-    # Determine consistent axis limits from data (no [0,1] clipping)
-    xs_all = []
-    ys_all = []
-    for X in x_traj_list:
-        xs_all.append(X[:, keep_pair[0]])
-        ys_all.append(X[:, keep_pair[1]])
-    x_min = float(np.min([x.min() for x in xs_all]))
-    x_max = float(np.max([x.max() for x in xs_all]))
-    y_min = float(np.min([y.min() for y in ys_all]))
-    y_max = float(np.max([y.max() for y in ys_all]))
-    # Add proportional padding
-    x_range = x_max - x_min
-    y_range = y_max - y_min
-    pad_x = 0.05 * x_range if x_range > 0 else 1.0
-    pad_y = 0.05 * y_range if y_range > 0 else 1.0
-    x_min, x_max = x_min - pad_x, x_max + pad_x
-    y_min, y_max = y_min - pad_y, y_max + pad_y
-
-    n_cols = min(5, T)
-    n_rows = (T + n_cols - 1) // n_cols
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3.0*n_cols, 3.0*n_rows), squeeze=False)
-    for k in range(T):
-        X = x_traj_list[k]
-        if sample_limit is not None and X.shape[0] > sample_limit:
-            idx = np.random.choice(X.shape[0], size=sample_limit, replace=False)
-            Xplot = X[idx]
-        else:
-            Xplot = X
-        r = k // n_cols
-        c = k % n_cols
-        ax = axes[r][c]
-        ax.scatter(Xplot[:, keep_pair[0]], Xplot[:, keep_pair[1]], s=3, alpha=0.5)
-        ax.set_xlim([x_min, x_max])
-        ax.set_ylim([y_min, y_max])
-        ax.set_title(f"t={k}")
-        ax.set_xlabel("x[{}]".format(keep_pair[0]))
-        ax.set_ylabel("x[{}]".format(keep_pair[1]))
-    for k in range(T, n_rows*n_cols):
-        r = k // n_cols
-        c = k % n_cols
-        axes[r][c].axis('off')
-    fig.suptitle(f"2D particle scatter over time (X-space): {pair_name}")
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
-    if save_path is not None:
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        fig.savefig(save_path, dpi=150)
-    if show_plot:
-        plt.show()
-    else:
-        plt.close(fig)
-
 if __name__ == "__main__":
 
-    # System model - 12D Quadcopter (Preset C)
-    # Build correlated covariance blocks
-    cov_posvel = 0.03 * np.ones((6, 6))
-    np.fill_diagonal(cov_posvel, 0.06)
-    cov_angles = 0.0005 * np.eye(3)  # further reduce angle noise
-    cov_rates = 0.01 * np.eye(3)     # much lower rate noise to reduce oscillations
-    quad_covariance = block_diag(cov_posvel, cov_angles, cov_rates)
-
-    system = Quadcopter(
-        dt=0.05,
-        waypoint=np.array([15.0, 15.0, 5.0]),
-        thrust_max=30.0,
-        torque_limits=np.array([1.5, 1.5, 0.8]),  # limit aggressive rotations
-        covariance=quad_covariance,
+    # System model - Modified for more interesting trajectories
+    # Create structured covariance: more position noise, less angular noise
+    cov_pos = 0.1 * np.eye(2)  # Position noise (px, pz)
+    cov_vel = 0.08 * np.eye(2)  # Velocity noise (vx, vz) 
+    cov_ang = 0.005 * np.eye(2)  # Angular noise (theta, omega) - much smaller
+    quad_covariance = np.block([[cov_pos, np.zeros((2, 2)), np.zeros((2, 2))],
+                               [np.zeros((2, 2)), cov_vel, np.zeros((2, 2))],
+                               [np.zeros((2, 2)), np.zeros((2, 2)), cov_ang]])
+    
+    system = PlanarQuadrotor(
+        dt=0.05,  # Slightly larger timestep for more interesting dynamics
+        covariance=quad_covariance, 
+        waypoint=np.array([8.0, 3.0])  # More challenging waypoint
     )
-    # Tuning to keep Euler angles moderate and reduce rate oscillations
-    system.c_w = 0.15  # increase angular damping further
-    system.kp_pos = np.array([1.2, 1.2, 2.5])
-    system.kd_pos = np.array([0.8, 0.8, 1.5])
-    system.kp_ang = np.array([2.0, 2.0, 1.5])
-    system.kd_ang = np.array([2.0, 2.0, 1.0])
-    system.rate_filter_alpha = 0.2  # stronger rate smoothing
+    
+    # Tune controller for more interesting but stable behavior
+    system.kp_pos = np.array([1.5, 2.0])  # Moderate position gains
+    system.kd_pos = np.array([0.8, 1.2])  # Moderate velocity damping
+    system.kp_theta = 3.0  # Stronger attitude control for stability
+    system.kd_theta = 2.0  # Stronger angular damping
+    system.c_v = 0.03  # Reduce linear damping for more interesting motion
+    system.c_w = 0.05  # Increase angular damping for stability
 
     # Dimension
     dim = system.dim()
@@ -235,77 +173,49 @@ if __name__ == "__main__":
     n_epochs_tran = 1000
 
     # Time horizon
-    training_timesteps = 10
+    training_timesteps = 20
     timesteps = training_timesteps
 
     def init_state_sampler():
-        # 12D state: [px, py, pz, vx, vy, vz, phi, theta, psi, p, q, r]
-        # Preset C initial distribution
-        mean = np.array([
-            -8.0, -8.0, 0.8,
-            10.0, 5.0, 0.0,
-            0.00, 0.00, 0.00,
-            0.0, -0.1, 0.1,
-        ])
-        cov = np.diag([
-            1.5, 1.5, 0.5,
-            6.0, 6.0, 2.5,
-            0.01, 0.01, 0.01,
-            0.35, 0.35, 0.35,
-        ])
+        # 6D state: [px, pz, theta, vx, vz, omega] - More diverse initial conditions
+        # Start from various positions around the origin with some initial velocity
+        mean = np.array([-2.0, 1.0, 0.0, 2.0, 1.0, 0.0])  # Start away from origin with some velocity
+        cov = np.diag([2.0, 1.5, 0.02, 1.0, 0.8, 0.02])  # Larger position/velocity variance, smaller angular
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
     #io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-5.0, -5.0], region_uppers=[5.0, 5.0])
     traj_data = sample_trajectories(system, init_state_sampler, timesteps, n_traj)
 
-    # Moment match the GDT to all of the data over the whole horizon (Preset C pads)
-    gdt = GaussianDistTransform.moment_match_data(
-        np.vstack(traj_data),
-        variance_pads=[
-            10.0, 10.0, 7.0,
-            10.0, 10.0, 7.0,
-            1.0, 1.0, 1.0,
-            2.5, 2.5, 2.5,
-        ],
-    )
+    # Moment match the GDT to all of the data over the whole horizon
+    # Updated variance_pads for more interesting trajectories: [px, pz, theta, vx, vz, omega]
+    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[8.0, 6.0, 1.0, 8.0, 3.0, 1.0])
+    #gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[0.2, 0.2])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
 
-    os.makedirs("figures/sos_12D", exist_ok=True)
-    plot_2d_particle_scatter_over_time(u_traj_data, (0, 1), "px_py_particles",
+    os.makedirs("figures/sos_6D", exist_ok=True)
+    plot_2d_particle_scatter_over_time(u_traj_data, (0, 1), "px_pz_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_12D/mc_particles_px_py.png",
+                                       save_path="figures/sos_6D/mc_particles_px_pz.png",
                                        show_plot=True)
-    plot_2d_particle_scatter_over_time(u_traj_data, (3, 4), "vx_vy_particles",
+    plot_2d_particle_scatter_over_time(u_traj_data, (3, 4), "vx_vz_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_12D/mc_particles_vx_vy.png",
+                                       save_path="figures/sos_6D/mc_particles_vx_vz.png",
                                        show_plot=True)
-    plot_2d_particle_scatter_over_time(u_traj_data, (6, 7), "phi_theta_particles",
+    plot_2d_particle_scatter_over_time(u_traj_data, (2, 5), "theta_omega_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_12D/mc_particles_phi_theta.png",
+                                       save_path="figures/sos_6D/mc_particles_theta_omega.png",
                                        show_plot=True)
-    plot_2d_particle_scatter_over_time(u_traj_data, (9, 10), "p_q_particles",
+    
+    # Additional plots to visualize the interesting trajectories
+    plot_2d_particle_scatter_over_time(u_traj_data, (0, 3), "px_vx_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_12D/mc_particles_p_q.png",
+                                       save_path="figures/sos_6D/mc_particles_px_vx.png",
                                        show_plot=True)
-
-    # X-space particle scatter plots for the same pairs
-    plot_2d_particle_scatter_over_time_X(traj_data, (0, 1), "px_py_particles_X",
-                                         sample_limit=10000,
-                                         save_path="figures/sos_12D/mc_particles_px_py_X.png",
-                                         show_plot=True)
-    plot_2d_particle_scatter_over_time_X(traj_data, (3, 4), "vx_vy_particles_X",
-                                         sample_limit=10000,
-                                         save_path="figures/sos_12D/mc_particles_vx_vy_X.png",
-                                         show_plot=True)
-    plot_2d_particle_scatter_over_time_X(traj_data, (6, 7), "phi_theta_particles_X",
-                                         sample_limit=10000,
-                                         save_path="figures/sos_12D/mc_particles_phi_theta_X.png",
-                                         show_plot=True)
-    plot_2d_particle_scatter_over_time_X(traj_data, (9, 10), "p_q_particles_X",
-                                         sample_limit=10000,
-                                         save_path="figures/sos_12D/mc_particles_p_q_X.png",
-                                         show_plot=True)
+    plot_2d_particle_scatter_over_time(u_traj_data, (1, 4), "pz_vz_particles",
+                                       sample_limit=10000,
+                                       save_path="figures/sos_6D/mc_particles_pz_vz.png",
+                                       show_plot=True)
 
     #input("Continue to training...")
 
@@ -338,24 +248,24 @@ if __name__ == "__main__":
     ## Create initial state and transition models
 
 
-    n = 18
+    n = 15
     #n_terms = 10
-    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=80.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
-    print("Transition model number of parameters: ", sum(p.numel() for p in transition_model.parameters()))
+    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=80.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-4)
+    print("Transition model parameters: ", transition_model.n_parameters())
     #transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
 
     print("Training transition model...")
     transition_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=10)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=100)
     trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
-    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=5)
+    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=50)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
 
     init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-4)
-    print("Init model number of parameters: ", sum(p.numel() for p in init_state_model.parameters()))
+    print("Init state model parameters: ", init_state_model.n_parameters())
     #init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
 
     print("Training init state model...")
@@ -376,17 +286,21 @@ if __name__ == "__main__":
     print("\n")
     for i, belief in enumerate(beliefs):
         with torch.no_grad():
-            auc = mc_auc(12, lambda u : belief(torch.from_numpy(u)).numpy(), n_samples=10000)
+            auc = mc_auc(6, lambda u : belief(torch.from_numpy(u)).numpy(), n_samples=10000)
             print(f"Belief {i} auc: ", auc)
 
 
-    os.makedirs("figures/sos_12D", exist_ok=True)
-    # Using state indices: [0:px, 1:py, 2:pz, 3:vx, 4:vy, 5:vz, 6:phi, 7:theta, 8:psi, 9:p, 10:q, 11:r]
-    plot_2d_marginals_over_time(beliefs, (0, 1), "px_py",
+    os.makedirs("figures/sos_6D", exist_ok=True)
+    # Using state indices: [0:px, 1:pz, 2:theta, 3:vx, 4:vz, 5:omega]
+    plot_2d_marginals_over_time(beliefs, (0, 1), "px_pz",
                                 resolution=60,
-                                save_path="figures/sos_12D/marginals_px_py.png",
+                                save_path="figures/sos_6D/marginals_px_pz.png",
                                 show_plot=True)
-    plot_2d_marginals_over_time(beliefs, (3, 4), "vx_vy",
+    plot_2d_marginals_over_time(beliefs, (3, 4), "vx_vz",
                                 resolution=60,
-                                save_path="figures/sos_12D/marginals_vx_vy.png",
+                                save_path="figures/sos_6D/marginals_vx_vz.png",
+                                show_plot=True)
+    plot_2d_marginals_over_time(beliefs, (2, 5), "theta_omega",
+                                resolution=60,
+                                save_path="figures/sos_6D/marginals_theta_omega.png",
                                 show_plot=True)

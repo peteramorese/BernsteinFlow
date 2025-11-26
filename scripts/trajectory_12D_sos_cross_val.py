@@ -21,8 +21,8 @@ import traceback
 DTYPE = torch.float64
 
 # ---- Cross-Validation Parameters ---- #
-regularization_weights = [1e-2]
-n_values = [15, 18]
+regularization_weights = [4e-3]
+n_values = [18]
 n_terms_values = [0]
 n_epochs_values = [100]
 n_traj_values = [10000]  
@@ -231,7 +231,7 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
                                     dx=dim, 
                                     n=n, 
                                     min_alpha_beta=0.2, 
-                                    max_alpha_beta=50.0, 
+                                    max_alpha_beta=80.0, 
                                     mu=0.1, 
                                     min_Q_eigval=1e-8, 
                                     regularization_weight=regularization_weight)
@@ -252,10 +252,10 @@ def run_single_experiment(regularization_weight, n, n_terms, n_epochs, experimen
                                     conditional=False, 
                                     reference_factor_model=transition_model, 
                                     min_alpha_beta=0.2, 
-                                    max_alpha_beta=50.0, 
+                                    max_alpha_beta=60.0, 
                                     mu=0.1, 
                                     min_Q_eigval=1e-8, 
-                                    regularization_weight=1e-4)
+                                    regularization_weight=4e-4)
 
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)
@@ -422,7 +422,7 @@ if __name__ == "__main__":
                                ((9, 10), "p_q"), ((2, 5), "pz_vz"), ((8, 11), "psi_r")]:
             plot_2d_particle_scatter_over_time([traj_data_pool[t]], pair, pair_name, gdt,
                                                sample_limit=10000,
-                                               save_path=os.path.join(mc_particles_dir, f"{pair_name}_t{t:02d}.pdf"),
+                                               save_path=os.path.join(mc_particles_dir, f"{pair_name}_t{t:02d}.png"),
                                                show_plot=False)
     
     # Save overall experiment info
