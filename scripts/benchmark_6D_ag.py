@@ -100,7 +100,7 @@ if __name__ == "__main__":
         "max_alpha_beta": 100.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-3
+        "regularization_weight": 1e-4
     }
     sos_init_params = {
         "min_alpha_beta": 0.1,
