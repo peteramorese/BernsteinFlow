@@ -1,5 +1,6 @@
 figures/
 benchmarks/
+logs/
 sync_mozart.sh
 nohup.out
 *.swp
