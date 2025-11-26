@@ -5,7 +5,7 @@ from sos_form.SumBetaModel import SumBetaSOSModel
 
 from bernstein_flow.Tools import create_transition_data_matrix, mc_auc, avg_log_likelihood
 
-from .Systems import PlanarQuadrotor, sample_trajectories, sample_io_pairs
+from .Systems import SecondOrderDubinsTrailer, sample_trajectories, sample_io_pairs
 from .Visualization import plot_2d_marginals_over_time, plot_2d_particle_scatter_over_time
 
 import numpy as np
@@ -21,7 +21,7 @@ DTYPE = torch.float64
 
 
 def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_epochs_init=100, n_epochs_tran_coarse=100, n_epochs_tran_fine=50,
-               use_gpu=True, batch_size=256, batch_size_refine=2048, tran_params={
+               use_gpu=True, batch_size=256, batch_size_refine=2048, save_figures=False, tran_params={
                    "min_alpha_beta": 0.1,
                    "max_alpha_beta": 80.0,
                    "mu": 0.1,
@@ -197,22 +197,35 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
         
         # Save figures only for the first trial
         #if trial == 0:
-        os.makedirs(save_directory, exist_ok=True)
-        print(f"\nSaving figures to {save_directory}...")
-        # Using state indices: [0:px, 1:pz, 2:theta, 3:vx, 4:vz, 5:omega]
-        plot_2d_marginals_over_time(beliefs, (0, 1), "px_pz",
-                                    resolution=60,
-                                    save_path=os.path.join(save_directory, "marginals_px_pz.png"),
-                                    show_plot=False)
-        plot_2d_marginals_over_time(beliefs, (3, 4), "vx_vz",
-                                    resolution=60,
-                                    save_path=os.path.join(save_directory, "marginals_vx_vz.png"),
-                                    show_plot=False)
-        plot_2d_marginals_over_time(beliefs, (2, 5), "theta_omega",
-                                    resolution=60,
-                                    save_path=os.path.join(save_directory, "marginals_theta_omega.png"),
-                                    show_plot=False)
-        print("Figures saved.\n")
+        if save_figures:
+            os.makedirs(save_directory, exist_ok=True)
+            print(f"\nSaving figures to {save_directory}...")
+            # Using state indices: [0:px, 1:pz, 2:theta, 3:vx, 4:vz, 5:omega]
+            #plot_2d_marginals_over_time(beliefs, (0, 1), "px_pz",
+            #                            resolution=60,
+            #                            save_path=os.path.join(save_directory, "marginals_px_pz.png"),
+            #                            show_plot=False)
+            #plot_2d_marginals_over_time(beliefs, (3, 4), "vx_vz",
+            #                            resolution=60,
+            #                            save_path=os.path.join(save_directory, "marginals_vx_vz.png"),
+            #                            show_plot=False)
+            #plot_2d_marginals_over_time(beliefs, (2, 5), "theta_omega",
+            #                            resolution=60,
+            #                            save_path=os.path.join(save_directory, "marginals_theta_omega.png"),
+            #                            show_plot=False)
+            plot_2d_marginals_over_time(beliefs, (0, 1), "px_pz",
+                                        resolution=60,
+                                        save_path=os.path.join(save_directory, "marginals_px_pz.png"),
+                                        show_plot=False)
+            plot_2d_marginals_over_time(beliefs, (2, 3), "thetac_thetat",
+                                        resolution=60,
+                                        save_path=os.path.join(save_directory, "marginals_thetac_thetat.png"),
+                                        show_plot=False)
+            plot_2d_marginals_over_time(beliefs, (4, 5), "v_omega",
+                                        resolution=60,
+                                        save_path=os.path.join(save_directory, "marginals_v_omega.png"),
+                                        show_plot=False)
+            print("Figures saved.\n")
         
         # Clean up memory
         del transition_model, init_state_model, beliefs
@@ -227,21 +240,33 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
 if __name__ == "__main__":
 
     # System model
-    system = PlanarQuadrotor(
-        dt=0.03, 
-        covariance=0.05 * np.eye(6), 
-        waypoint=np.array([5.0, 5.0]),
-        m=1.0,
-        I=0.03,
-        ell=0.2,
-        g=9.81,
-        c_v=0.05,
-        c_w=0.12,
+
+    #system = PlanarQuadrotor(
+    #    dt=0.03, 
+    #    covariance=0.05 * np.eye(6), 
+    #    waypoint=np.array([5.0, 5.0]),
+    #    m=1.0,
+    #    I=0.03,
+    #    ell=0.2,
+    #    g=9.81,
+    #    c_v=0.05,
+    #    c_w=0.12,
+    #)
+    #system.kp_pos = np.array([1.0, 1.0])
+    #system.kd_pos = np.array([0.5, 0.5])
+    #system.kp_theta = 3.0
+    #system.kd_theta = 2.0
+
+    system = SecondOrderDubinsTrailer(
+        dt=0.3,
+        L_t=1.0,
+        v_ref=1.0,
+        k_v=1.0,
+        k_theta=2.0,
+        sigma_v=0.1,
+        sigma_omega=0.1,
+        cov_scale=0.1
     )
-    system.kp_pos = np.array([1.0, 1.0])
-    system.kd_pos = np.array([0.5, 0.5])
-    system.kp_theta = 3.0
-    system.kd_theta = 2.0
 
     # Dimension
     dim = system.dim()
@@ -263,7 +288,7 @@ if __name__ == "__main__":
 
     def init_state_sampler():
         # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
-        mean = np.array([0.0, 0.0, 0.1, 50.0, 0.0, 0.0])
+        mean = np.array([0.0, 0.0, 1.0, 0.0, 10.0, -0.5])
         cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
@@ -279,16 +304,16 @@ if __name__ == "__main__":
     os.makedirs("figures/sos_6D", exist_ok=True)
     plot_2d_particle_scatter_over_time(u_traj_data_test, (0, 1), "px_pz_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_6D/mc_particles_px_pz.png",
+                                       save_path="figures/sos_6D_nag/mc_particles_px_pz.png",
                                        show_plot=True)
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (3, 4), "vx_vz_particles",
+    plot_2d_particle_scatter_over_time(u_traj_data_test, (2, 3), "thetac_thetat_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_6D/mc_particles_vx_vz.png",
+                                       save_path="figures/sos_6D_nag/mc_particles_thetac_thetat.png",
                                        show_plot=True)
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (2, 5), "theta_omega_particles",
+    plot_2d_particle_scatter_over_time(u_traj_data_test, (4, 5), "v_omega_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_6D/mc_particles_theta_omega.png",
+                                       save_path="figures/sos_6D_nag/mc_particles_v_omega.png",
                                        show_plot=True)
 
-    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_6D", num_trials=10, gdt=gdt, n=15, n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran)
+    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_6D_nag", num_trials=10, gdt=gdt, n=17, n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, save_figures=True)
     print(f"Negative log likelihoods: {negative_log_likelihoods}, prop times: {prop_times}")
