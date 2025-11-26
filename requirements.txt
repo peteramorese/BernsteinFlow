@@ -47,3 +47,4 @@ torch==2.7.1
 triton==3.3.1
 typing_extensions==4.14.0
 wadler_lindig==0.1.7
+nflows==0.14
