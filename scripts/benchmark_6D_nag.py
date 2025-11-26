@@ -79,10 +79,11 @@ if __name__ == "__main__":
 
     # Number of training epochs
     n_epochs_init = 100
-    n_epochs_tran = 100
+    n_epochs_tran = 150
+    n_epochs_tran_refine = 300
 
     # Variance pads
-    variance_pads = [5.2, 5.2, 3.1, 5.2, 5.2, 3.1]
+    variance_pads = [7.2, 7.2, 4.1, 5.2, 5.2, 4.1]
 
     # Time horizon
     training_timesteps = 10
@@ -91,7 +92,7 @@ if __name__ == "__main__":
     # Number of trials
     num_trials = 15
     
-    n_sos = 20
+    n_sos = 17
     
     # Grid method parameters (for 6D: [px, pz, theta, vx, vz, omega])
     # Bounds: [px_min, px_max, pz_min, pz_max, theta_min, theta_max, 
@@ -122,8 +123,7 @@ if __name__ == "__main__":
 
 
     def init_state_sampler():
-        # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
-        mean = np.array([0.0, 0.0, 0.1, 50.0, 0.0, 0.0])
+        mean = np.array([0.0, 0.0, 1.0, 0.0, 10.0, -0.5])
         cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
@@ -137,7 +137,7 @@ if __name__ == "__main__":
     gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data_test), variance_pads=variance_pads)
 
     # Create initial state model for true_gmm
-    init_mean = np.array([0.0, 0.0, 0.1, 50.0, 0.0, 0.0])
+    init_mean = np.array([0.0, 0.0, 1.0, 0.0, 10.0, -0.5])
     init_cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
     init_state_model = GMModel(means=[init_mean], covariances=[init_cov], weights=[1.0])
 
@@ -178,7 +178,7 @@ if __name__ == "__main__":
         sos_ll, sos_prop_times = run_trials_sos(
             traj_data_train_sos, traj_data_test, sos_figures_dir, 
             num_trials=num_trials, gdt=gdt, n=n_sos, 
-            n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran,
+            n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, n_epochs_tran_refine=n_epochs_tran_refine,
             tran_params=sos_tran_params, init_params=sos_init_params
         )
 

@@ -6,4 +6,4 @@
 #SBATCH --gres=gpu:1
 #SBATCH --output=logs/slurm_benchmark_&j.out
 
-./.venv/bin/python3 -u -m scripts.benchmark_6D
+./.venv/bin/python3 -u -m scripts.benchmark_6D_ag
