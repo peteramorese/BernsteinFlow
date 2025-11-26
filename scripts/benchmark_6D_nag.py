@@ -94,10 +94,8 @@ if __name__ == "__main__":
     
     n_sos = 17
     
-    # Grid method parameters (for 6D: [px, pz, theta, vx, vz, omega])
-    # Bounds: [px_min, px_max, pz_min, pz_max, theta_min, theta_max, 
-    #          vx_min, vx_max, vz_min, vz_max, omega_min, omega_max]
-    x_bounds_6d = [-2.0, 2.0, -2.0, 2.0, -1.0, 1.0, 45.0, 55.0, -5.0, 5.0, -1.0, 1.0]
+    # Grid method parameters (for 6D: [px, py, theta_c, theta_t, speed, omega])
+    x_bounds_6d = [-15.0, 15.0, -15.0, 15.0, -3.5, 3.5, -4.0, 4.0, 0.0, 12.0, -8.0, 8.0]
     grid_resolution = 3  # Lower resolution for 6D to keep it feasible
     max_mixands = 5000
     max_time = 1000
