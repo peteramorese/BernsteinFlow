@@ -1,7 +1,7 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.GPGMM import GMModel
 
-from .Systems import PlanarQuadrotor, sample_trajectories
+from .Systems import PlanarQuadrotor, sample_trajectories, SecondOrderDubinsTrailer
 from .Visualization import plot_2d_marginals_over_time, plot_2d_particle_scatter_over_time
 
 import numpy as np
@@ -41,7 +41,7 @@ if __name__ == "__main__":
     #   - "nf"
     # ============================================================================
     methods_to_run = [
-        "sos",
+        #"sos",
         #"gpgmm_ekf",
         #"gpgmm_wsasos",
         #"gpgmm_grid",
@@ -52,8 +52,19 @@ if __name__ == "__main__":
     ]
     # ============================================================================
 
+    print("Benchmarking 6D non-AG system")
+
     # System model
-    system = PlanarQuadrotor(dt=0.01, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
+    system = SecondOrderDubinsTrailer(
+        dt=0.3,
+        L_t=1.0,
+        v_ref=1.0,
+        k_v=1.0,
+        k_theta=2.0,
+        sigma_v=0.1,
+        sigma_omega=0.1,
+        cov_scale=0.2
+    )
 
     # Dimension
     dim = system.dim()
@@ -68,8 +79,7 @@ if __name__ == "__main__":
 
     # Number of training epochs
     n_epochs_init = 100
-    n_epochs_tran = 150
-    n_epochs_tran_refine = 300
+    n_epochs_tran = 100
 
     # Variance pads
     variance_pads = [5.2, 5.2, 3.1, 5.2, 5.2, 3.1]
@@ -81,7 +91,7 @@ if __name__ == "__main__":
     # Number of trials
     num_trials = 15
     
-    n_sos = 17
+    n_sos = 20
     
     # Grid method parameters (for 6D: [px, pz, theta, vx, vz, omega])
     # Bounds: [px_min, px_max, pz_min, pz_max, theta_min, theta_max, 
@@ -94,16 +104,16 @@ if __name__ == "__main__":
     n_components_init_wsasos = 10
 
     sos_tran_params = {
-        "min_alpha_beta": 0.05,
-        "max_alpha_beta": 100.0,
-        "mu": 0.05,
-        "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-4
-    }
-    sos_init_params = {
         "min_alpha_beta": 0.1,
         "max_alpha_beta": 100.0,
-        "mu": 0.05,
+        "mu": 0.1,
+        "min_Q_eigval": 1e-8,
+        "regularization_weight": 5e-3
+    }
+    sos_init_params = {
+        "min_alpha_beta": 0.4,
+        "max_alpha_beta": 100.0,
+        "mu": 0.1,
         "min_Q_eigval": 1e-8,
         "regularization_weight": 1e-4
     }
@@ -168,7 +178,7 @@ if __name__ == "__main__":
         sos_ll, sos_prop_times = run_trials_sos(
             traj_data_train_sos, traj_data_test, sos_figures_dir, 
             num_trials=num_trials, gdt=gdt, n=n_sos, 
-            n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, n_epochs_tran_fine=n_epochs_tran_refine,
+            n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran,
             tran_params=sos_tran_params, init_params=sos_init_params
         )
 

@@ -689,6 +689,114 @@ class PlanarQuadrotor(DiscreteTimeStochasticSystem):
         
         return H
     
+class SecondOrderDubinsTrailer(DiscreteTimeStochasticSystem):
+    """
+    6D second-order Dubins tractor–trailer with multiplicative noise in:
+      • steering control
+      • speed control
+      • the speed state itself (like x1 * v1 in your BistableOscillator)
+
+    State x = [px, py, theta_c, theta_t, v, omega].
+    """
+
+    def __init__(
+        self,
+        dt: float,
+        L_t: float = 1.0,
+        v_ref: float = 1.0,
+        k_v: float = 1.0,
+        k_theta: float = 1.0,
+        sigma_v: float = 0.1,
+        sigma_omega: float = 0.1,
+        sigma_speed_state: float = 0.1,
+        cov_scale: float = 0.01,
+    ):
+        # Mixture-of-Gaussians non-Gaussian noise (2D)
+        n_components = 2
+        means = [
+            np.array([0.0, 0.0]),
+            np.array([1.0, 1.0]),
+        ]
+        covariances = [
+            cov_scale * np.array([[1.0, 0.2], [0.2, 1.0]]),
+            cov_scale * np.array([[1.0, -0.2], [-0.2, 1.0]]),
+        ]
+
+        def v_dist():
+            component = np.random.choice(n_components, size=1, p=[0.6, 0.4])[0]
+            return stats.multivariate_normal.rvs(
+                mean=means[component],
+                cov=covariances[component]
+            )
+
+        super().__init__(dim=6, v_dist=v_dist)
+
+        self.dt = dt
+        self.L_t = L_t
+
+        # Control parameters
+        self.v_ref = v_ref
+        self.k_v = k_v
+        self.k_theta = k_theta
+
+        # Noise parameters
+        self.sigma_v = sigma_v                # multiplicative noise in speed control
+        self.sigma_omega = sigma_omega        # multiplicative noise in steering control
+        self.sigma_speed_state = sigma_speed_state  # multiplicative noise directly on speed state
+
+    def next_state(self, x: np.ndarray, v: np.ndarray):
+        """
+        x = [px, py, theta_c, theta_t, speed, omega]
+        v = [xi_v, xi_omega]
+        """
+        px, py, theta_c, theta_t, speed, omega = x
+        xi_v, xi_omega = v
+
+        dt = self.dt
+
+        # --- Deterministic control laws ---
+
+        # Speed control (toward v_ref)
+        u_v = self.k_v * (self.v_ref - speed)
+
+        # Steering rate control (oscillator)
+        #   theta_c'' + k_theta * theta_c = 0 (continuous limit)
+        u_omega = -self.k_theta * theta_c
+
+        # --- Multiplicative noise on controls ---
+
+        u_v_noisy = u_v * (1.0 + self.sigma_v * xi_v)
+        u_omega_noisy = u_omega * (1.0 + self.sigma_omega * xi_omega)
+
+        # --- Tractor–trailer kinematics ---
+
+        px_next = px + dt * speed * np.cos(theta_c)
+        py_next = py + dt * speed * np.sin(theta_c)
+        theta_c_next = theta_c + dt * omega
+        theta_t_next = theta_t + dt * (speed / self.L_t) * np.sin(theta_c - theta_t)
+
+        # --- Speed update: second-order + multiplicative noise in state ---
+        #
+        #   v_{k+1} = v_k + dt*u_v_noisy + (multiplicative state noise)
+        #
+        speed_next = (
+            speed
+            + dt * u_v_noisy
+            + self.sigma_speed_state * speed * xi_v
+        )
+
+        # --- Steering rate update ---
+        omega_next = omega + dt * u_omega_noisy
+
+        return np.array([
+            px_next,
+            py_next,
+            theta_c_next,
+            theta_t_next,
+            speed_next,
+            omega_next,
+        ])
+
 
 class Quadcopter(DiscreteTimeStochasticSystem):
     """
