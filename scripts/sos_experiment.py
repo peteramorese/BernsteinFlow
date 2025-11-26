@@ -227,13 +227,27 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
 if __name__ == "__main__":
 
     # System model
-    system = PlanarQuadrotor(dt=0.01, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
+    system = PlanarQuadrotor(
+        dt=0.03, 
+        covariance=0.05 * np.eye(6), 
+        waypoint=np.array([5.0, 5.0]),
+        m=1.0,
+        I=0.03,
+        ell=0.2,
+        g=9.81,
+        c_v=0.05,
+        c_w=0.12,
+    )
+    system.kp_pos = np.array([1.0, 1.0])
+    system.kd_pos = np.array([0.5, 0.5])
+    system.kp_theta = 3.0
+    system.kd_theta = 2.0
 
     # Dimension
     dim = system.dim()
 
     # Number of trajectories
-    n_traj_train = 400
+    n_traj_train = 4000
     n_traj_test = 1000
 
     # Number of training epochs
@@ -241,11 +255,11 @@ if __name__ == "__main__":
     n_epochs_tran = 50
 
     # Variance pads
-    variance_pads = [5.2, 5.2, 3.1, 5.2, 5.2, 3.1]
+    variance_pads = [7.2, 7.2, 4.1, 5.2, 5.2, 4.1]
 
     # Time horizon
     training_timesteps = 10
-    timesteps = training_timesteps
+    timesteps = 15
 
     def init_state_sampler():
         # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
@@ -254,7 +268,7 @@ if __name__ == "__main__":
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
     #io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-5.0, -5.0], region_uppers=[5.0, 5.0])
-    traj_data_train = sample_trajectories(system, init_state_sampler, timesteps, n_traj_train)
+    traj_data_train = sample_trajectories(system, init_state_sampler, training_timesteps, n_traj_train)
     traj_data_test = sample_trajectories(system, init_state_sampler, timesteps, n_traj_test)
 
     # Create MC particle figures
@@ -276,5 +290,5 @@ if __name__ == "__main__":
                                        save_path="figures/sos_6D/mc_particles_theta_omega.png",
                                        show_plot=True)
 
-    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_6D", num_trials=10, gdt=gdt, n=15, num_epochs_init=n_epochs_init, num_epochs_tran_coarse=n_epochs_tran)
+    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_6D", num_trials=10, gdt=gdt, n=15, n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran)
     print(f"Negative log likelihoods: {negative_log_likelihoods}, prop times: {prop_times}")

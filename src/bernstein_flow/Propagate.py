@@ -7,6 +7,7 @@ from itertools import product
 from .Polynomial import Polynomial, poly_sum, poly_product, split_factor_poly_product, stable_split_factors, marginal, monomial_to_bernstein, bernstein_to_monomial, poly_product_bernstein_direct
 from .GPGMM import GMModel, MultivariateGPModel
 from .WSASOS import WSASOS
+from .NormalizingFlow import ConditionalNormalizingFlow
 
 
 def propagate_bfm(belief_p_factors : list[Polynomial], transition_p_factors : list[Polynomial], mag_range=None):
@@ -105,3 +106,67 @@ def propagate_gp_particle(particles : np.ndarray, transition_p : MultivariateGPM
     new_particles = transition_p.sample(particles, n_added_samples)
     new_particles = np.transpose(new_particles, (1, 0, 2)).reshape(-1, particles.shape[1])
     return new_particles
+
+def propagate_nf(particles : np.ndarray, nf : ConditionalNormalizingFlow, n_added_samples = 1,
+                 x_mean = None, x_std = None, xp_mean = None, xp_std = None,
+                 dtype = torch.float32, device = None):
+    """
+    Propagate particles through a conditional normalizing flow.
+    
+    Args:
+        particles: numpy array of shape (n_particles, dim_x) - current state particles
+        nf: ConditionalNormalizingFlow model
+        n_added_samples: number of samples to generate per particle
+        x_mean: mean for normalizing input particles (shape: (1, dim_x) or (dim_x,))
+        x_std: std for normalizing input particles (shape: (1, dim_x) or (dim_x,))
+        xp_mean: mean for denormalizing output particles (shape: (1, dim_y) or (dim_y,))
+        xp_std: std for denormalizing output particles (shape: (1, dim_y) or (dim_y,))
+        dtype: torch dtype for tensors
+        device: device to run on (if None, uses model's device)
+    
+    Returns:
+        new_particles: numpy array of shape (n_particles * n_added_samples, dim_y)
+    """
+    # Ensure particles are 2D: (n_particles, dim)
+    if particles.ndim == 1:
+        particles = particles.reshape(1, -1)
+    assert particles.ndim == 2, f"Expected 2D particles array, got shape {particles.shape}"
+    
+    # Normalize particles if normalization stats provided
+    if x_mean is not None and x_std is not None:
+        # Ensure shapes are compatible
+        if x_mean.ndim == 1:
+            x_mean = x_mean.reshape(1, -1)
+        if x_std.ndim == 1:
+            x_std = x_std.reshape(1, -1)
+        particles_normalized = (particles - x_mean) / x_std
+    else:
+        particles_normalized = particles
+    
+    # Get device
+    if device is None:
+        device = next(nf.parameters()).device
+    
+    # Sample from NF
+    with torch.no_grad():
+        particles_torch = torch.tensor(particles_normalized, dtype=dtype, device=device)
+        new_particles_normalized_torch = nf.sample(particles_torch, num_samples_per_x=n_added_samples)
+        new_particles_normalized = new_particles_normalized_torch.cpu().numpy()
+    
+    # Ensure output is 2D
+    if new_particles_normalized.ndim > 2:
+        new_particles_normalized = new_particles_normalized.reshape(-1, new_particles_normalized.shape[-1])
+    
+    # Denormalize if normalization stats provided
+    if xp_mean is not None and xp_std is not None:
+        # Ensure shapes are compatible
+        if xp_mean.ndim == 1:
+            xp_mean = xp_mean.reshape(1, -1)
+        if xp_std.ndim == 1:
+            xp_std = xp_std.reshape(1, -1)
+        new_particles = new_particles_normalized * xp_std + xp_mean
+    else:
+        new_particles = new_particles_normalized
+    
+    # Reshape to (n_particles * n_added_samples, dim_y)
+    return new_particles.reshape(-1, new_particles.shape[-1])

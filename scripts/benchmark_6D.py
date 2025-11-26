@@ -14,6 +14,7 @@ from datetime import datetime
 from .sos_experiment import run_trials_sos
 from .gpgmm_experiment import run_trials_gpgmm
 from .true_gmm_experiment import run_trials_true_gmm
+from .nf_experiment import run_trials_nf
 
 
 DTYPE = torch.float64
@@ -37,6 +38,7 @@ if __name__ == "__main__":
     #   - "true_gmm_ekf"
     #   - "true_gmm_wsasos"
     #   - "true_gmm_grid"
+    #   - "nf"
     # ============================================================================
     methods_to_run = [
         "sos",
@@ -45,7 +47,8 @@ if __name__ == "__main__":
         "gpgmm_grid",
         "true_gmm_ekf",
         "true_gmm_wsasos",
-        "true_gmm_grid"
+        "true_gmm_grid",
+        "nf"
     ]
     # ============================================================================
 
@@ -60,6 +63,7 @@ if __name__ == "__main__":
     # Number of trajectories
     n_traj_train_sos = 4000 
     n_traj_train_gpgmm = 400
+    n_traj_train_nf = 4000  # NF uses same amount as SOS
     n_traj_test = 10000
 
     # Number of training epochs
@@ -111,6 +115,7 @@ if __name__ == "__main__":
     # Generate data
     traj_data_train_sos = sample_trajectories(system, init_state_sampler, timesteps, n_traj_train_sos)
     traj_data_train_gpgmm = sample_trajectories(system, init_state_sampler, timesteps, n_traj_train_gpgmm)
+    traj_data_train_nf = sample_trajectories(system, init_state_sampler, timesteps, n_traj_train_nf)
     traj_data_test = sample_trajectories(system, init_state_sampler, timesteps, n_traj_test)
 
     # Create GDT for SOS method
@@ -145,6 +150,8 @@ if __name__ == "__main__":
     true_gmm_wsasos_prop_times = None
     true_gmm_grid_ll = None
     true_gmm_grid_prop_times = None
+    nf_ll = None
+    nf_prop_times = None
 
     print("Benchmarking methods: ", methods_to_run)
 
@@ -253,6 +260,25 @@ if __name__ == "__main__":
             traj_data_for_plotting=traj_data_train_gpgmm
         )
 
+    # Run NF experiments
+    if "nf" in methods_to_run:
+        print("\n" + "="*60)
+        print("Running NF (Normalizing Flow) method")
+        print("="*60)
+        nf_ll, nf_prop_times = run_trials_nf(
+            traj_data_train_nf, traj_data_test, init_state_sampler,
+            os.path.join(benchmark_dir, "nf_figures"),
+            num_trials=num_trials,
+            n_particles=1000,
+            n_epochs_tran=n_epochs_tran,
+            num_layers=8,
+            hidden_features=128,
+            use_gpu=True,
+            batch_size=512,
+            n_added_samples=1,
+            kde_bandwidth="scott"
+        )
+
     # Prepare data for JSON
     data = {
         "datetime": curr_date_time,
@@ -260,6 +286,7 @@ if __name__ == "__main__":
         "dimension": int(dim),
         "n_traj_train_sos": int(n_traj_train_sos),
         "n_traj_train_gpgmm": int(n_traj_train_gpgmm),
+        "n_traj_train_nf": int(n_traj_train_nf),
         "n_traj_test": int(n_traj_test),
         "n_epochs_init": int(n_epochs_init),
         "n_epochs_tran": int(n_epochs_tran),
@@ -307,6 +334,11 @@ if __name__ == "__main__":
             "negative_log_likelihoods": true_gmm_grid_ll.tolist(),
             "prop_times": true_gmm_grid_prop_times.tolist()
         }
+    if nf_ll is not None:
+        data["nf"] = {
+            "negative_log_likelihoods": nf_ll.tolist(),
+            "prop_times": nf_prop_times.tolist()
+        }
 
     # Save data.json
     data_json_path = os.path.join(benchmark_dir, "data.json")
@@ -351,6 +383,8 @@ if __name__ == "__main__":
         methods["TRUE_GMM-WSASOS"] = (true_gmm_wsasos_ll, true_gmm_wsasos_prop_times)
     if true_gmm_grid_ll is not None:
         methods["TRUE_GMM-Grid"] = (true_gmm_grid_ll, true_gmm_grid_prop_times)
+    if nf_ll is not None:
+        methods["NF"] = (nf_ll, nf_prop_times)
 
     for method_name, (ll, prop_times) in methods.items():
         results.append(f"\n{method_name} Method")
