@@ -81,7 +81,7 @@ if __name__ == "__main__":
     # Number of trials
     num_trials = 15
     
-    n_sos = 20
+    n_sos = 17
     
     # Grid method parameters (for 6D: [px, pz, theta, vx, vz, omega])
     # Bounds: [px_min, px_max, pz_min, pz_max, theta_min, theta_max, 
@@ -98,7 +98,7 @@ if __name__ == "__main__":
         "max_alpha_beta": 100.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-3
+        "regularization_weight": 1e-4
     }
     sos_init_params = {
         "min_alpha_beta": 0.1,
