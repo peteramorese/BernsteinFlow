@@ -41,7 +41,7 @@ if __name__ == "__main__":
     #   - "nf"
     # ============================================================================
     methods_to_run = [
-        "sos",
+        #"sos",
         #"gpgmm_ekf",
         #"gpgmm_wsasos",
         #"gpgmm_grid",
@@ -51,6 +51,8 @@ if __name__ == "__main__":
         "nf"
     ]
     # ============================================================================
+
+    print("Benchmarking 6D AG system")
 
     # System model
     system = PlanarQuadrotor(dt=0.01, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))

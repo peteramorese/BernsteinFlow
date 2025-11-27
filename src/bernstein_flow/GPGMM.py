@@ -108,6 +108,9 @@ class MultivariateGPModel:
             is_np = False
             x = x.to(dtype=self.dtype)
 
+        # Move to the same device as the GP model
+        x = x.to(device=next(self.gp.parameters()).device)
+
         self.gp.eval()
         self.likelihood.eval()
         with torch.no_grad(), gpytorch.settings.fast_pred_var():
