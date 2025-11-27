@@ -108,13 +108,16 @@ class MultivariateGPModel:
             is_np = False
             x = x.to(dtype=self.dtype)
 
+        # Move to the same device as the GP model
+        x = x.to(device=next(self.gp.parameters()).device)
+
         self.gp.eval()
         self.likelihood.eval()
         with torch.no_grad(), gpytorch.settings.fast_pred_var():
             pred = self.likelihood(self.gp(x))
 
             if is_np:
-                return pred.mean.numpy(), pred.covariance_matrix.numpy()
+                return pred.mean.cpu().numpy(), pred.covariance_matrix.cpu().numpy()
             else:
                 return pred.mean, pred.covariance_matrix
     
@@ -141,7 +144,7 @@ class MultivariateGPModel:
             # Reshape to (num_samples, N, T)
             samples = raw_samples.view(n_samples, x.shape[0], -1)
             
-            return samples.numpy() if is_np else samples
+            return samples.cpu().numpy() if is_np else samples
     
     def jacobian(self, x):
         self.gp.eval()
@@ -163,7 +166,7 @@ class MultivariateGPModel:
             return pred.mean.squeeze(0)
 
         J = torch.autograd.functional.jacobian(mean_fcn, x)
-        return J.numpy() if is_np else J
+        return J.cpu().numpy() if is_np else J
 
     def hessian_tensor(self, x):
         """
@@ -189,7 +192,7 @@ class MultivariateGPModel:
             hessian_layers.append(H_i)
 
         H = torch.stack(hessian_layers)
-        return H.numpy() if is_np else H
+        return H.cpu().numpy() if is_np else H
 
 
 def fit_gp(Xp : torch.Tensor, X : torch.Tensor, num_epochs=100, lr=0.1, device='cpu', dtype=torch.float64, print_interval=None):
