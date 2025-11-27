@@ -42,13 +42,13 @@ if __name__ == "__main__":
     # ============================================================================
     methods_to_run = [
         #"sos",
-        "gpgmm_ekf",
-        "gpgmm_wsasos",
-        "gpgmm_grid",
+        #"gpgmm_ekf",
+        #"gpgmm_wsasos",
+        #"gpgmm_grid",
         #"true_gmm_ekf",
         #"true_gmm_wsasos",
         #"true_gmm_grid",
-        #"nf"
+        "nf"
     ]
     # ============================================================================
 
@@ -103,16 +103,16 @@ if __name__ == "__main__":
     n_components_init_wsasos = 10
 
     sos_tran_params = {
-        "min_alpha_beta": 0.1,
+        "min_alpha_beta": 0.05,
         "max_alpha_beta": 100.0,
-        "mu": 0.1,
+        "mu": 0.05,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 5e-3
+        "regularization_weight": 1e-4
     }
     sos_init_params = {
-        "min_alpha_beta": 0.4,
+        "min_alpha_beta": 0.1,
         "max_alpha_beta": 100.0,
-        "mu": 0.1,
+        "mu": 0.05,
         "min_Q_eigval": 1e-8,
         "regularization_weight": 1e-4
     }
