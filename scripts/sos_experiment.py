@@ -193,7 +193,10 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
                     return belief(torch.from_numpy(u)).numpy()
                 nll = avg_log_likelihood(test_data[i], lambda x : gdt.x_density(x, np_belief))
                 negative_log_likelihoods[trial, i] = nll
-                print(f"  Belief {i}: avg_log_likelihood = {nll:.6f}")
+                
+                # Calculate mc_auc for this belief (in U space)
+                auc = mc_auc(dim, np_belief, n_samples=10000)
+                print(f"  Belief {i}: avg_log_likelihood = {nll:.6f}, mc_auc = {auc:.6f}")
         
         # Save figures only for the first trial
         #if trial == 0:

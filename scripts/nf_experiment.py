@@ -6,7 +6,7 @@ import time
 import traceback
 
 from bernstein_flow.NormalizingFlow import ConditionalNormalizingFlow, optimize
-from bernstein_flow.Tools import create_transition_data_matrix, avg_log_likelihood
+from bernstein_flow.Tools import create_transition_data_matrix, avg_log_likelihood, mc_auc
 from bernstein_flow.Propagate import propagate_nf
 
 DTYPE = torch.float32  # nflows typically uses float32
@@ -179,7 +179,10 @@ def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num
         initial_kde = kde_from_particles(initial_particles, bandwidth=kde_bandwidth)
         nll_init = -avg_log_likelihood(test_data[0], initial_kde.pdf)
         negative_log_likelihoods[trial, 0] = nll_init
-        print(f"  Belief 0 (initial): avg_log_likelihood = {-nll_init:.6f}")
+        
+        # Calculate mc_auc for initial KDE belief
+        auc_init = mc_auc(dim, initial_kde.pdf, n_samples=10000)
+        print(f"  Belief 0 (initial): avg_log_likelihood = {-nll_init:.6f}, mc_auc = {auc_init:.6f}")
         
         # Propagate for remaining timesteps
         for i in range(num_timesteps - 1):
@@ -207,7 +210,10 @@ def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num
                 belief_kde = kde_from_particles(next_particles, bandwidth=kde_bandwidth)
                 nll = -avg_log_likelihood(test_data[i + 1], belief_kde.pdf)
                 negative_log_likelihoods[trial, i + 1] = nll
-                print(f"  Belief {i + 1}: avg_log_likelihood = {-nll:.6f}, prop_time = {prop_times[trial, i]:.4f}s")
+                
+                # Calculate mc_auc for KDE belief
+                auc = mc_auc(dim, belief_kde.pdf, n_samples=10000)
+                print(f"  Belief {i + 1}: avg_log_likelihood = {-nll:.6f}, mc_auc = {auc:.6f}, prop_time = {prop_times[trial, i]:.4f}s")
                 
             except Exception as e:
                 print(f"Propagation failed at timestep {i+1}: {e}")

@@ -119,18 +119,18 @@ if __name__ == "__main__":
     n_components_init_wsasos = 10
 
     sos_tran_params = {
-        "min_alpha_beta": 0.05,
-        "max_alpha_beta": 100.0,
-        "mu": 0.05,
+        "min_alpha_beta": 0.2,
+        "max_alpha_beta": 80.0,
+        "mu": 0.1,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 2e-3
+        "regularization_weight": 4e-3
     }
     sos_init_params = {
-        "min_alpha_beta": 0.05,
-        "max_alpha_beta": 100.0,
-        "mu": 0.05,
+        "min_alpha_beta": 0.2,
+        "max_alpha_beta": 60.0,
+        "mu": 0.1,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 2e-3
+        "regularization_weight": 4e-3
     }
     ###########################################################################################
 
