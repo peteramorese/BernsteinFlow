@@ -71,6 +71,9 @@ if __name__ == "__main__":
     n_epochs_tran = 150
     n_epochs_tran_refine = 300
 
+    sos_batch_size = 512
+    sos_batch_size_refine = 2048
+
     # Variance pads
     variance_pads = [5.2, 5.2, 3.1, 5.2, 5.2, 3.1]
 
@@ -81,7 +84,7 @@ if __name__ == "__main__":
     # Number of trials
     num_trials = 15
     
-    n_sos = 20
+    n_sos = 17
     
     # Grid method parameters (for 6D: [px, pz, theta, vx, vz, omega])
     # Bounds: [px_min, px_max, pz_min, pz_max, theta_min, theta_max, 
@@ -98,7 +101,7 @@ if __name__ == "__main__":
         "max_alpha_beta": 100.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-3
+        "regularization_weight": 1e-4
     }
     sos_init_params = {
         "min_alpha_beta": 0.1,
@@ -167,7 +170,7 @@ if __name__ == "__main__":
         # Run SOS experiments
         sos_ll, sos_prop_times = run_trials_sos(
             traj_data_train_sos, traj_data_test, sos_figures_dir, 
-            num_trials=num_trials, gdt=gdt, n=n_sos, 
+            num_trials=num_trials, gdt=gdt, n=n_sos, batch_size=sos_batch_size, batch_size_refine=sos_batch_size_refine,
             n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, n_epochs_tran_fine=n_epochs_tran_refine,
             tran_params=sos_tran_params, init_params=sos_init_params
         )
