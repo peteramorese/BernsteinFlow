@@ -73,6 +73,9 @@ if __name__ == "__main__":
     n_epochs_tran = 150
     n_epochs_tran_refine = 300
 
+    sos_batch_size = 512
+    sos_batch_size_refine = 2048
+
     # Variance pads
     variance_pads = [5.2, 5.2, 3.1, 5.2, 5.2, 3.1]
 
@@ -169,7 +172,7 @@ if __name__ == "__main__":
         # Run SOS experiments
         sos_ll, sos_prop_times = run_trials_sos(
             traj_data_train_sos, traj_data_test, sos_figures_dir, 
-            num_trials=num_trials, gdt=gdt, n=n_sos, 
+            num_trials=num_trials, gdt=gdt, n=n_sos, batch_size=sos_batch_size, batch_size_refine=sos_batch_size_refine,
             n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, n_epochs_tran_fine=n_epochs_tran_refine,
             tran_params=sos_tran_params, init_params=sos_init_params
         )
