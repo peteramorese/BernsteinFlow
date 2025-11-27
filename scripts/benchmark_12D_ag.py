@@ -1,7 +1,7 @@
 from bernstein_flow.DistributionTransform import GaussianDistTransform
 from bernstein_flow.GPGMM import GMModel
 
-from .Systems import PlanarQuadrotor, sample_trajectories
+from .Systems import Quadcopter, sample_trajectories
 from .Visualization import plot_2d_marginals_over_time, plot_2d_particle_scatter_over_time
 
 import numpy as np
@@ -10,6 +10,7 @@ from scipy.stats import multivariate_normal
 import os
 import json
 from datetime import datetime
+from scipy.linalg import block_diag
 
 from .sos_experiment import run_trials_sos
 from .gpgmm_experiment import run_trials_gpgmm
@@ -41,10 +42,10 @@ if __name__ == "__main__":
     #   - "nf"
     # ============================================================================
     methods_to_run = [
-        #"sos",
-        "gpgmm_ekf",
-        "gpgmm_wsasos",
-        "gpgmm_grid",
+        "sos",
+        #"gpgmm_ekf",
+        #"gpgmm_wsasos",
+        #"gpgmm_grid",
         #"true_gmm_ekf",
         #"true_gmm_wsasos",
         #"true_gmm_grid",
@@ -52,10 +53,29 @@ if __name__ == "__main__":
     ]
     # ============================================================================
 
-    print("Benchmarking 6D AG system")
+    print("Benchmarking 12D AG system")
 
     # System model
-    system = PlanarQuadrotor(dt=0.01, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
+    cov_posvel = 0.03 * np.ones((6, 6))
+    np.fill_diagonal(cov_posvel, 0.06)
+    cov_angles = 0.0005 * np.eye(3)  # further reduce angle noise
+    cov_rates = 0.01 * np.eye(3)     # much lower rate noise to reduce oscillations
+    quad_covariance = block_diag(cov_posvel, cov_angles, cov_rates)
+
+    system = Quadcopter(
+        dt=0.05,
+        waypoint=np.array([15.0, 15.0, 5.0]),
+        thrust_max=30.0,
+        torque_limits=np.array([1.5, 1.5, 0.8]),  
+        covariance=quad_covariance,
+    )
+    # Tuning to keep Euler angles moderate and reduce rate oscillations
+    system.c_w = 0.15  # increase angular damping further
+    system.kp_pos = np.array([1.2, 1.2, 2.5])
+    system.kd_pos = np.array([0.8, 0.8, 1.5])
+    system.kp_ang = np.array([2.0, 2.0, 1.5])
+    system.kd_ang = np.array([2.0, 2.0, 1.0])
+    system.rate_filter_alpha = 0.2  # stronger rate smoothing
 
     # Dimension
     dim = system.dim()
@@ -66,7 +86,7 @@ if __name__ == "__main__":
     n_traj_train_sos = 4000 
     n_traj_train_gpgmm = 400
     n_traj_train_nf = 4000  # NF uses same amount as SOS
-    n_traj_test = 10000
+    n_traj_test = 1000
 
     # Number of training epochs
     n_epochs_init = 100
@@ -77,7 +97,7 @@ if __name__ == "__main__":
     sos_batch_size_refine = 2048
 
     # Variance pads
-    variance_pads = [5.2, 5.2, 3.1, 5.2, 5.2, 3.1]
+    variance_pads = [10.0, 10.0, 7.0, 10.0, 10.0, 7.0, 1.0, 1.0, 1.0, 2.5, 2.5, 2.5]
 
     # Time horizon
     training_timesteps = 10
@@ -86,7 +106,7 @@ if __name__ == "__main__":
     # Number of trials
     num_trials = 15
     
-    n_sos = 17
+    n_sos = 18
     
     # Grid method parameters (for 6D: [px, pz, theta, vx, vz, omega])
     # Bounds: [px_min, px_max, pz_min, pz_max, theta_min, theta_max, 
@@ -103,23 +123,34 @@ if __name__ == "__main__":
         "max_alpha_beta": 100.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-4
+        "regularization_weight": 2e-3
     }
     sos_init_params = {
-        "min_alpha_beta": 0.1,
+        "min_alpha_beta": 0.05,
         "max_alpha_beta": 100.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-4
+        "regularization_weight": 2e-3
     }
     ###########################################################################################
 
 
 
     def init_state_sampler():
-        # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
-        mean = np.array([0.0, 0.0, 0.1, 50.0, 0.0, 0.0])
-        cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
+        # 12D state: [px, py, pz, vx, vy, vz, phi, theta, psi, p, q, r]
+        # Preset C initial distribution
+        mean = np.array([
+            -8.0, -8.0, 0.8,
+            10.0, 5.0, 0.0,
+            0.00, 0.00, 0.00,
+            0.0, -0.1, 0.1,
+        ])
+        cov = np.diag([
+            1.5, 1.5, 0.5,
+            6.0, 6.0, 2.5,
+            0.01, 0.01, 0.01,
+            0.35, 0.35, 0.35,
+        ])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
     # Generate data
@@ -132,13 +163,23 @@ if __name__ == "__main__":
     gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data_test), variance_pads=variance_pads)
 
     # Create initial state model for true_gmm
-    init_mean = np.array([0.0, 0.0, 0.1, 50.0, 0.0, 0.0])
-    init_cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
+    init_mean = np.array([
+        -8.0, -8.0, 0.8,
+        10.0, 5.0, 0.0,
+        0.00, 0.00, 0.00,
+        0.0, -0.1, 0.1,
+    ])
+    init_cov = np.diag([
+        1.5, 1.5, 0.5,
+        6.0, 6.0, 2.5,
+        0.01, 0.01, 0.01,
+        0.35, 0.35, 0.35,
+    ])
     init_state_model = GMModel(means=[init_mean], covariances=[init_cov], weights=[1.0])
 
     # Create benchmark directory with date/time
     curr_date_time = get_date_time_str()
-    benchmark_dir = os.path.join("benchmarks", f"benchmark_6D_{curr_date_time}")
+    benchmark_dir = os.path.join("benchmarks", f"benchmark_12D_{curr_date_time}")
     os.makedirs(benchmark_dir, exist_ok=True)
     
     # Directory for SOS figures
