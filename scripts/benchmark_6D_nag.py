@@ -41,14 +41,14 @@ if __name__ == "__main__":
     #   - "nf"
     # ============================================================================
     methods_to_run = [
-        #"sos",
+        "sos",
         #"gpgmm_ekf",
         #"gpgmm_wsasos",
         #"gpgmm_grid",
         #"true_gmm_ekf",
         #"true_gmm_wsasos",
         #"true_gmm_grid",
-        "nf"
+        #"nf"
     ]
     # ============================================================================
 
@@ -56,14 +56,14 @@ if __name__ == "__main__":
 
     # System model
     system = SecondOrderDubinsTrailer(
-        dt=0.3,
+        dt=0.2,
         L_t=1.0,
         v_ref=1.0,
         k_v=1.0,
         k_theta=2.0,
         sigma_v=0.1,
-        sigma_omega=0.1,
-        cov_scale=0.2
+        sigma_omega=0.5,
+        cov_scale=0.5
     )
 
     # Dimension
@@ -104,14 +104,14 @@ if __name__ == "__main__":
 
     sos_tran_params = {
         "min_alpha_beta": 0.05,
-        "max_alpha_beta": 100.0,
+        "max_alpha_beta": 200.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-4
+        "regularization_weight": 4e-4
     }
     sos_init_params = {
-        "min_alpha_beta": 0.1,
-        "max_alpha_beta": 100.0,
+        "min_alpha_beta": 0.05,
+        "max_alpha_beta": 200.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
         "regularization_weight": 1e-4

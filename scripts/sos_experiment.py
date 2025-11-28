@@ -261,14 +261,14 @@ if __name__ == "__main__":
     #system.kd_theta = 2.0
 
     system = SecondOrderDubinsTrailer(
-        dt=0.3,
+        dt=0.2,
         L_t=1.0,
         v_ref=1.0,
         k_v=1.0,
         k_theta=2.0,
         sigma_v=0.1,
-        sigma_omega=0.1,
-        cov_scale=0.1
+        sigma_omega=0.5,
+        cov_scale=0.5
     )
 
     # Dimension
@@ -280,18 +280,18 @@ if __name__ == "__main__":
 
     # Number of training epochs
     n_epochs_init = 100
-    n_epochs_tran = 50
+    n_epochs_tran = 100
 
     tran_params={
         "min_alpha_beta": 0.05,
-        "max_alpha_beta": 100.0,
+        "max_alpha_beta": 200.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-4
+        "regularization_weight": 4e-4
     }
     init_params={
         "min_alpha_beta": 0.05,
-        "max_alpha_beta": 100.0,
+        "max_alpha_beta": 200.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
         "regularization_weight": 1e-4
@@ -323,15 +323,15 @@ if __name__ == "__main__":
     plot_2d_particle_scatter_over_time(u_traj_data_test, (0, 1), "px_pz_particles",
                                        sample_limit=10000,
                                        save_path="figures/sos_6D_nag/mc_particles_px_pz.png",
-                                       show_plot=True)
+                                       show_plot=False)
     plot_2d_particle_scatter_over_time(u_traj_data_test, (2, 3), "thetac_thetat_particles",
                                        sample_limit=10000,
                                        save_path="figures/sos_6D_nag/mc_particles_thetac_thetat.png",
-                                       show_plot=True)
+                                       show_plot=False)
     plot_2d_particle_scatter_over_time(u_traj_data_test, (4, 5), "v_omega_particles",
                                        sample_limit=10000,
                                        save_path="figures/sos_6D_nag/mc_particles_v_omega.png",
-                                       show_plot=True)
+                                       show_plot=False)
 
     negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_6D_nag", num_trials=10, gdt=gdt, n=17, n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, save_figures=True, tran_params=tran_params, init_params=init_params)
     print(f"Negative log likelihoods: {negative_log_likelihoods}, prop times: {prop_times}")
