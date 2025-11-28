@@ -8,6 +8,8 @@ import traceback
 from bernstein_flow.NormalizingFlow import ConditionalNormalizingFlow, optimize
 from bernstein_flow.Tools import create_transition_data_matrix, avg_log_likelihood, mc_auc
 from bernstein_flow.Propagate import propagate_nf
+from .Systems import SecondOrderDubinsTrailer
+from scipy.spatial import Rectangle
 
 DTYPE = torch.float32  # nflows typically uses float32
 
@@ -181,7 +183,16 @@ def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num
         negative_log_likelihoods[trial, 0] = nll_init
         
         # Calculate mc_auc for initial KDE belief
-        auc_init = mc_auc(dim, initial_kde.pdf, n_samples=10000)
+        # Use adaptive region based on particle distribution (with padding)
+        particle_mins = initial_particles.min(axis=0)
+        particle_maxes = initial_particles.max(axis=0)
+        particle_std = initial_particles.std(axis=0)
+        # Add padding: 5 standard deviations on each side
+        padding = 5.0 * particle_std
+        adaptive_mins = particle_mins - padding
+        adaptive_maxes = particle_maxes + padding
+        
+        auc_init = mc_auc(dim, initial_kde.pdf, n_samples=10000, region=Rectangle(mins=adaptive_mins, maxes=adaptive_maxes))
         print(f"  Belief 0 (initial): avg_log_likelihood = {-nll_init:.6f}, mc_auc = {auc_init:.6f}")
         
         # Propagate for remaining timesteps
@@ -212,7 +223,16 @@ def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num
                 negative_log_likelihoods[trial, i + 1] = nll
                 
                 # Calculate mc_auc for KDE belief
-                auc = mc_auc(dim, belief_kde.pdf, n_samples=10000)
+                # Use adaptive region based on particle distribution (with padding)
+                particle_mins = next_particles.min(axis=0)
+                particle_maxes = next_particles.max(axis=0)
+                particle_std = next_particles.std(axis=0)
+                # Add padding: 5 standard deviations on each side
+                padding = 5.0 * particle_std
+                adaptive_mins = particle_mins - padding
+                adaptive_maxes = particle_maxes + padding
+                
+                auc = mc_auc(dim, belief_kde.pdf, n_samples=10000, region=Rectangle(mins=adaptive_mins, maxes=adaptive_maxes))
                 print(f"  Belief {i + 1}: avg_log_likelihood = {-nll:.6f}, mc_auc = {auc:.6f}, prop_time = {prop_times[trial, i]:.4f}s")
                 
             except Exception as e:
@@ -243,13 +263,23 @@ if __name__ == "__main__":
     import os
 
     # System model
-    system = PlanarQuadrotor(dt=0.01, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
+    #system = PlanarQuadrotor(dt=0.01, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
+    system = SecondOrderDubinsTrailer(
+        dt=0.3,
+        L_t=1.0,
+        v_ref=1.0,
+        k_v=1.0,
+        k_theta=2.0,
+        sigma_v=0.1,
+        sigma_omega=0.1,
+        cov_scale=0.2
+    )
 
     # Dimension
     dim = system.dim()
 
     # Number of trajectories
-    n_traj_train = 4000
+    n_traj_train = 400
     n_traj_test = 10000
 
     # Number of training epochs
@@ -263,10 +293,14 @@ if __name__ == "__main__":
     n_particles = 1000
 
     def init_state_sampler():
-        # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
-        mean = np.array([0.0, 0.0, 0.1, 50.0, 0.0, 0.0])
+        mean = np.array([0.0, 0.0, 1.0, 0.0, 10.0, -0.5])
         cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
         return multivariate_normal.rvs(mean=mean, cov=cov)
+    #def init_state_sampler():
+    #    # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
+    #    mean = np.array([0.0, 0.0, 0.1, 50.0, 0.0, 0.0])
+    #    cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
+    #    return multivariate_normal.rvs(mean=mean, cov=cov)
 
     # Sample trajectory data
     print("Sampling training trajectories...")

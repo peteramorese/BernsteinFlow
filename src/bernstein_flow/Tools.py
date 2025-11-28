@@ -108,4 +108,14 @@ def mc_auc(dim, f, n_samples : int = 10000, region : Rectangle = None):
         X = np.random.uniform(low=region.mins, high=region.maxes, size=(n_samples, dim))
         vol = region.volume()
     p_evals = f(X)
+    
+    # Debug: check for zeros or invalid values
+    if np.all(p_evals == 0):
+        print(f"WARNING: All pdf evaluations are zero! This may indicate the sampling region is too large.")
+        print(f"  Region: mins={region.mins if region else None}, maxes={region.maxes if region else None}")
+        print(f"  Volume: {vol:.2e}, p_evals: min={p_evals.min():.2e}, max={p_evals.max():.2e}, mean={p_evals.mean():.2e}")
+    
+    if np.any(np.isnan(p_evals)) or np.any(np.isinf(p_evals)):
+        print(f"WARNING: pdf evaluations contain NaN or Inf! NaN count: {np.sum(np.isnan(p_evals))}, Inf count: {np.sum(np.isinf(p_evals))}")
+    
     return np.mean(p_evals) * vol

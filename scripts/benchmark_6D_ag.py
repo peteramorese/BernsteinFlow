@@ -42,13 +42,13 @@ if __name__ == "__main__":
     # ============================================================================
     methods_to_run = [
         #"sos",
-        "gpgmm_ekf",
-        "gpgmm_wsasos",
-        "gpgmm_grid",
+        #"gpgmm_ekf",
+        #"gpgmm_wsasos",
+        #"gpgmm_grid",
         #"true_gmm_ekf",
         #"true_gmm_wsasos",
         #"true_gmm_grid",
-        #"nf"
+        "nf"
     ]
     # ============================================================================
 
