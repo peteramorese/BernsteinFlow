@@ -287,7 +287,7 @@ if __name__ == "__main__":
     #system.kd_theta = 2.0
 
     system = CartPole(
-        dt=0.03,
+        dt=0.05,
         m_c=2.0,
         m_p=0.1,
         l=0.5,
@@ -311,7 +311,7 @@ if __name__ == "__main__":
         "max_alpha_beta": 400.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 4e-4
+        "regularization_weight": 1e-4
     }
     init_params={
         "min_alpha_beta": 0.00,
@@ -338,7 +338,7 @@ if __name__ == "__main__":
 
     def init_state_sampler():
         # 4D state: [cart_pos, cart_vel, pole_angle, pole_angular_vel] near equilibrium
-        mean = np.array([0.0, 0.0, 0.0, 0.0])
+        mean = np.array([0.0, 5.0, 0.0, 0.0])
         cov = np.diag([0.1, 0.1, 0.1, 0.1])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
@@ -360,5 +360,5 @@ if __name__ == "__main__":
                                        sample_limit=10000,
                                        save_path="figures/sos_4D/mc_particles_pole_angle_pole_angular_vel.png",
                                        show_plot=False)
-    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_4D", num_trials=10, gdt=gdt, n=17, n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, save_figures=True, tran_params=tran_params, init_params=init_params)
+    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_4D", num_trials=10, gdt=gdt, n=15, n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, save_figures=True, tran_params=tran_params, init_params=init_params)
     print(f"Negative log likelihoods: {negative_log_likelihoods}, prop times: {prop_times}")

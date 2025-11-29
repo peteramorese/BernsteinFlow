@@ -41,14 +41,14 @@ if __name__ == "__main__":
     #   - "nf"
     # ============================================================================
     methods_to_run = [
-        "sos",
+        #"sos",
         #"gpgmm_ekf",
         #"gpgmm_wsasos",
         #"gpgmm_grid",
         #"true_gmm_ekf",
         #"true_gmm_wsasos",
         #"true_gmm_grid",
-        #"nf"
+        "nf"
     ]
     # ============================================================================
 
@@ -93,7 +93,7 @@ if __name__ == "__main__":
     # Number of trials
     num_trials = 5
     
-    n_sos = 17
+    n_sos = 20
 
     # Number of mixands of NF beliefs
     gmm_n_components_nf = 50
