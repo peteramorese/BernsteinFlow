@@ -4,38 +4,134 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 import time
 import traceback
+import matplotlib.pyplot as plt
+import os
 
 from bernstein_flow.NormalizingFlow import ConditionalNormalizingFlow, optimize
 from bernstein_flow.Tools import create_transition_data_matrix, avg_log_likelihood, mc_auc
 from bernstein_flow.Propagate import propagate_nf
 from .Systems import SecondOrderDubinsTrailer
+from .Visualization import plot_2d_particle_scatter_over_time
 from scipy.spatial import Rectangle
+from sklearn.mixture import GaussianMixture
 
 DTYPE = torch.float32  # nflows typically uses float32
 
 
-def kde_from_particles(particles: np.ndarray, bandwidth="scott"):
+#def kde_from_particles(particles: np.ndarray, bandwidth="scott"):
+#    """
+#    Fit a Gaussian kernel density estimator to a set of particles.
+#
+#    Args:
+#        particles: array of shape (n_particles, dim)
+#        bandwidth: 'scott', 'silverman', or float / callable passed to gaussian_kde.bw_method
+#
+#    Returns:
+#        kde: an object with methods `pdf(x)` and `logpdf(x)`.
+#
+#        - pdf(x): x can be shape (dim,) or (n_points, dim)
+#                  returns scalar or array of shape (n_points,)
+#    """
+#    particles = np.asarray(particles)
+#
+#    # Clamp all particles to be within 10 standard deviations of the mean
+#    mean = particles.mean(axis=0)
+#    std = particles.std(axis=0)
+#    particles = np.clip(particles, mean - 5 * std, mean + 5 * std)
+#
+#    assert particles.ndim == 2, f"particles must be 2D, got {particles.shape}"
+#    dim = particles.shape[1]
+#
+#    # gaussian_kde expects shape (dim, n_samples)
+#    samples = particles.T  # (dim, n_particles)
+#
+#    kde = gaussian_kde(samples, bw_method=bandwidth)
+#
+#    #def regularize_kde_covariance(kde, eps=1e-6):
+#    #    """Add eps*I to the KDE covariance to prevent blow-ups."""
+#    #    cov = kde.covariance
+#    #    d = cov.shape[0]
+#
+#    #    # Regularize covariance
+#    #    cov_reg = cov + eps * np.eye(d)
+#
+#    #    # Store updates back into KDE
+#    #    kde.covariance = cov_reg
+#    #    kde.inv_cov = np.linalg.inv(cov_reg)
+#
+#    #    # Recompute normalization constant
+#    #    det = np.linalg.det(cov_reg)
+#    #    kde._norm_factor = np.sqrt(det * (2 * np.pi) ** d) * kde.n
+#
+#    #regularize_kde_covariance(kde, eps=1e-6)
+#
+#    class KDEWrapper:
+#        def __init__(self, kde, dim):
+#            self.kde = kde
+#            self.dim = dim
+#
+#        def pdf(self, x: np.ndarray) -> np.ndarray:
+#            x = np.asarray(x)
+#            if x.ndim == 1:
+#                x = x.reshape(1, -1)
+#            assert x.shape[1] == self.dim, f"Expected dim {self.dim}, got {x.shape[1]}"
+#            # gaussian_kde wants (dim, n_points)
+#            return self.kde.evaluate(x.T)
+#
+#        def logpdf(self, x: np.ndarray) -> np.ndarray:
+#            p = self.pdf(x)
+#            return np.log(p + 1e-300)  # avoid log(0)
+#
+#    return KDEWrapper(kde, dim)
+
+def kde_from_particles(
+    particles: np.ndarray,
+    bandwidth="scott",
+    min_bw_factor = 0.5
+):
     """
     Fit a Gaussian kernel density estimator to a set of particles.
 
     Args:
         particles: array of shape (n_particles, dim)
         bandwidth: 'scott', 'silverman', or float / callable passed to gaussian_kde.bw_method
+        min_bw_factor: if not None, enforce that the scalar bandwidth factor is at least this value.
+                       This applies to 'scott', 'silverman', or a scalar bandwidth.
 
     Returns:
         kde: an object with methods `pdf(x)` and `logpdf(x)`.
-
-        - pdf(x): x can be shape (dim,) or (n_points, dim)
-                  returns scalar or array of shape (n_points,)
     """
     particles = np.asarray(particles)
+
+    mean = particles.mean(axis=0)
+    std = particles.std(axis=0)
+    particles = np.clip(particles, mean - 5 * std, mean + 5 * std)
+
     assert particles.ndim == 2, f"particles must be 2D, got {particles.shape}"
     dim = particles.shape[1]
 
     # gaussian_kde expects shape (dim, n_samples)
     samples = particles.T  # (dim, n_particles)
 
-    kde = gaussian_kde(samples, bw_method=bandwidth)
+    # Build bw_method with optional minimum factor
+    bw_method = bandwidth
+    if min_bw_factor is not None:
+        # Case 1: bandwidth is one of the built-in rules
+        if isinstance(bandwidth, str) and bandwidth in ("scott", "silverman"):
+            def bw(kde):
+                if bandwidth == "scott":
+                    base = kde.scotts_factor()
+                else:
+                    base = kde.silverman_factor()
+                return max(base, min_bw_factor)
+            bw_method = bw
+
+        # Case 2: bandwidth is a scalar
+        elif isinstance(bandwidth, (int, float)):
+            bw_method = max(float(bandwidth), min_bw_factor)
+        # If it's a callable, we leave it alone and assume you know what you're doing
+
+    kde = gaussian_kde(samples, bw_method=bw_method)
 
     class KDEWrapper:
         def __init__(self, kde, dim):
@@ -56,10 +152,149 @@ def kde_from_particles(particles: np.ndarray, bandwidth="scott"):
 
     return KDEWrapper(kde, dim)
 
+def gmm_from_particles(particles: np.ndarray,
+                       n_components: int = 100,
+                       reg_covar: float = 1e-4):
+    """
+    Fit a Gaussian Mixture Model to a set of particles.
+
+    Args:
+        particles: array of shape (n_particles, dim)
+        n_components: number of Gaussian components (default: 3)
+        reg_covar: regularization for covariance matrices (default: 1e-4)
+
+    Returns:
+        gmm: an object with methods `pdf(x)` and `logpdf(x)`.
+    """
+    particles = np.asarray(particles)
+    assert particles.ndim == 2, f"particles must be 2D, got {particles.shape}"
+    
+    # Ensure we have enough particles for the number of components
+    n_particles = particles.shape[0]
+    n_components = min(n_components, n_particles)
+    
+    gmm = GaussianMixture(
+        n_components=n_components,
+        covariance_type="full",
+        reg_covar=reg_covar,
+        max_iter=500
+    )
+    gmm.fit(particles)
+
+    class GMMDensity:
+        def __init__(self, gmm, dim):
+            self.gmm = gmm
+            self.dim = dim
+
+        def pdf(self, x):
+            x = np.asarray(x)
+            if x.ndim == 1:
+                x = x.reshape(1, -1)
+            assert x.shape[1] == self.dim, f"Expected dim {self.dim}, got {x.shape[1]}"
+            return np.exp(self.gmm.score_samples(x))
+
+        def logpdf(self, x):
+            x = np.asarray(x)
+            if x.ndim == 1:
+                x = x.reshape(1, -1)
+            assert x.shape[1] == self.dim, f"Expected dim {self.dim}, got {x.shape[1]}"
+            return self.gmm.score_samples(x)
+
+    return GMMDensity(gmm, particles.shape[1])
+
+
+def plot_2d_marginals_over_time_nf(beliefs_particles_list, keep_pair, pair_name,
+                                   resolution=60, save_path=None, show_plot=True, gmm_n_components=3, gmm_reg_covar=1e-4):
+    """
+    Plot 2D marginal densities over time for given dimension pair using particle beliefs.
+    This creates proper marginals by extracting the 2D coordinates and creating 2D GMMs.
+    
+    Args:
+        beliefs_particles_list: List of particle arrays, each of shape (n_particles, dim)
+        keep_pair: tuple of two indices to keep (others are integrated out)
+        pair_name: string for titles/filenames
+        resolution: grid resolution
+        save_path: path to save figure
+        show_plot: whether to show the plot
+        gmm_n_components: number of components for GMM
+        gmm_reg_covar: regularization for GMM covariance
+    """
+    if len(beliefs_particles_list) == 0:
+        return
+    
+    keep_pair = tuple(int(i) for i in keep_pair)
+    
+    # Determine grid bounds from all particles
+    all_particles_2d = []
+    for particles in beliefs_particles_list:
+        particles_2d = particles[:, keep_pair]
+        all_particles_2d.append(particles_2d)
+    
+    all_particles_2d = np.vstack(all_particles_2d)
+    
+    # Add padding
+    x_margin = (all_particles_2d[:, 0].max() - all_particles_2d[:, 0].min()) * 0.1
+    y_margin = (all_particles_2d[:, 1].max() - all_particles_2d[:, 1].min()) * 0.1
+    
+    x_min = all_particles_2d[:, 0].min() - x_margin
+    x_max = all_particles_2d[:, 0].max() + x_margin
+    y_min = all_particles_2d[:, 1].min() - y_margin
+    y_max = all_particles_2d[:, 1].max() + y_margin
+    
+    xs = np.linspace(x_min, x_max, resolution)
+    ys = np.linspace(y_min, y_max, resolution)
+    XX, YY = np.meshgrid(xs, ys)
+    pts_2d = np.stack([XX.ravel(), YY.ravel()], axis=1)
+    
+    # Evaluate each belief separately with individual color scaling
+    grids = []
+    for particles in beliefs_particles_list:
+        # Extract 2D coordinates for the marginal
+        particles_2d = particles[:, keep_pair]
+        
+        # Create 2D GMM from the marginal particles
+        gmm_2d = gmm_from_particles(particles_2d, n_components=gmm_n_components, reg_covar=gmm_reg_covar)
+        
+        # Evaluate on grid
+        zz = gmm_2d.pdf(pts_2d)
+        Z = zz.reshape(resolution, resolution)
+        grids.append(Z)
+    
+    # Layout
+    t = len(beliefs_particles_list)
+    n_cols = min(5, t)
+    n_rows = (t + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3.2*n_cols, 3.0*n_rows), squeeze=False)
+    for k, Z in enumerate(grids):
+        r = k // n_cols
+        c = k % n_cols
+        ax = axes[r][c]
+        # Individual color scaling for each subplot
+        cf = ax.contourf(XX, YY, Z, levels=30)
+        ax.set_title(f"t={k}")
+        ax.set_xlabel(f"x[{keep_pair[0]}]")
+        ax.set_ylabel(f"x[{keep_pair[1]}]")
+    # Hide unused axes
+    for k in range(t, n_rows*n_cols):
+        r = k // n_cols
+        c = k % n_cols
+        axes[r][c].axis('off')
+    fig.suptitle(f"2D marginal over time: {pair_name}")
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    # Note: No global colorbar since each subplot has its own scale
+    if save_path is not None:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        fig.savefig(save_path, dpi=150)
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
+
 
 def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num_trials,
                   n_particles=1000, n_epochs_tran=20, num_layers=8, hidden_features=128,
-                  use_gpu=True, batch_size=512, n_added_samples=1, kde_bandwidth="scott"):
+                  use_gpu=True, batch_size=512, n_added_samples=1, gmm_n_components=100, gmm_reg_covar=1e-4,
+                  save_figures=False):
     """
     Run multiple trials of training ConditionalNormalizingFlow, belief propagation, and evaluation.
     
@@ -76,6 +311,8 @@ def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num
         Directory to save figures (only saved for first trial).
     num_trials : int
         Number of trials to run.
+    save_figures : bool
+        Whether to save figures (default: False).
     n_particles : int
         Number of particles to use for belief representation (default: 1000).
     n_epochs_tran : int
@@ -90,8 +327,10 @@ def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num
         Batch size for training (default: 512).
     n_added_samples : int
         Number of samples to generate per particle during propagation (default: 1).
-    kde_bandwidth : str or float
-        Bandwidth method for KDE ('scott', 'silverman', or float, default: 'scott').
+    gmm_n_components : int
+        Number of components for Gaussian Mixture Model (default: 3).
+    gmm_reg_covar : float
+        Regularization for GMM covariance matrices (default: 1e-4).
     
     Returns:
     --------
@@ -171,6 +410,22 @@ def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num
         # Initialize belief particles from initial state distribution
         print("Initializing belief particles from initial state distribution...")
         initial_particles = np.array([init_state_sampler() for _ in range(n_particles)])
+        
+        # Remove any particles that are infinite or NaN
+        valid_mask = np.isfinite(initial_particles).all(axis=1)
+        if not valid_mask.all():
+            n_invalid = (~valid_mask).sum()
+            initial_particles = initial_particles[valid_mask]
+            if len(initial_particles) == 0:
+                print(f"Error: All initial particles are invalid. Skipping trial {trial + 1}.")
+                # Set all NLL and prop_times to NaN for this trial
+                for k in range(num_timesteps):
+                    negative_log_likelihoods[trial, k] = np.nan
+                    if k < num_timesteps - 1:
+                        prop_times[trial, k] = np.nan
+                continue
+            elif len(initial_particles) < n_particles * 0.9:
+                print(f"Warning: Removed {n_invalid}/{n_particles} invalid initial particles ({len(initial_particles)} remaining)")
 
         # Propagate beliefs forward using particle sets
         print("Propagating beliefs...")
@@ -178,11 +433,11 @@ def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num
         
         # Evaluate initial belief log likelihood
         print("Evaluating log likelihoods...")
-        initial_kde = kde_from_particles(initial_particles, bandwidth=kde_bandwidth)
-        nll_init = -avg_log_likelihood(test_data[0], initial_kde.pdf)
+        initial_gmm = gmm_from_particles(initial_particles, n_components=gmm_n_components, reg_covar=gmm_reg_covar)
+        nll_init = -avg_log_likelihood(test_data[0], initial_gmm.pdf)
         negative_log_likelihoods[trial, 0] = nll_init
         
-        # Calculate mc_auc for initial KDE belief
+        # Calculate mc_auc for initial GMM belief
         # Use adaptive region based on particle distribution (with padding)
         particle_mins = initial_particles.min(axis=0)
         particle_maxes = initial_particles.max(axis=0)
@@ -192,13 +447,12 @@ def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num
         adaptive_mins = particle_mins - padding
         adaptive_maxes = particle_maxes + padding
         
-        auc_init = mc_auc(dim, initial_kde.pdf, n_samples=10000, region=Rectangle(mins=adaptive_mins, maxes=adaptive_maxes))
+        auc_init = mc_auc(dim, initial_gmm.pdf, n_samples=10000, region=Rectangle(mins=adaptive_mins, maxes=adaptive_maxes))
         print(f"  Belief 0 (initial): avg_log_likelihood = {-nll_init:.6f}, mc_auc = {auc_init:.6f}")
         
         # Propagate for remaining timesteps
         for i in range(num_timesteps - 1):
             current_particles = beliefs_particles[-1]
-            
             start = time.time()
             try:
                 # Propagate using propagate_nf function
@@ -214,15 +468,39 @@ def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num
                     device=device
                 )
                 
+                # Remove particles that are infinite or NaN before clipping
+                valid_mask = np.isfinite(next_particles).all(axis=1)
+                if not valid_mask.all():
+                    n_invalid = (~valid_mask).sum()
+                    n_before = len(next_particles)
+                    next_particles = next_particles[valid_mask]
+                    n_after = len(next_particles)
+                    if n_after == 0:
+                        print(f"Warning: All particles invalid after filtering at timestep {i+1}")
+                        # Set the failed propagation time to NaN
+                        prop_times[trial, i] = np.nan
+                        # Set remaining NLL and prop_times to NaN
+                        for remaining_k in range(i+1, num_timesteps):
+                            negative_log_likelihoods[trial, remaining_k] = np.nan
+                            if remaining_k < num_timesteps - 1:
+                                prop_times[trial, remaining_k] = np.nan
+                        break
+                    elif n_after < n_before * 0.5:
+                        print(f"Warning: Removed {n_invalid}/{n_before} invalid particles at timestep {i+1} ({n_after} remaining)")
+
+                mean = next_particles.mean(axis=0)
+                std = next_particles.std(axis=0)
+                next_particles = np.clip(next_particles, -100, 100)
+                
                 prop_times[trial, i] = time.time() - start
                 beliefs_particles.append(next_particles)
                 
-                # Convert particles to PDF using KDE and evaluate log likelihood
-                belief_kde = kde_from_particles(next_particles, bandwidth=kde_bandwidth)
-                nll = -avg_log_likelihood(test_data[i + 1], belief_kde.pdf)
+                # Convert particles to PDF using GMM and evaluate log likelihood
+                belief_gmm = gmm_from_particles(next_particles, n_components=gmm_n_components, reg_covar=gmm_reg_covar)
+                nll = -avg_log_likelihood(test_data[i + 1], belief_gmm.pdf)
                 negative_log_likelihoods[trial, i + 1] = nll
                 
-                # Calculate mc_auc for KDE belief
+                # Calculate mc_auc for GMM belief
                 # Use adaptive region based on particle distribution (with padding)
                 particle_mins = next_particles.min(axis=0)
                 particle_maxes = next_particles.max(axis=0)
@@ -232,8 +510,9 @@ def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num
                 adaptive_mins = particle_mins - padding
                 adaptive_maxes = particle_maxes + padding
                 
-                auc = mc_auc(dim, belief_kde.pdf, n_samples=10000, region=Rectangle(mins=adaptive_mins, maxes=adaptive_maxes))
-                print(f"  Belief {i + 1}: avg_log_likelihood = {-nll:.6f}, mc_auc = {auc:.6f}, prop_time = {prop_times[trial, i]:.4f}s")
+                #auc = mc_auc(dim, belief_gmm.pdf, n_samples=10000, region=Rectangle(mins=adaptive_mins, maxes=adaptive_maxes))
+                #print(f"  Belief {i + 1}: avg_log_likelihood = {-nll:.6f}, mc_auc = {auc:.6f}, prop_time = {prop_times[trial, i]:.4f}s")
+                print(f"  Belief {i + 1}: avg_log_likelihood = {-nll:.6f}, prop_time = {prop_times[trial, i]:.4f}s")
                 
             except Exception as e:
                 print(f"Propagation failed at timestep {i+1}: {e}")
@@ -250,6 +529,34 @@ def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num
         
         print("\nDone propagating beliefs\n")
         
+        # Save figures only for the first trial
+        if save_figures and trial == 0:
+            os.makedirs(save_directory, exist_ok=True)
+            print(f"\nSaving figures to {save_directory}...")
+            
+            # Plot 2D marginals (same as sos_experiment)
+            # Using state indices: [0:px, 1:pz, 2:thetac, 3:thetat, 4:v, 5:omega]
+            # beliefs_particles already contains all the particle sets we need
+            plot_2d_marginals_over_time_nf(beliefs_particles, (0, 1), "px_pz",
+                                          resolution=60,
+                                          save_path=os.path.join(save_directory, "marginals_px_pz.png"),
+                                          show_plot=False,
+                                          gmm_n_components=gmm_n_components,
+                                          gmm_reg_covar=gmm_reg_covar)
+            plot_2d_marginals_over_time_nf(beliefs_particles, (2, 3), "thetac_thetat",
+                                          resolution=60,
+                                          save_path=os.path.join(save_directory, "marginals_thetac_thetat.png"),
+                                          show_plot=False,
+                                          gmm_n_components=gmm_n_components,
+                                          gmm_reg_covar=gmm_reg_covar)
+            plot_2d_marginals_over_time_nf(beliefs_particles, (4, 5), "v_omega",
+                                          resolution=60,
+                                          save_path=os.path.join(save_directory, "marginals_v_omega.png"),
+                                          show_plot=False,
+                                          gmm_n_components=gmm_n_components,
+                                          gmm_reg_covar=gmm_reg_covar)
+            print("Figures saved.\n")
+        
         # Clean up memory
         del transition_model, beliefs_particles
         torch.cuda.empty_cache() if use_gpu and torch.cuda.is_available() else None
@@ -265,25 +572,25 @@ if __name__ == "__main__":
     # System model
     #system = PlanarQuadrotor(dt=0.01, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
     system = SecondOrderDubinsTrailer(
-        dt=0.3,
+        dt=0.2,
         L_t=1.0,
         v_ref=1.0,
         k_v=1.0,
         k_theta=2.0,
         sigma_v=0.1,
-        sigma_omega=0.1,
-        cov_scale=0.2
+        sigma_omega=0.5,
+        cov_scale=0.5
     )
 
     # Dimension
     dim = system.dim()
 
     # Number of trajectories
-    n_traj_train = 400
+    n_traj_train = 4000
     n_traj_test = 10000
 
     # Number of training epochs
-    n_epochs_tran = 100
+    n_epochs_tran = 50
 
     # Time horizon
     training_timesteps = 10
@@ -329,7 +636,9 @@ if __name__ == "__main__":
         use_gpu=True,
         batch_size=512,
         n_added_samples=1,
-        kde_bandwidth="scott"
+        gmm_n_components=50,
+        gmm_reg_covar=1e-4,
+        save_figures=False
     )
     
     print(f"\n{'='*60}")
