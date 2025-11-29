@@ -93,7 +93,7 @@ if __name__ == "__main__":
     # Number of trials
     num_trials = 15
     
-    n_sos = 17
+    n_sos = 20
 
     # Number of mixands of NF beliefs
     gmm_n_components_nf = 50
