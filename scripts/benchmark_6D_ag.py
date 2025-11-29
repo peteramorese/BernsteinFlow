@@ -88,6 +88,9 @@ if __name__ == "__main__":
     
     n_sos = 17
     
+    # Number of mixands of NF beliefs
+    gmm_n_components_nf = 50
+    
     # Grid method parameters (for 6D: [px, pz, theta, vx, vz, omega])
     # Bounds: [px_min, px_max, pz_min, pz_max, theta_min, theta_max, 
     #          vx_min, vx_max, vz_min, vz_max, omega_min, omega_max]
@@ -286,7 +289,7 @@ if __name__ == "__main__":
             use_gpu=True,
             batch_size=512,
             n_added_samples=1,
-            kde_bandwidth="scott"
+            gmm_n_components=gmm_n_components_nf
         )
 
     # Prepare data for JSON
