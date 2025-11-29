@@ -5,7 +5,7 @@ from sos_form.SumBetaModel import SumBetaSOSModel
 
 from bernstein_flow.Tools import create_transition_data_matrix, mc_auc, avg_log_likelihood
 
-from .Systems import CartPole, sample_trajectories, sample_io_pairs
+from .Systems import KinematicCar4D, CartPole, sample_trajectories, sample_io_pairs
 from .Visualization import plot_2d_marginals_over_time, plot_2d_particle_scatter_over_time
 
 import numpy as np
@@ -246,13 +246,13 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
             #                            resolution=60,
             #                            save_path=os.path.join(save_directory, "marginals_v_omega.png"),
             #                            show_plot=False)
-            plot_2d_marginals_over_time(beliefs, (0, 1), "cart_pos_cart_vel",
+            plot_2d_marginals_over_time(beliefs, (0, 1), "car_pos_car_vel",
                                         resolution=60,
-                                        save_path=os.path.join(save_directory, "marginals_cart_pos_cart_vel.png"),
+                                        save_path=os.path.join(save_directory, "marginals_car_pos_car_vel.png"),
                                         show_plot=False)
-            plot_2d_marginals_over_time(beliefs, (2, 3), "pole_angle_pole_angular_vel",
+            plot_2d_marginals_over_time(beliefs, (2, 3), "car_heading_car_angular_vel",
                                         resolution=60,
-                                        save_path=os.path.join(save_directory, "marginals_pole_angle_pole_angular_vel.png"),
+                                        save_path=os.path.join(save_directory, "marginals_car_heading_car_angular_vel.png"),
                                         show_plot=False)
             print("Figures saved.\n")
         
@@ -286,13 +286,23 @@ if __name__ == "__main__":
     #system.kp_theta = 3.0
     #system.kd_theta = 2.0
 
-    system = CartPole(
-        dt=0.05,
-        m_c=2.0,
-        m_p=0.1,
-        l=0.5,
-        g=9.81,
-        covariance=0.01*np.eye(4)
+    #system = CartPole(
+    #    dt=0.05,
+    #    m_c=2.0,
+    #    m_p=0.1,
+    #    l=0.5,
+    #    g=9.81,
+    #    covariance=0.01*np.eye(4)
+    #)
+
+    system = KinematicCar4D(
+        dt=0.3,
+        v_ref=1.0,
+        theta_ref=-0.5,
+        k_v=1.0,
+        k_theta=3.0,
+        sigma_v=0.5,
+        sigma_omega=0.5,
     )
 
     # Dimension
@@ -338,7 +348,8 @@ if __name__ == "__main__":
 
     def init_state_sampler():
         # 4D state: [cart_pos, cart_vel, pole_angle, pole_angular_vel] near equilibrium
-        mean = np.array([0.0, 5.0, 0.0, 0.0])
+        #mean = np.array([0.0, 5.0, 0.0, 0.0])
+        mean = np.array([0.0, 5.0, 0.0, 1.0])
         cov = np.diag([0.1, 0.1, 0.1, 0.1])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
@@ -352,13 +363,13 @@ if __name__ == "__main__":
     u_traj_data_test = [gdt.X_to_U(X_data) for X_data in traj_data_test]
 
     os.makedirs("figures/sos_4D", exist_ok=True)
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (0, 1), "cart_pos_cart_vel_particles",
+    plot_2d_particle_scatter_over_time(u_traj_data_test, (0, 1), "car_pos_car_vel_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_4D/mc_particles_cart_pos_cart_vel.png",
+                                       save_path="figures/sos_4D/mc_particles_car_pos_car_vel.png",
                                        show_plot=False)
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (2, 3), "pole_angle_pole_angular_vel_particles",
+    plot_2d_particle_scatter_over_time(u_traj_data_test, (2, 3), "car_heading_car_angular_vel_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_4D/mc_particles_pole_angle_pole_angular_vel.png",
+                                       save_path="figures/sos_4D/mc_particles_car_heading_car_angular_vel.png",
                                        show_plot=False)
     negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_4D", num_trials=10, gdt=gdt, n=15, n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, save_figures=True, tran_params=tran_params, init_params=init_params)
     print(f"Negative log likelihoods: {negative_log_likelihoods}, prop times: {prop_times}")

@@ -42,14 +42,14 @@ if __name__ == "__main__":
     #   - "nf"
     # ============================================================================
     methods_to_run = [
-        "sos",
+        #"sos",
         # "gpgmm_ekf",
         # "gpgmm_wsasos",
         # "gpgmm_grid",
         # "true_gmm_ekf",
         # "true_gmm_wsasos",
         # "true_gmm_grid",
-        #"nf",
+        "nf",
     ]
     # ============================================================================
 
@@ -324,6 +324,7 @@ if __name__ == "__main__":
             batch_size=512,
             n_added_samples=1,
             gmm_n_components=gmm_n_components_nf,
+            gmm_reg_covar=1e-3,
         )
 
     # Prepare data for JSON

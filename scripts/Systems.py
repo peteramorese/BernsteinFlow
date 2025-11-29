@@ -365,6 +365,127 @@ class CartPole(DiscreteTimeStochasticSystem):
 
         return np.array([p_next, p_dot_next, theta_next, theta_dot_next]) + v
 
+class KinematicCar4D(DiscreteTimeStochasticSystem):
+    """
+    4D kinematic car with complex multiplicative noise.
+
+    State x = [px, py, theta, v]
+    Noise v = [xi_v, xi_omega, xi_slip] (3D non-Gaussian mixture).
+
+    Dynamics (discrete time, forward Euler):
+
+        px_{k+1}     = px_k + dt * v_eff * cos(theta_k)
+        py_{k+1}     = py_k + dt * v_eff * sin(theta_k)
+        theta_{k+1}  = theta_k + dt * omega_noisy
+        v_{k+1}      = v_k + dt * u_v_noisy
+
+    where
+
+        v_eff        = v_k * (1 + sigma_slip * xi_slip)
+        u_v          = k_v * (v_ref - v_k)
+        u_v_noisy    = u_v * (1 + sigma_v * xi_v)
+        omega        = k_theta * (theta_ref - theta_k)
+        omega_noisy  = omega * (1 + sigma_omega * xi_omega)
+    """
+
+    def __init__(
+        self,
+        dt: float,
+        v_ref: float = 1.0,
+        theta_ref: float = 0.0,
+        k_v: float = 1.0,
+        k_theta: float = 1.0,
+        sigma_v: float = 0.1,
+        sigma_omega: float = 0.1,
+        sigma_slip: float = 0.1,
+        cov_scale: float = 0.01,
+    ):
+        # 3D non-Gaussian noise for [xi_v, xi_omega, xi_slip]
+        n_components = 3
+        means = [
+            np.array([0.0, 0.0, 0.0]),
+            np.array([0.5, -0.2, 0.3]),
+            np.array([-0.3, 0.4, -0.1]),
+        ]
+        covariances = [
+            cov_scale * np.array([
+                [1.0,  0.1,  0.0],
+                [0.1,  1.0, -0.2],
+                [0.0, -0.2,  1.0],
+            ]),
+            cov_scale * np.array([
+                [1.0, -0.3,  0.2],
+                [-0.3, 1.0,  0.1],
+                [0.2,  0.1,  1.0],
+            ]),
+            cov_scale * np.array([
+                [1.0,  0.2, -0.1],
+                [0.2,  1.0,  0.3],
+                [-0.1, 0.3,  1.0],
+            ]),
+        ]
+        mix_probs = [0.5, 0.3, 0.2]
+
+        def v_dist():
+            component = np.random.choice(len(mix_probs), size=1, p=mix_probs)[0]
+            return stats.multivariate_normal.rvs(
+                mean=means[component],
+                cov=covariances[component],
+            )
+
+        # 4D state, stochastic input is 3D from v_dist()
+        super().__init__(dim=4, v_dist=v_dist)
+
+        self.dt = dt
+
+        # Control design params
+        self.v_ref = v_ref
+        self.theta_ref = theta_ref
+        self.k_v = k_v
+        self.k_theta = k_theta
+
+        # Noise scales
+        self.sigma_v = sigma_v
+        self.sigma_omega = sigma_omega
+        self.sigma_slip = sigma_slip
+
+    def wrap_angle(self, angle: float) -> float:
+        """Wrap angle to (-pi, pi]."""
+        return (angle + np.pi) % (2 * np.pi) - np.pi
+
+    def next_state(self, x: np.ndarray, v: np.ndarray):
+        """
+        x: shape (4,) = [px, py, theta, vel]
+        v: shape (3,) = [xi_v, xi_omega, xi_slip]
+        """
+        px, py, theta, speed = x
+        xi_v, xi_omega, xi_slip = v
+
+        dt = self.dt
+
+        # Closed-loop speed control
+        u_v = self.k_v * (self.v_ref - speed)
+        u_v_noisy = u_v * (1.0 + self.sigma_v * xi_v)
+
+        # Closed-loop heading control (toward theta_ref)
+        omega = self.k_theta * (self.theta_ref - theta)
+        omega_noisy = omega * (1.0 + self.sigma_omega * xi_omega)
+
+        # Slip / traction noise on the effective speed used in position update
+        v_eff = speed * (1.0 + self.sigma_slip * xi_slip)
+
+        # Discrete-time updates
+        px_next = px + dt * v_eff * np.cos(theta)
+        py_next = py + dt * v_eff * np.sin(theta)
+
+        theta_next = theta + dt * omega_noisy
+        theta_next = self.wrap_angle(theta_next)
+
+        speed_next = speed + dt * u_v_noisy
+
+        return np.array([px_next, py_next, theta_next, speed_next])
+
+
 
 class PlanarQuadrotor(DiscreteTimeStochasticSystem):
     def __init__(self, dt: float,

@@ -204,7 +204,7 @@ def gmm_from_particles(particles: np.ndarray,
 
 
 def plot_2d_marginals_over_time_nf(beliefs_particles_list, keep_pair, pair_name,
-                                   resolution=60, save_path=None, show_plot=True, gmm_n_components=50, gmm_reg_covar=1e-4):
+                                   resolution=60, save_path=None, show_plot=True, gmm_n_components=50, gmm_reg_covar=1e-3):
     """
     Plot 2D marginal densities over time for given dimension pair using particle beliefs.
     This creates proper marginals by extracting the 2D coordinates and creating 2D GMMs.
@@ -293,7 +293,7 @@ def plot_2d_marginals_over_time_nf(beliefs_particles_list, keep_pair, pair_name,
 
 def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num_trials,
                   n_particles=1000, n_epochs_tran=20, num_layers=8, hidden_features=128,
-                  use_gpu=True, batch_size=512, n_added_samples=1, gmm_n_components=50, gmm_reg_covar=1e-4,
+                  use_gpu=True, batch_size=512, n_added_samples=1, gmm_n_components=50, gmm_reg_covar=1e-3,
                   save_figures=False):
     """
     Run multiple trials of training ConditionalNormalizingFlow, belief propagation, and evaluation.
@@ -330,7 +330,7 @@ def run_trials_nf(train_data, test_data, init_state_sampler, save_directory, num
     gmm_n_components : int
         Number of components for Gaussian Mixture Model (default: 3).
     gmm_reg_covar : float
-        Regularization for GMM covariance matrices (default: 1e-4).
+        Regularization for GMM covariance matrices (default: 1e-3).
     
     Returns:
     --------
