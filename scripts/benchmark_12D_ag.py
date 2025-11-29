@@ -42,14 +42,14 @@ if __name__ == "__main__":
     #   - "nf"
     # ============================================================================
     methods_to_run = [
-        #"sos",
+        "sos",
         #"gpgmm_ekf",
         #"gpgmm_wsasos",
         #"gpgmm_grid",
         #"true_gmm_ekf",
         #"true_gmm_wsasos",
         #"true_gmm_grid",
-        "nf"
+        #"nf"
     ]
     # ============================================================================
 
@@ -93,8 +93,8 @@ if __name__ == "__main__":
     n_epochs_tran = 150
     n_epochs_tran_refine = 300
 
-    #sos_batch_size = 512
-    #sos_batch_size_refine = 2048
+    sos_batch_size = 256
+    sos_batch_size_refine = 2048
 
     # Variance pads
     variance_pads = [10.0, 10.0, 7.0, 10.0, 10.0, 7.0, 1.0, 1.0, 1.0, 2.5, 2.5, 2.5]
@@ -106,7 +106,7 @@ if __name__ == "__main__":
     # Number of trials
     num_trials = 15
     
-    n_sos = 17
+    n_sos = 18
     
     # Grid method parameters (for 6D: [px, pz, theta, vx, vz, omega])
     # Bounds: [px_min, px_max, pz_min, pz_max, theta_min, theta_max, 
@@ -119,18 +119,18 @@ if __name__ == "__main__":
     n_components_init_wsasos = 10
 
     sos_tran_params = {
-        "min_alpha_beta": 0.0,
-        "max_alpha_beta": 100.0,
-        "mu": 0.05,
+        "min_alpha_beta": 0.2,
+        "max_alpha_beta": 80.0,
+        "mu": 0.1,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 2e-3
+        "regularization_weight": 4e-3
     }
     sos_init_params = {
-        "min_alpha_beta": 0.0,
-        "max_alpha_beta": 100.0,
-        "mu": 0.05,
+        "min_alpha_beta": 0.2,
+        "max_alpha_beta": 60.0,
+        "mu": 0.1,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 2e-3
+        "regularization_weight": 4e-4
     }
     ###########################################################################################
 

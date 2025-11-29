@@ -5,7 +5,7 @@ from sos_form.SumBetaModel import SumBetaSOSModel
 
 from bernstein_flow.Tools import create_transition_data_matrix, mc_auc, avg_log_likelihood
 
-from .Systems import SecondOrderDubinsTrailer, sample_trajectories, sample_io_pairs
+from .Systems import Quadcopter, SecondOrderDubinsTrailer, sample_trajectories, sample_io_pairs
 from .Visualization import plot_2d_marginals_over_time, plot_2d_particle_scatter_over_time
 
 import numpy as np
@@ -15,6 +15,7 @@ from scipy.stats import multivariate_normal
 import os
 import time
 import traceback
+from scipy.linear_algebra import block_diag
 
 
 DTYPE = torch.float64
@@ -278,16 +279,37 @@ if __name__ == "__main__":
     #system.kp_theta = 3.0
     #system.kd_theta = 2.0
 
-    system = SecondOrderDubinsTrailer(
-        dt=0.2,
-        L_t=1.0,
-        v_ref=1.0,
-        k_v=1.0,
-        k_theta=2.0,
-        sigma_v=0.1,
-        sigma_omega=0.5,
-        cov_scale=0.5
+    #system = SecondOrderDubinsTrailer(
+    #    dt=0.2,
+    #    L_t=1.0,
+    #    v_ref=1.0,
+    #    k_v=1.0,
+    #    k_theta=2.0,
+    #    sigma_v=0.1,
+    #    sigma_omega=0.5,
+    #    cov_scale=0.5
+    #)
+
+    cov_posvel = 0.03 * np.ones((6, 6))
+    np.fill_diagonal(cov_posvel, 0.06)
+    cov_angles = 0.0005 * np.eye(3)  # further reduce angle noise
+    cov_rates = 0.01 * np.eye(3)     # much lower rate noise to reduce oscillations
+    quad_covariance = block_diag(cov_posvel, cov_angles, cov_rates)
+
+    system = Quadcopter(
+        dt=0.05,
+        waypoint=np.array([15.0, 15.0, 5.0]),
+        thrust_max=30.0,
+        torque_limits=np.array([1.5, 1.5, 0.8]),  
+        covariance=quad_covariance,
     )
+    # Tuning to keep Euler angles moderate and reduce rate oscillations
+    system.c_w = 0.15  # increase angular damping further
+    system.kp_pos = np.array([1.2, 1.2, 2.5])
+    system.kd_pos = np.array([0.8, 0.8, 1.5])
+    system.kp_ang = np.array([2.0, 2.0, 1.5])
+    system.kd_ang = np.array([2.0, 2.0, 1.0])
+    system.rate_filter_alpha = 0.2  # stronger rate smoothing
 
     # Dimension
     dim = system.dim()
@@ -302,30 +324,41 @@ if __name__ == "__main__":
 
     tran_params={
         "min_alpha_beta": 0.00,
-        "max_alpha_beta": 400.0,
+        "max_alpha_beta": 80.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
         "regularization_weight": 1e-4
     }
     init_params={
         "min_alpha_beta": 0.00,
-        "max_alpha_beta": 400.0,
+        "max_alpha_beta": 80.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
         "regularization_weight": 1e-4
     }
 
     # Variance pads
-    variance_pads = [7.2, 7.2, 4.1, 5.2, 5.2, 4.1]
+    variance_pads = [10.0, 10.0, 7.0, 10.0, 10.0, 7.0, 1.0, 1.0, 1.0, 2.5, 2.5, 2.5]
 
     # Time horizon
     training_timesteps = 10
     timesteps = 15
 
     def init_state_sampler():
-        # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
-        mean = np.array([0.0, 0.0, 1.0, 0.0, 10.0, -0.5])
-        cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
+        # 12D state: [px, py, pz, vx, vy, vz, phi, theta, psi, p, q, r]
+        # Preset C initial distribution
+        mean = np.array([
+            -8.0, -8.0, 0.8,
+            10.0, 5.0, 0.0,
+            0.00, 0.00, 0.00,
+            0.0, -0.1, 0.1,
+        ])
+        cov = np.diag([
+            1.5, 1.5, 0.5,
+            6.0, 6.0, 2.5,
+            0.01, 0.01, 0.01,
+            0.35, 0.35, 0.35,
+        ])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
     #io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-5.0, -5.0], region_uppers=[5.0, 5.0])
@@ -337,19 +370,19 @@ if __name__ == "__main__":
 
     u_traj_data_test = [gdt.X_to_U(X_data) for X_data in traj_data_test]
 
-    os.makedirs("figures/sos_6D", exist_ok=True)
+    os.makedirs("figures/sos_12D", exist_ok=True)
     plot_2d_particle_scatter_over_time(u_traj_data_test, (0, 1), "px_pz_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_6D_nag/mc_particles_px_pz.png",
+                                       save_path="figures/sos_12D/mc_particles_px_pz.png",
                                        show_plot=False)
     plot_2d_particle_scatter_over_time(u_traj_data_test, (2, 3), "thetac_thetat_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_6D_nag/mc_particles_thetac_thetat.png",
+                                       save_path="figures/sos_12D/mc_particles_thetac_thetat.png",
                                        show_plot=False)
     plot_2d_particle_scatter_over_time(u_traj_data_test, (4, 5), "v_omega_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_6D_nag/mc_particles_v_omega.png",
+                                       save_path="figures/sos_12D/mc_particles_v_omega.png",
                                        show_plot=False)
 
-    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_6D_nag", num_trials=10, gdt=gdt, n=17, n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, save_figures=True, tran_params=tran_params, init_params=init_params)
+    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_12D", num_trials=10, gdt=gdt, n=18, n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, save_figures=True, tran_params=tran_params, init_params=init_params)
     print(f"Negative log likelihoods: {negative_log_likelihoods}, prop times: {prop_times}")
