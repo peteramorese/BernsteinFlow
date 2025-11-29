@@ -2,7 +2,7 @@
 
 #SBATCH --time=12:00:00
 #SBATCH --mem=20G
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:1
 #SBATCH --output=logs/nf_4D.out
 
