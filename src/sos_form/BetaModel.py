@@ -135,6 +135,7 @@ class BetaSOSModel(SOSModel):
 
     def regularization_loss(self):
         return self.regularization_weight * torch.sum(self.get_phi_params() ** 2 + self.get_psi_params() ** 2)
+        #return self.regularization_weight * torch.abs(torch.sum(self.get_phi_params() + self.get_psi_params()))
 
     def marginalize(self, dims_to_integrate):
         """

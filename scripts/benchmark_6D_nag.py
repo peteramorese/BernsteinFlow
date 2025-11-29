@@ -41,14 +41,14 @@ if __name__ == "__main__":
     #   - "nf"
     # ============================================================================
     methods_to_run = [
-        #"sos",
+        "sos",
         #"gpgmm_ekf",
         #"gpgmm_wsasos",
         #"gpgmm_grid",
         #"true_gmm_ekf",
         #"true_gmm_wsasos",
         #"true_gmm_grid",
-        "nf"
+        #"nf"
     ]
     # ============================================================================
 
@@ -70,6 +70,7 @@ if __name__ == "__main__":
     dim = system.dim()
 
     ###########################################################################################
+    use_gpu = True
 
     # Number of trajectories
     n_traj_train_sos = 4000 
@@ -178,7 +179,7 @@ if __name__ == "__main__":
         # Run SOS experiments
         sos_ll, sos_prop_times = run_trials_sos(
             traj_data_train_sos, traj_data_test, sos_figures_dir, 
-            num_trials=num_trials, gdt=gdt, n=n_sos, 
+            num_trials=num_trials, gdt=gdt, n=n_sos, use_gpu=use_gpu,
             n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, n_epochs_tran_fine=n_epochs_tran_refine,
             tran_params=sos_tran_params, init_params=sos_init_params
         )
@@ -289,7 +290,7 @@ if __name__ == "__main__":
             n_epochs_tran=n_epochs_tran,
             num_layers=8,
             hidden_features=128,
-            use_gpu=True,
+            use_gpu=use_gpu,
             batch_size=512,
             n_added_samples=1,
             gmm_n_components=gmm_n_components_nf
