@@ -54,8 +54,10 @@ class SOSModel(torch.nn.Module):
         if self.conditional:
             assert reference_factor_model is None, "reference_factor_model is currently not allowed for conditional models"
             self.R_uc = torch.nn.Parameter(torch.randn(self.n, self.n))
-            self.phi_params_uc = torch.nn.Parameter(1 * torch.randn(self.n, phi_param_dim))
-            self.psi_params_uc = torch.nn.Parameter(1 * torch.randn(self.n, psi_param_dim)) 
+            #self.phi_params_uc = torch.nn.Parameter(1 * torch.randn(self.n, phi_param_dim))
+            #self.psi_params_uc = torch.nn.Parameter(1 * torch.randn(self.n, psi_param_dim)) 
+            self.phi_params_uc = torch.nn.Parameter(-5*torch.ones(self.n, phi_param_dim))
+            self.psi_params_uc = torch.nn.Parameter(-5*torch.ones(self.n, psi_param_dim)) 
             self.Q_uc = torch.nn.Parameter(torch.randn(self.n, self.n))
         elif fixed_phi_params is not None and fixed_psi_params is not None and fixed_Q is not None and fixed_R is not None:
             self.register_buffer("fp_phi_params", fixed_phi_params)
@@ -73,7 +75,7 @@ class SOSModel(torch.nn.Module):
             #    raise ValueError("Reference R matrix is not PSD")
             self.register_buffer("ref_R", reference_R.detach())
             self.register_buffer("ref_phi_params", reference_factor_model.get_phi_params().detach()) # Add as a buffer instead of trainable parameter
-            self.psi_params_uc = torch.nn.Parameter(1 * torch.randn(self.n, psi_param_dim)) 
+            self.psi_params_uc = torch.nn.Parameter(-5*torch.ones(self.n, psi_param_dim)) 
             self.Q_uc = torch.nn.Parameter(torch.randn(self.n, self.n))
 
         
@@ -389,7 +391,8 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
         model.train()
         optimizer.zero_grad()
         loss, nll_loss, logdet_loss, regularization_loss = model.loss(data)
-        loss.backward()
+        with torch.autograd.set_detect_anomaly(True):
+            loss.backward()
         optimizer.step()
         return loss.item(), nll_loss.item(), logdet_loss.item(), regularization_loss.item()
 

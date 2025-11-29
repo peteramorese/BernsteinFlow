@@ -5,7 +5,7 @@ from sos_form.SumBetaModel import SumBetaSOSModel
 
 from bernstein_flow.Tools import create_transition_data_matrix, mc_auc, avg_log_likelihood
 
-from .Systems import SecondOrderDubinsTrailer, sample_trajectories, sample_io_pairs
+from .Systems import CartPole, sample_trajectories, sample_io_pairs
 from .Visualization import plot_2d_marginals_over_time, plot_2d_particle_scatter_over_time
 
 import numpy as np
@@ -123,7 +123,7 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
             transition_model.to(device=device, dtype=DTYPE)
             trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
             optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran_coarse, print_interval=10)
-            trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
+            trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
             optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=n_epochs_tran_fine, print_interval=10)
             transition_model.to(device=torch.device("cpu"))
             print("Done training transition model\n")
@@ -153,7 +153,7 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
             init_state_model.to(device=device, dtype=DTYPE)
             init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
             optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, print_interval=10)
-            init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-3)
+            init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-4)
             optimize(init_state_model, U0_dataloader_refine, init_optimizer, epochs=n_epochs_tran_fine, print_interval=10)
             init_state_model.to(device=torch.device("cpu"))
             print("Done training init state model\n")
@@ -234,17 +234,25 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
             #                            resolution=60,
             #                            save_path=os.path.join(save_directory, "marginals_theta_omega.png"),
             #                            show_plot=False)
-            plot_2d_marginals_over_time(beliefs, (0, 1), "px_pz",
+            #plot_2d_marginals_over_time(beliefs, (0, 1), "px_pz",
+            #                            resolution=60,
+            #                            save_path=os.path.join(save_directory, "marginals_px_pz.png"),
+            #                            show_plot=False)
+            #plot_2d_marginals_over_time(beliefs, (2, 3), "thetac_thetat",
+            #                            resolution=60,
+            #                            save_path=os.path.join(save_directory, "marginals_thetac_thetat.png"),
+            #                            show_plot=False)
+            #plot_2d_marginals_over_time(beliefs, (4, 5), "v_omega",
+            #                            resolution=60,
+            #                            save_path=os.path.join(save_directory, "marginals_v_omega.png"),
+            #                            show_plot=False)
+            plot_2d_marginals_over_time(beliefs, (0, 1), "cart_pos_cart_vel",
                                         resolution=60,
-                                        save_path=os.path.join(save_directory, "marginals_px_pz.png"),
+                                        save_path=os.path.join(save_directory, "marginals_cart_pos_cart_vel.png"),
                                         show_plot=False)
-            plot_2d_marginals_over_time(beliefs, (2, 3), "thetac_thetat",
+            plot_2d_marginals_over_time(beliefs, (2, 3), "pole_angle_pole_angular_vel",
                                         resolution=60,
-                                        save_path=os.path.join(save_directory, "marginals_thetac_thetat.png"),
-                                        show_plot=False)
-            plot_2d_marginals_over_time(beliefs, (4, 5), "v_omega",
-                                        resolution=60,
-                                        save_path=os.path.join(save_directory, "marginals_v_omega.png"),
+                                        save_path=os.path.join(save_directory, "marginals_pole_angle_pole_angular_vel.png"),
                                         show_plot=False)
             print("Figures saved.\n")
         
@@ -278,15 +286,13 @@ if __name__ == "__main__":
     #system.kp_theta = 3.0
     #system.kd_theta = 2.0
 
-    system = SecondOrderDubinsTrailer(
-        dt=0.2,
-        L_t=1.0,
-        v_ref=1.0,
-        k_v=1.0,
-        k_theta=2.0,
-        sigma_v=0.1,
-        sigma_omega=0.5,
-        cov_scale=0.5
+    system = CartPole(
+        dt=0.05,
+        m_c=2.0,
+        m_p=0.1,
+        l=0.5,
+        g=9.81,
+        covariance=0.01*np.eye(4)
     )
 
     # Dimension
@@ -316,16 +322,24 @@ if __name__ == "__main__":
     }
 
     # Variance pads
-    variance_pads = [7.2, 7.2, 4.1, 5.2, 5.2, 4.1]
+    #variance_pads = [7.2, 7.2, 4.1, 5.2, 5.2, 4.1]
+    variance_pads = [2.0, 2.0, 5.0, 10.0]
 
     # Time horizon
     training_timesteps = 10
     timesteps = 15
 
+    #def init_state_sampler():
+    #    # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
+    #    mean = np.array([0.0, 0.0, 1.0, 0.0, 10.0, -0.5])
+    #    cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
+    #    return multivariate_normal.rvs(mean=mean, cov=cov)
+
+
     def init_state_sampler():
-        # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
-        mean = np.array([0.0, 0.0, 1.0, 0.0, 10.0, -0.5])
-        cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
+        # 4D state: [cart_pos, cart_vel, pole_angle, pole_angular_vel] near equilibrium
+        mean = np.array([0.0, 5.0, 0.0, 0.0])
+        cov = np.diag([0.1, 0.1, 0.1, 0.1])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
     #io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-5.0, -5.0], region_uppers=[5.0, 5.0])
@@ -337,19 +351,14 @@ if __name__ == "__main__":
 
     u_traj_data_test = [gdt.X_to_U(X_data) for X_data in traj_data_test]
 
-    os.makedirs("figures/sos_6D", exist_ok=True)
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (0, 1), "px_pz_particles",
+    os.makedirs("figures/sos_4D", exist_ok=True)
+    plot_2d_particle_scatter_over_time(u_traj_data_test, (0, 1), "cart_pos_cart_vel_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_6D_nag/mc_particles_px_pz.png",
+                                       save_path="figures/sos_4D/mc_particles_cart_pos_cart_vel.png",
                                        show_plot=False)
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (2, 3), "thetac_thetat_particles",
+    plot_2d_particle_scatter_over_time(u_traj_data_test, (2, 3), "pole_angle_pole_angular_vel_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_6D_nag/mc_particles_thetac_thetat.png",
+                                       save_path="figures/sos_4D/mc_particles_pole_angle_pole_angular_vel.png",
                                        show_plot=False)
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (4, 5), "v_omega_particles",
-                                       sample_limit=10000,
-                                       save_path="figures/sos_6D_nag/mc_particles_v_omega.png",
-                                       show_plot=False)
-
-    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_6D_nag", num_trials=10, gdt=gdt, n=17, n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, save_figures=True, tran_params=tran_params, init_params=init_params)
+    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_4D", num_trials=10, gdt=gdt, n=15, n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, save_figures=True, tran_params=tran_params, init_params=init_params)
     print(f"Negative log likelihoods: {negative_log_likelihoods}, prop times: {prop_times}")
