@@ -302,14 +302,14 @@ if __name__ == "__main__":
 
     tran_params={
         "min_alpha_beta": 0.00,
-        "max_alpha_beta": 300.0,
+        "max_alpha_beta": 400.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 4e-4
+        "regularization_weight": 1e-4
     }
     init_params={
         "min_alpha_beta": 0.00,
-        "max_alpha_beta": 300.0,
+        "max_alpha_beta": 400.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
         "regularization_weight": 1e-4
