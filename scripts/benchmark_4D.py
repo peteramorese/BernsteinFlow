@@ -49,7 +49,7 @@ if __name__ == "__main__":
         # "true_gmm_ekf",
         # "true_gmm_wsasos",
         # "true_gmm_grid",
-        # "nf",
+        #"nf",
     ]
     # ============================================================================
 
@@ -83,17 +83,17 @@ if __name__ == "__main__":
     n_epochs_tran = 100
     n_epochs_tran_refine = 100  # reuse coarse epochs for NF / other methods if needed
 
-    # Variance pads (from sos_experiment_TEST4D)
+    # Variance pads 
     variance_pads = [2.0, 2.0, 5.0, 10.0]
 
-    # Time horizon (from sos_experiment_TEST4D)
+    # Time horizon 
     training_timesteps = 10
     timesteps = 15
 
-    # Number of trials (keep same as sos_experiment_TEST4D)
-    num_trials = 10
+    # Number of trials 
+    num_trials = 15
 
-    # SOS model order (from sos_experiment_TEST4D)
+    # SOS model order 
     n_sos = 17
 
     # Number of mixands of NF beliefs
