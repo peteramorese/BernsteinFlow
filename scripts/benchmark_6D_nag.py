@@ -114,14 +114,16 @@ if __name__ == "__main__":
         "max_alpha_beta": 300.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-4
+        "regularization_weight": 1e-4,
+        "initialization_scale": -1.0
     }
     sos_init_params = {
         "min_alpha_beta": 0.00,
         "max_alpha_beta": 300.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-4
+        "regularization_weight": 1e-4,
+        "initialization_scale": -1.0
     }
     ###########################################################################################
 
