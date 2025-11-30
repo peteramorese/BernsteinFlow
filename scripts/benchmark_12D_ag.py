@@ -93,7 +93,7 @@ if __name__ == "__main__":
     n_epochs_tran = 150
     n_epochs_tran_refine = 300
 
-    sos_batch_size = 256
+    sos_batch_size = 1024
     sos_batch_size_refine = 2048
     sos_learning_rate_init = 1e-1
     sos_learning_rate_refine = 1e-3
@@ -106,7 +106,7 @@ if __name__ == "__main__":
     timesteps = 15
 
     # Number of trials
-    num_trials = 15
+    num_trials = 3
     
     n_sos = 18
     
@@ -121,20 +121,20 @@ if __name__ == "__main__":
     n_components_init_wsasos = 10
 
     sos_tran_params = {
-        "min_alpha_beta": 0.2,
-        "max_alpha_beta": 80.0,
+        "min_alpha_beta": 0.1,
+        "max_alpha_beta": 300.0,
         "mu": 0.1,
-        "min_Q_eigval": 1e-8,
-        "regularization_weight": 4e-3,
-        "initialization_scale": -1.0
+        "min_Q_eigval": 1e-5,
+        "regularization_weight": 1e-4,
+        "initialization_scale": -2.0
     }
     sos_init_params = {
-        "min_alpha_beta": 0.2,
-        "max_alpha_beta": 60.0,
+        "min_alpha_beta": 0.1,
+        "max_alpha_beta": 300.0,
         "mu": 0.1,
-        "min_Q_eigval": 1e-8,
-        "regularization_weight": 4e-4,
-        "initialization_scale": -1.0
+        "min_Q_eigval": 1e-5,
+        "regularization_weight": 1e-4,
+        "initialization_scale": -2.0
     }
     ###########################################################################################
 

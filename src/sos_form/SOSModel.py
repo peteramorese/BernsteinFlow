@@ -180,8 +180,10 @@ class SOSModel(torch.nn.Module):
             
 
             # Rescale Q and M to make the nullspace of M non trivial
-            if lambda_M_max < 1e-6:
-                print("lambda_M_max is negative")
+            if lambda_M_max < 1e-8:
+                if lambda_M_max < 0:
+                    print("lambda_M_max is negative")
+                lambda_M_max = 1e-8
             Q = Q_unscaled / lambda_M_max
             M = M / lambda_M_max
 
