@@ -331,7 +331,7 @@ if __name__ == "__main__":
         "mu": 0.1,
         "min_Q_eigval": 1e-5,
         "regularization_weight": 1e-4,
-        "initialization_scale": -2.0
+        "initialization_scale": -1.0
     }
     init_params={
         "min_alpha_beta": 0.1,
@@ -339,7 +339,7 @@ if __name__ == "__main__":
         "mu": 0.1,
         "min_Q_eigval": 1e-5,
         "regularization_weight": 1e-4,
-        "initialization_scale": -2.0
+        "initialization_scale": -1.0
     }
 
     # Variance pads
