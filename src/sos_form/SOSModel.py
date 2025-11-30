@@ -180,10 +180,10 @@ class SOSModel(torch.nn.Module):
             
 
             # Rescale Q and M to make the nullspace of M non trivial
-            if lambda_M_max < 1e-8:
+            if lambda_M_max < 1e-6:
                 if lambda_M_max < 0:
                     print("lambda_M_max is negative")
-                lambda_M_max = 1e-8
+                lambda_M_max = 1e-6
             Q = Q_unscaled / lambda_M_max
             M = M / lambda_M_max
 
@@ -216,14 +216,30 @@ class SOSModel(torch.nn.Module):
 
             return Q, self.ref_R #, torch.tensor(0.0, device=Q.device, dtype=Q.dtype)
 
-    def _project_null(self, A : torch.Tensor, v : torch.Tensor, lam : float = 1e-6):
-        Ax = A @ v                                 # (m,)
-        G  = A @ A.T
-        G  = G + lam * torch.eye(G.shape[-1], device=A.device, dtype=A.dtype)
-        # Cholesky solve
-        L = torch.linalg.cholesky(G)               # (m,m)
-        y = torch.cholesky_solve(Ax.unsqueeze(-1), L).squeeze(-1)  # (m,)
+    def _project_null(self, A: torch.Tensor, v: torch.Tensor, lam: float = 1e-6):
+        Ax = A @ v                            # (m,)
+        G  = A @ A.T                          # (m,m)
+        # Force symmetry
+        G  = 0.5 * (G + G.T)
+
+        # Scale lam relative to G
+        diag_mean = G.diagonal().abs().mean()
+        jitter = lam * (diag_mean if diag_mean > 0 else 1.0)
+
+        eye = torch.eye(G.shape[-1], device=A.device, dtype=A.dtype)
+        G_jittered = G + jitter * eye
+
+        L = torch.linalg.cholesky(G_jittered)                 # (m,m)
+        y = torch.cholesky_solve(Ax.unsqueeze(-1), L).squeeze(-1)
         return v - A.T @ y
+    #def _project_null(self, A : torch.Tensor, v : torch.Tensor, lam : float = 1e-6):
+    #    Ax = A @ v                                 # (m,)
+    #    G  = A @ A.T
+    #    G  = G + lam * torch.eye(G.shape[-1], device=A.device, dtype=A.dtype)
+    #    # Cholesky solve
+    #    L = torch.linalg.cholesky(G)               # (m,m)
+    #    y = torch.cholesky_solve(Ax.unsqueeze(-1), L).squeeze(-1)  # (m,)
+    #    return v - A.T @ y
 
     def forward(self, yx : torch.Tensor, return_log_density : bool = False, Q = None, R = None):
         """
