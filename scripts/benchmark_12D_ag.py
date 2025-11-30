@@ -95,7 +95,6 @@ if __name__ == "__main__":
 
     sos_batch_size = 256
     sos_batch_size_refine = 2048
-
     sos_learning_rate_init = 1e-1
     sos_learning_rate_refine = 1e-3
 
