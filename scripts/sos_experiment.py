@@ -21,19 +21,21 @@ DTYPE = torch.float64
 
 
 def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_epochs_init=100, n_epochs_tran_coarse=100, n_epochs_tran_fine=50,
-               use_gpu=True, batch_size=256, batch_size_refine=2048, save_figures=False, tran_params={
+               use_gpu=True, learning_rate_init=1e-2, learning_rate_refine=1e-3, batch_size=256, batch_size_refine=2048, save_figures=False, tran_params={
                    "min_alpha_beta": 0.1,
                    "max_alpha_beta": 80.0,
                    "mu": 0.1,
                    "min_Q_eigval": 1e-8,
-                   "regularization_weight": 1e-4
+                   "regularization_weight": 1e-4,
+                   "initialization_scale": -1.0
                },
                init_params={
                    "min_alpha_beta": 0.4,
                    "max_alpha_beta": 100.0,
                    "mu": 0.1,
                    "min_Q_eigval": 1e-8,
-                   "regularization_weight": 1e-4
+                   "regularization_weight": 1e-4,
+                   "initialization_scale": -1.0
                }):
     """
     Run multiple trials of training BetaSOSModels, belief propagation, and evaluation.
@@ -121,10 +123,10 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
         try:
             print("Training transition model...")
             transition_model.to(device=device, dtype=DTYPE)
-            trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
-            optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran_coarse, print_interval=10)
-            trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
-            optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=n_epochs_tran_fine, print_interval=10)
+            trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=learning_rate_init)
+            optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran_coarse, print_interval=10, not_psd_threshold=10)
+            trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=learning_rate_refine)
+            optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=n_epochs_tran_fine, print_interval=10, not_psd_threshold=10)
             transition_model.to(device=torch.device("cpu"))
             print("Done training transition model\n")
         except Exception as e:
@@ -151,10 +153,10 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
         try:
             print("Training init state model...")
             init_state_model.to(device=device, dtype=DTYPE)
-            init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
-            optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, print_interval=10)
-            init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-3)
-            optimize(init_state_model, U0_dataloader_refine, init_optimizer, epochs=n_epochs_tran_fine, print_interval=10)
+            init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=learning_rate_init)
+            optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, print_interval=10, not_psd_threshold=10)
+            init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=learning_rate_refine)
+            optimize(init_state_model, U0_dataloader_refine, init_optimizer, epochs=n_epochs_tran_fine, print_interval=10, not_psd_threshold=10)
             init_state_model.to(device=torch.device("cpu"))
             print("Done training init state model\n")
         except Exception as e:

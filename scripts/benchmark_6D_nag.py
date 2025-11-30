@@ -83,6 +83,9 @@ if __name__ == "__main__":
     n_epochs_tran = 150
     n_epochs_tran_refine = 300
 
+    sos_learning_rate_init = 1e-1
+    sos_learning_rate_refine = 1e-3
+
     # Variance pads
     variance_pads = [7.2, 7.2, 4.1, 5.2, 5.2, 4.1]
 
@@ -181,7 +184,8 @@ if __name__ == "__main__":
             traj_data_train_sos, traj_data_test, sos_figures_dir, 
             num_trials=num_trials, gdt=gdt, n=n_sos, use_gpu=use_gpu,
             n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, n_epochs_tran_fine=n_epochs_tran_refine,
-            tran_params=sos_tran_params, init_params=sos_init_params
+            tran_params=sos_tran_params, init_params=sos_init_params,
+            learning_rate_init=sos_learning_rate_init, learning_rate_refine=sos_learning_rate_refine
         )
 
     # Run GPGMM experiments with different propagation methods
@@ -307,6 +311,7 @@ if __name__ == "__main__":
         "n_traj_test": int(n_traj_test),
         "n_epochs_init": int(n_epochs_init),
         "n_epochs_tran": int(n_epochs_tran),
+        "n_epochs_tran_refine": int(n_epochs_tran_refine),
         "timesteps": int(timesteps),
         "num_trials": int(num_trials),
         "grid_resolution": int(grid_resolution),

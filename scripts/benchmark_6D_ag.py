@@ -73,8 +73,10 @@ if __name__ == "__main__":
     n_epochs_tran = 150
     n_epochs_tran_refine = 300
 
-    sos_batch_size = 512
+    sos_batch_size = 1024
     sos_batch_size_refine = 2048
+    sos_learning_rate_init = 1e-1
+    sos_learning_rate_refine = 1e-3
 
     # Variance pads
     variance_pads = [5.2, 5.2, 3.1, 5.2, 5.2, 3.1]
@@ -106,14 +108,16 @@ if __name__ == "__main__":
         "max_alpha_beta": 100.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-4
+        "regularization_weight": 1e-4,
+        "initialization_scale": -1.0
     }
     sos_init_params = {
         "min_alpha_beta": 0.1,
         "max_alpha_beta": 100.0,
         "mu": 0.05,
         "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-4
+        "regularization_weight": 1e-4,
+        "initialization_scale": -1.0
     }
     ###########################################################################################
 
@@ -177,7 +181,8 @@ if __name__ == "__main__":
             traj_data_train_sos, traj_data_test, sos_figures_dir, 
             num_trials=num_trials, gdt=gdt, n=n_sos, batch_size=sos_batch_size, batch_size_refine=sos_batch_size_refine,
             n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, n_epochs_tran_fine=n_epochs_tran_refine,
-            tran_params=sos_tran_params, init_params=sos_init_params
+            tran_params=sos_tran_params, init_params=sos_init_params,
+            learning_rate_init=sos_learning_rate_init, learning_rate_refine=sos_learning_rate_refine
         )
 
     # Run GPGMM experiments with different propagation methods
@@ -303,6 +308,7 @@ if __name__ == "__main__":
         "n_traj_test": int(n_traj_test),
         "n_epochs_init": int(n_epochs_init),
         "n_epochs_tran": int(n_epochs_tran),
+        "n_epochs_tran_refine": int(n_epochs_tran_refine),
         "timesteps": int(timesteps),
         "num_trials": int(num_trials),
         "grid_resolution": int(grid_resolution),

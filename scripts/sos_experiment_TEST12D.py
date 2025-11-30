@@ -122,7 +122,7 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
         try:
             print("Training transition model...")
             transition_model.to(device=device, dtype=DTYPE)
-            trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
+            trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
             optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran_coarse, print_interval=1, not_psd_threshold=10)
             trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
             optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=n_epochs_tran_fine, print_interval=10, not_psd_threshold=10)
@@ -152,7 +152,7 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
         try:
             print("Training init state model...")
             init_state_model.to(device=device, dtype=DTYPE)
-            init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
+            init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-1)
             optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, print_interval=10, not_psd_threshold=10)
             init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-3)
             optimize(init_state_model, U0_dataloader_refine, init_optimizer, epochs=n_epochs_tran_fine, print_interval=10, not_psd_threshold=10)
