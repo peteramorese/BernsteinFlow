@@ -22,6 +22,7 @@ class SOSModel(torch.nn.Module):
                 fixed_psi_params = None,
                 fixed_Q = None,
                 fixed_R = None,
+                initialization_scale : float = -1.0,
                 ):
         """
         SOS form conditional density model for p(y | x)
@@ -56,8 +57,8 @@ class SOSModel(torch.nn.Module):
             self.R_uc = torch.nn.Parameter(torch.randn(self.n, self.n))
             #self.phi_params_uc = torch.nn.Parameter(1 * torch.randn(self.n, phi_param_dim))
             #self.psi_params_uc = torch.nn.Parameter(1 * torch.randn(self.n, psi_param_dim)) 
-            self.phi_params_uc = torch.nn.Parameter(-5*torch.ones(self.n, phi_param_dim))
-            self.psi_params_uc = torch.nn.Parameter(-5*torch.ones(self.n, psi_param_dim)) 
+            self.phi_params_uc = torch.nn.Parameter(initialization_scale*torch.ones(self.n, phi_param_dim))
+            self.psi_params_uc = torch.nn.Parameter(initialization_scale*torch.ones(self.n, psi_param_dim)) 
             self.Q_uc = torch.nn.Parameter(torch.randn(self.n, self.n))
         elif fixed_phi_params is not None and fixed_psi_params is not None and fixed_Q is not None and fixed_R is not None:
             self.register_buffer("fp_phi_params", fixed_phi_params)
@@ -179,7 +180,7 @@ class SOSModel(torch.nn.Module):
             
 
             # Rescale Q and M to make the nullspace of M non trivial
-            if lambda_M_max < 0:
+            if lambda_M_max < 1e-6:
                 print("lambda_M_max is negative")
             Q = Q_unscaled / lambda_M_max
             M = M / lambda_M_max
@@ -255,7 +256,7 @@ class SOSModel(torch.nn.Module):
             # Compute density in log space
             log_density = torch.log(f + 1e-7) + torch.log(g_y) - torch.log(g_x) 
             if torch.any(torch.isnan(log_density)) or torch.any(torch.isinf(log_density)):
-                print("log_density is nan or inf. g_x: ", g_x)
+                print("(conditional) log_density is nan or inf. g_x: ", g_x)
         else:
             assert yx.shape[1] == self.dy
             y = yx
@@ -271,6 +272,13 @@ class SOSModel(torch.nn.Module):
 
             # Compute density in log space
             log_density = torch.log(f) + torch.log(g_y)
+            if torch.any(torch.isnan(log_density)) or torch.any(torch.isinf(log_density)):
+                print("(belief) log_density is nan or inf.")
+                print("f vals: ", f.min(), f.max())
+                print("g_y vals: ", g_y.min(), g_y.max())
+                print("psi_y_vals vals: ", psi_y_vals.min(), psi_y_vals.max())
+                print("phi_y_vals vals: ", phi_y_vals.min(), phi_y_vals.max())
+                print("Q vals: ", Q.min(), Q.max())
 
         if return_log_density:
             torch.clamp(log_density, min=-50, max=100)
@@ -384,7 +392,8 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
              epochs=100, 
              log_buffer_size=20, 
              use_best=True,
-             print_interval=None):
+             print_interval=None,
+             not_psd_threshold=None):
     torch.autograd.set_detect_anomaly(True)
 
     def train_step(data):
@@ -399,6 +408,7 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
     stdout_buffer = []
     best_loss = float("inf")
     best_state = None
+    consecutive_not_psd = 0
 
     for epoch in range(epochs):
         start_time = time.time()
@@ -428,17 +438,33 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
         avg_regularization_loss = regularization_loss_val / len(data_loader)
         #avg_M_rank_loss = M_rank_loss_val / len(data_loader)
         is_psd = model.is_psd()
+        
+        # --- Track consecutive non-PSD iterations ---
+        if is_psd:
+            consecutive_not_psd = 0
+        else:
+            consecutive_not_psd += 1
+        
+        # --- Reset to best state if threshold exceeded ---
+        if not_psd_threshold is not None and consecutive_not_psd >= not_psd_threshold and best_state is not None:
+            model.load_state_dict(best_state)
+            consecutive_not_psd = 0  # Reset counter after restoring
+            print(f"[Epoch {epoch+1}] Reset to best model after {not_psd_threshold} consecutive non-PSD iterations (best NLL loss={best_loss:.4f})")
+        
         # --- Save best model in RAM ---
         if use_best and avg_nll_loss < best_loss and is_psd:
             best_loss = avg_nll_loss
             best_state = copy.deepcopy(model.state_dict())
 
+        psd_info = f"PSD: {is_psd}"
+        if not_psd_threshold is not None:
+            psd_info += f", nPSD streak: {consecutive_not_psd}/{not_psd_threshold}"
         line = (f"Epoch {epoch+1}: Avg: {avg_loss:.4f}, "
                 f"NLL: {avg_nll_loss:.4f}, "
                 f"LDB: {avg_constraint_loss:.4f}, "
                 f"Reg: {avg_regularization_loss:.4f}, "
                 #f"M Rank: {avg_M_rank_loss:.4f}, "
-                f"PSD: {is_psd}, "
+                f"{psd_info}, "
                 f"time: {time.time() - start_time:.3f}")
 
         if print_interval is not None:

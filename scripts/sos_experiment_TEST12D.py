@@ -15,7 +15,7 @@ from scipy.stats import multivariate_normal
 import os
 import time
 import traceback
-from scipy.linear_algebra import block_diag
+from scipy.linalg import block_diag
 
 
 DTYPE = torch.float64
@@ -123,9 +123,9 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
             print("Training transition model...")
             transition_model.to(device=device, dtype=DTYPE)
             trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
-            optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran_coarse, print_interval=10)
+            optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran_coarse, print_interval=1, not_psd_threshold=10)
             trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
-            optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=n_epochs_tran_fine, print_interval=10)
+            optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=n_epochs_tran_fine, print_interval=10, not_psd_threshold=10)
             transition_model.to(device=torch.device("cpu"))
             print("Done training transition model\n")
         except Exception as e:
@@ -153,9 +153,9 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
             print("Training init state model...")
             init_state_model.to(device=device, dtype=DTYPE)
             init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
-            optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, print_interval=10)
+            optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, print_interval=10, not_psd_threshold=10)
             init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-3)
-            optimize(init_state_model, U0_dataloader_refine, init_optimizer, epochs=n_epochs_tran_fine, print_interval=10)
+            optimize(init_state_model, U0_dataloader_refine, init_optimizer, epochs=n_epochs_tran_fine, print_interval=10, not_psd_threshold=10)
             init_state_model.to(device=torch.device("cpu"))
             print("Done training init state model\n")
         except Exception as e:
@@ -235,17 +235,17 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
             #                            resolution=60,
             #                            save_path=os.path.join(save_directory, "marginals_theta_omega.png"),
             #                            show_plot=False)
-            plot_2d_marginals_over_time(beliefs, (0, 1), "px_pz",
+            plot_2d_marginals_over_time(beliefs, (0, 1), "px_py",
                                         resolution=60,
-                                        save_path=os.path.join(save_directory, "marginals_px_pz.png"),
+                                        save_path=os.path.join(save_directory, "marginals_px_py.png"),
                                         show_plot=False)
-            plot_2d_marginals_over_time(beliefs, (2, 3), "thetac_thetat",
+            plot_2d_marginals_over_time(beliefs, (3, 4), "vx_vy",
                                         resolution=60,
-                                        save_path=os.path.join(save_directory, "marginals_thetac_thetat.png"),
+                                        save_path=os.path.join(save_directory, "marginals_vx_vy.png"),
                                         show_plot=False)
-            plot_2d_marginals_over_time(beliefs, (4, 5), "v_omega",
+            plot_2d_marginals_over_time(beliefs, (9, 10), "p_q",
                                         resolution=60,
-                                        save_path=os.path.join(save_directory, "marginals_v_omega.png"),
+                                        save_path=os.path.join(save_directory, "marginals_p_q.png"),
                                         show_plot=False)
             print("Figures saved.\n")
         
@@ -268,7 +268,7 @@ if __name__ == "__main__":
     #    covariance=0.05 * np.eye(6), 
     #    waypoint=np.array([5.0, 5.0]),
     #    m=1.0,
-    #    I=0.03,
+    #    I=0.03,a
     #    ell=0.2,
     #    g=9.81,
     #    c_v=0.05,
@@ -316,25 +316,30 @@ if __name__ == "__main__":
 
     # Number of trajectories
     n_traj_train = 1000 #4000
-    n_traj_test = 10000
+    n_traj_test = 1000
 
     # Number of training epochs
-    n_epochs_init = 200
+    n_epochs_init = 100
     n_epochs_tran = 100
 
+    batch_size = 1024
+    batch_size_refine = 2048
+
     tran_params={
-        "min_alpha_beta": 0.00,
-        "max_alpha_beta": 80.0,
-        "mu": 0.05,
-        "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-4
+        "min_alpha_beta": 0.1,
+        "max_alpha_beta": 200.0,
+        "mu": 0.1,
+        "min_Q_eigval": 1e-5,
+        "regularization_weight": 1e-4,
+        "initialization_scale": -2.0
     }
     init_params={
-        "min_alpha_beta": 0.00,
-        "max_alpha_beta": 80.0,
-        "mu": 0.05,
-        "min_Q_eigval": 1e-8,
-        "regularization_weight": 1e-4
+        "min_alpha_beta": 0.1,
+        "max_alpha_beta": 200.0,
+        "mu": 0.1,
+        "min_Q_eigval": 1e-5,
+        "regularization_weight": 1e-4,
+        "initialization_scale": -2.0
     }
 
     # Variance pads
@@ -375,14 +380,14 @@ if __name__ == "__main__":
                                        sample_limit=10000,
                                        save_path="figures/sos_12D/mc_particles_px_pz.png",
                                        show_plot=False)
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (2, 3), "thetac_thetat_particles",
+    plot_2d_particle_scatter_over_time(u_traj_data_test, (3, 4), "vx_vy_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_12D/mc_particles_thetac_thetat.png",
+                                       save_path="figures/sos_12D/mc_particles_vx_vy.png",
                                        show_plot=False)
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (4, 5), "v_omega_particles",
+    plot_2d_particle_scatter_over_time(u_traj_data_test, (9, 10), "p_q_particles",
                                        sample_limit=10000,
-                                       save_path="figures/sos_12D/mc_particles_v_omega.png",
+                                       save_path="figures/sos_12D/mc_particles_p_q.png",
                                        show_plot=False)
 
-    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_12D", num_trials=10, gdt=gdt, n=18, n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, save_figures=True, tran_params=tran_params, init_params=init_params)
+    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_12D", num_trials=10, gdt=gdt, n=20, n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, save_figures=True, tran_params=tran_params, init_params=init_params, batch_size=batch_size, batch_size_refine=batch_size_refine)
     print(f"Negative log likelihoods: {negative_log_likelihoods}, prop times: {prop_times}")
