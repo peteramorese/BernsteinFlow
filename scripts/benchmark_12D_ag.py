@@ -83,10 +83,10 @@ if __name__ == "__main__":
     ###########################################################################################
 
     # Number of trajectories
-    n_traj_train_sos = 4000 
+    n_traj_train_sos = 1000 #4000 
     n_traj_train_gpgmm = 400
     n_traj_train_nf = 4000  # NF uses same amount as SOS
-    n_traj_test = 1000
+    n_traj_test = 10000
 
     # Number of training epochs
     n_epochs_init = 200

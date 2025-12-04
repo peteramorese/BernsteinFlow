@@ -196,7 +196,6 @@ class SOSModel(torch.nn.Module):
 
             R_proj = r_proj_vec.reshape(n, n)
 
-            # Optional: symmetrize (can be omitted if E4, Q are guaranteed symmetric)
             R_proj = 0.5 * (R_proj + R_proj.T)
 
             return Q, R_proj #, lambda_M_vals
@@ -274,7 +273,14 @@ class SOSModel(torch.nn.Module):
             # Compute density in log space
             log_density = torch.log(f + 1e-7) + torch.log(g_y) - torch.log(g_x) 
             if torch.any(torch.isnan(log_density)) or torch.any(torch.isinf(log_density)):
-                print("(conditional) log_density is nan or inf. g_x: ", g_x)
+                print("(conditional) log_density is nan or inf.")
+                print("    f vals: ", f.min().item(), f.max().item())
+                print("    g_y vals: ", g_y.min().item(), g_y.max().item())
+                print("    g_x vals: ", g_x.min().item(), g_x.max().item())
+                print("    psi_y_vals vals: ", psi_y_vals.min().item(), psi_y_vals.max().item())
+                print("    phi_y_vals vals: ", phi_y_vals.min().item(), phi_y_vals.max().item())
+                print("    Q vals: ", Q.min().item(), Q.max().item())
+                print("    R vals: ", R.min().item(), R.max().item())
         else:
             assert yx.shape[1] == self.dy
             y = yx
@@ -292,11 +298,12 @@ class SOSModel(torch.nn.Module):
             log_density = torch.log(f) + torch.log(g_y)
             if torch.any(torch.isnan(log_density)) or torch.any(torch.isinf(log_density)):
                 print("(belief) log_density is nan or inf.")
-                print("f vals: ", f.min(), f.max())
-                print("g_y vals: ", g_y.min(), g_y.max())
-                print("psi_y_vals vals: ", psi_y_vals.min(), psi_y_vals.max())
-                print("phi_y_vals vals: ", phi_y_vals.min(), phi_y_vals.max())
-                print("Q vals: ", Q.min(), Q.max())
+                print("    f vals: ", f.min().item(), f.max().item())
+                print("    g_y vals: ", g_y.min().item(), g_y.max().item())
+                print("    psi_y_vals vals: ", psi_y_vals.min().item(), psi_y_vals.max().item())
+                print("    phi_y_vals vals: ", phi_y_vals.min().item(), phi_y_vals.max().item())
+                print("    Q vals: ", Q.min().item(), Q.max().item())
+                print("    R vals: ", R.min().item(), R.max().item())
 
         if return_log_density:
             torch.clamp(log_density, min=-50, max=100)
@@ -454,11 +461,14 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
         avg_nll_loss = nll_loss_val / len(data_loader)
         if avg_nll_loss < -20.0:
             print("System is unstable")
-            print("phi params: ", model.get_phi_params())
-            print("psi params: ", model.get_psi_params())
-            print("Q: ", model.get_QR_matrices()[0])
-            print("R: ", model.get_QR_matrices()[1])
-            input("...")
+            phi_params = model.get_phi_params()
+            psi_params = model.get_psi_params()
+            Q, R = model.get_QR_matrices()
+            print("phi params: ", torch.min(phi_params).item(), torch.max(phi_params).item())
+            print("psi params: ", torch.min(psi_params).item(), torch.max(psi_params).item())
+            print("Q: ", torch.min(Q).item(), torch.max(Q).item())
+            print("R: ", torch.min(R).item(), torch.max(R).item())
+
         avg_constraint_loss = constraint_loss_val / len(data_loader)
         avg_regularization_loss = regularization_loss_val / len(data_loader)
         #avg_M_rank_loss = M_rank_loss_val / len(data_loader)
