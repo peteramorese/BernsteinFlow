@@ -21,6 +21,22 @@ from scipy.linalg import block_diag
 DTYPE = torch.float64
 
 
+def print_num_parameters(model, model_name="Model"):
+    """
+    Print the number of parameters in a PyTorch model.
+    
+    Parameters:
+    -----------
+    model : torch.nn.Module
+        The PyTorch model to count parameters for.
+    model_name : str
+        Name of the model to display in the output (default: "Model").
+    """
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"{model_name} - Total parameters: {total_params:,}, Trainable parameters: {trainable_params:,}")
+
+
 def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_epochs_init=100, n_epochs_tran_coarse=100, n_epochs_tran_fine=50,
                use_gpu=True, batch_size=256, batch_size_refine=2048, save_figures=False, tran_params={
                    "min_alpha_beta": 0.1,
@@ -121,13 +137,15 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
         
         try:
             print("Training transition model...")
+            print_num_parameters(transition_model, "Transition model")
+            print()
             transition_model.to(device=device, dtype=DTYPE)
-            trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
+            trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
             optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran_coarse, print_interval=1, not_psd_threshold=10)
             trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
             optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=n_epochs_tran_fine, print_interval=10, not_psd_threshold=10)
             transition_model.to(device=torch.device("cpu"))
-            print("Done training transition model\n")
+            print("Done training transition model")
         except Exception as e:
             print(f"Error during transition model training on trial {trial + 1}: {e}")
             print("Full traceback:")
@@ -152,7 +170,7 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
         try:
             print("Training init state model...")
             init_state_model.to(device=device, dtype=DTYPE)
-            init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-1)
+            init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
             optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, print_interval=10, not_psd_threshold=10)
             init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-3)
             optimize(init_state_model, U0_dataloader_refine, init_optimizer, epochs=n_epochs_tran_fine, print_interval=10, not_psd_threshold=10)
@@ -315,8 +333,8 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj_train = 1000 #4000
-    n_traj_test = 1000
+    n_traj_train = 4000 #4000
+    n_traj_test = 10000
 
     # Number of training epochs
     n_epochs_init = 100

@@ -452,6 +452,13 @@ def optimize(model : SOSModel, data_loader : DataLoader, optimizer,
 
         avg_loss = total_loss / len(data_loader)
         avg_nll_loss = nll_loss_val / len(data_loader)
+        if avg_nll_loss < -20.0:
+            print("System is unstable")
+            print("phi params: ", model.get_phi_params())
+            print("psi params: ", model.get_psi_params())
+            print("Q: ", model.get_QR_matrices()[0])
+            print("R: ", model.get_QR_matrices()[1])
+            input("...")
         avg_constraint_loss = constraint_loss_val / len(data_loader)
         avg_regularization_loss = regularization_loss_val / len(data_loader)
         #avg_M_rank_loss = M_rank_loss_val / len(data_loader)

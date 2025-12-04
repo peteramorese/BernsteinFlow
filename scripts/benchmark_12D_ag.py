@@ -95,7 +95,7 @@ if __name__ == "__main__":
 
     sos_batch_size = 1024
     sos_batch_size_refine = 2048
-    sos_learning_rate_init = 1e-1
+    sos_learning_rate_init = 1e-2
     sos_learning_rate_refine = 1e-3
 
     # Variance pads
@@ -126,7 +126,7 @@ if __name__ == "__main__":
         "mu": 0.1,
         "min_Q_eigval": 1e-5,
         "regularization_weight": 1e-4,
-        "initialization_scale": -0.8
+        "initialization_scale": -1.0
     }
     sos_init_params = {
         "min_alpha_beta": 0.1,
@@ -134,7 +134,7 @@ if __name__ == "__main__":
         "mu": 0.1,
         "min_Q_eigval": 1e-5,
         "regularization_weight": 1e-4,
-        "initialization_scale": -0.8
+        "initialization_scale": -1.0
     }
     ###########################################################################################
 
