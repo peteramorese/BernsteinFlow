@@ -89,7 +89,7 @@ if __name__ == "__main__":
     n_traj_test = 1000
 
     # Number of training epochs
-    n_epochs_init = 100
+    n_epochs_init = 200
     n_epochs_tran = 150
     n_epochs_tran_refine = 300
 
@@ -106,7 +106,7 @@ if __name__ == "__main__":
     timesteps = 15
 
     # Number of trials
-    num_trials = 3
+    num_trials = 10
     
     n_sos = 20
     
