@@ -170,7 +170,7 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n, n_
         try:
             print("Training init state model...")
             init_state_model.to(device=device, dtype=DTYPE)
-            init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
+            init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-1)
             optimize(init_state_model, U0_dataloader, init_optimizer, epochs=n_epochs_init, print_interval=10, not_psd_threshold=10)
             init_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-3)
             optimize(init_state_model, U0_dataloader_refine, init_optimizer, epochs=n_epochs_tran_fine, print_interval=10, not_psd_threshold=10)
@@ -333,31 +333,32 @@ if __name__ == "__main__":
     dim = system.dim()
 
     # Number of trajectories
-    n_traj_train = 4000 #4000
+    n_traj_train = 1000 #4000
     n_traj_test = 10000
 
     # Number of training epochs
-    n_epochs_init = 100
+    n_epochs_init = 400
     n_epochs_tran = 100
+    n_epochs_refine = 30
 
     batch_size = 1024
     batch_size_refine = 2048
 
     tran_params={
-        "min_alpha_beta": 0.1,
-        "max_alpha_beta": 200.0,
+        "min_alpha_beta": 0.4,
+        "max_alpha_beta": 400.0,
         "mu": 0.1,
         "min_Q_eigval": 1e-5,
         "regularization_weight": 1e-4,
-        "initialization_scale": -1.0
+        "initialization_scale": -4.0
     }
     init_params={
-        "min_alpha_beta": 0.1,
-        "max_alpha_beta": 200.0,
+        "min_alpha_beta": 0.4,
+        "max_alpha_beta": 400.0,
         "mu": 0.1,
         "min_Q_eigval": 1e-5,
         "regularization_weight": 1e-4,
-        "initialization_scale": -1.0
+        "initialization_scale": -3.0
     }
 
     # Variance pads
@@ -407,5 +408,16 @@ if __name__ == "__main__":
                                        save_path="figures/sos_12D/mc_particles_p_q.png",
                                        show_plot=False)
 
-    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_12D", num_trials=10, gdt=gdt, n=20, n_epochs_init=n_epochs_init, n_epochs_tran_coarse=n_epochs_tran, save_figures=True, tran_params=tran_params, init_params=init_params, batch_size=batch_size, batch_size_refine=batch_size_refine)
+    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/sos_12D", 
+        num_trials=10, 
+        gdt=gdt, 
+        n=20, 
+        n_epochs_init=n_epochs_init, 
+        n_epochs_tran_coarse=n_epochs_tran, 
+        n_epochs_tran_fine=n_epochs_refine, 
+        save_figures=True, 
+        tran_params=tran_params, 
+        init_params=init_params, 
+        batch_size=batch_size, 
+        batch_size_refine=batch_size_refine)
     print(f"Negative log likelihoods: {negative_log_likelihoods}, prop times: {prop_times}")
