@@ -121,7 +121,7 @@ if __name__ == "__main__":
     n_components_init_wsasos = 10
 
     sos_tran_params = {
-        "min_alpha_beta": 0.1,
+        "min_alpha_beta": 0.5,
         "max_alpha_beta": 200.0,
         "mu": 0.1,
         "min_Q_eigval": 1e-5,
@@ -129,7 +129,7 @@ if __name__ == "__main__":
         "initialization_scale": -1.0
     }
     sos_init_params = {
-        "min_alpha_beta": 0.1,
+        "min_alpha_beta": 0.5,
         "max_alpha_beta": 200.0,
         "mu": 0.1,
         "min_Q_eigval": 1e-5,
