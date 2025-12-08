@@ -89,15 +89,15 @@ if __name__ == "__main__":
     n_traj_test = 10000
 
     # Number of training epochs
-    n_epochs_init = 1000
-    n_epochs_tran = 150
-    n_epochs_refine = 300
+    n_epochs_init = 400
+    n_epochs_tran = 200
+    n_epochs_refine = 100
 
     sos_batch_size = 1024
     sos_batch_size_refine = 2048
     sos_lr_tran = 1e-2
     sos_lr_init = 1e-1
-    sos_lr_tran_fine = 1e-3
+    sos_lr_tran_fine = 1e-2
     sos_lr_init_fine = 1e-3
 
     # Variance pads
@@ -110,7 +110,7 @@ if __name__ == "__main__":
     # Number of trials
     num_trials = 10
     
-    n_sos = 20
+    n_sos = 24
     
     # Grid method parameters (for 6D: [px, pz, theta, vx, vz, omega])
     # Bounds: [px_min, px_max, pz_min, pz_max, theta_min, theta_max, 
@@ -123,20 +123,20 @@ if __name__ == "__main__":
     n_components_init_wsasos = 10
 
     sos_tran_params = {
-        "min_alpha_beta": 0.4,
+        "min_alpha_beta": 0.6,
         "max_alpha_beta": 400.0,
         "mu": 0.1,
         "min_Q_eigval": 1e-5,
-        "regularization_weight": 1e-4,
-        "initialization_scale": -4.0
+        "regularization_weight": 5e-5,
+        "initialization_scale": -5.0
     }
     sos_init_params = {
-        "min_alpha_beta": 0.3,
+        "min_alpha_beta": 1.0,
         "max_alpha_beta": 400.0,
         "mu": 0.1,
         "min_Q_eigval": 1e-5,
         "regularization_weight": 1e-4,
-        "initialization_scale": -4.0
+        "initialization_scale": -5.0
     }
     ###########################################################################################
 
