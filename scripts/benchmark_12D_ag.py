@@ -89,7 +89,7 @@ if __name__ == "__main__":
     n_traj_test = 10000
 
     # Number of training epochs
-    n_epochs_init = 1000
+    n_epochs_init = 400
     n_epochs_tran = 150
     n_epochs_refine = 300
 
