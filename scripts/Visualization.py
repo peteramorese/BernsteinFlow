@@ -503,11 +503,16 @@ def plot_data_2D(ax : plt.Axes, data : np.ndarray):
     ax.scatter(data[:, 0], data[:, 1], alpha=0.5, s=1)
 
 def plot_2d_marginals_over_time(beliefs_list, keep_pair, pair_name,
-                                resolution=60, save_path=None, show_plot=True):
+                                resolution=60, save_path=None, show_plot=True,
+                                save_separate=False, show_titles=True, show_axes_labels=True):
     """
     Plot 2D marginal densities over time for given dimension pair.
     keep_pair: tuple of two indices to keep (others are integrated out)
     pair_name: string for titles/filenames
+    save_separate: if True and save_path is set, save one figure per time step
+                   (filenames get _t0, _t1, ... before extension).
+    show_titles: if False, omit subplot titles and overall suptitle.
+    show_axes_labels: if False, omit x/y axis labels and tick labels (figure only).
     """
     dim_total = beliefs_list[0].dy
     keep_pair = tuple(int(i) for i in keep_pair)
@@ -527,8 +532,30 @@ def plot_2d_marginals_over_time(beliefs_list, keep_pair, pair_name,
             Z = zz.reshape(resolution, resolution)
             grids.append(Z)
 
-    # Layout
     t = len(beliefs_list)
+
+    if save_separate and save_path is not None:
+        os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+        base, ext = os.path.splitext(save_path)
+        for k, Z in enumerate(grids):
+            fig, ax = plt.subplots(1, 1, figsize=(3.2, 3.0))
+            ax.contourf(XX, YY, Z, levels=30)
+            if show_titles:
+                ax.set_title(f"t={k}")
+            if show_axes_labels:
+                ax.set_xlabel("u[{}]".format(keep_pair[0]))
+                ax.set_ylabel("u[{}]".format(keep_pair[1]))
+            else:
+                ax.tick_params(labelbottom=False, labelleft=False)
+            fig.tight_layout()
+            path_k = base + "_t{:d}".format(k) + ext
+            fig.savefig(path_k, dpi=150)
+            plt.close(fig)
+        if show_plot:
+            plt.show()
+        return
+
+    # Layout: single figure with subplots
     n_cols = min(5, t)
     n_rows = (t + n_cols - 1) // n_cols
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(3.2*n_cols, 3.0*n_rows), squeeze=False)
@@ -536,19 +563,21 @@ def plot_2d_marginals_over_time(beliefs_list, keep_pair, pair_name,
         r = k // n_cols
         c = k % n_cols
         ax = axes[r][c]
-        # Individual color scaling for each subplot
-        cf = ax.contourf(XX, YY, Z, levels=30)
-        ax.set_title(f"t={k}")
-        ax.set_xlabel("u[{}]".format(keep_pair[0]))
-        ax.set_ylabel("u[{}]".format(keep_pair[1]))
-    # Hide unused axes
+        ax.contourf(XX, YY, Z, levels=30)
+        if show_titles:
+            ax.set_title(f"t={k}")
+        if show_axes_labels:
+            ax.set_xlabel("u[{}]".format(keep_pair[0]))
+            ax.set_ylabel("u[{}]".format(keep_pair[1]))
+        else:
+            ax.tick_params(labelbottom=False, labelleft=False)
     for k in range(t, n_rows*n_cols):
         r = k // n_cols
         c = k % n_cols
         axes[r][c].axis('off')
-    fig.suptitle(f"2D marginal over time: {pair_name}")
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
-    # Note: No global colorbar since each subplot has its own scale
+    if show_titles:
+        fig.suptitle(f"2D marginal over time: {pair_name}")
+    fig.tight_layout(rect=[0, 0, 1, 0.96] if show_titles else None)
     if save_path is not None:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         fig.savefig(save_path, dpi=150)
@@ -558,11 +587,18 @@ def plot_2d_marginals_over_time(beliefs_list, keep_pair, pair_name,
         plt.close(fig)
 
 def plot_2d_particle_scatter_over_time(u_traj_list, keep_pair, pair_name,
-                                       sample_limit=None, save_path=None, show_plot=True):
+                                       sample_limit=None, save_path=None, show_plot=True,
+                                       save_separate=False, show_titles=True, show_axes_labels=True,
+                                       particle_size=0.2):
     """
     Plot 2D marginal trajectory particles (in U-space) over time for a given
     pair of state indices. u_traj_list is a list of length T with arrays (N_t, dy).
     keep_pair: tuple of two indices to keep for scatter.
+    save_separate: if True and save_path is set, save one figure per time step
+                   (filenames get _t0, _t1, ... before extension).
+    show_titles: if False, omit subplot titles and overall suptitle.
+    show_axes_labels: if False, omit x/y axis labels and tick labels (figure only).
+    particle_size: marker size for scatter points (passed to matplotlib as s=).
     """
     keep_pair = tuple(int(i) for i in keep_pair)
     T = len(u_traj_list)
@@ -577,10 +613,38 @@ def plot_2d_particle_scatter_over_time(u_traj_list, keep_pair, pair_name,
     x_max = float(np.clip(np.max([x.max() for x in xs_all]), 0.0, 1.0))
     y_min = float(np.clip(np.min([y.min() for y in ys_all]), 0.0, 1.0))
     y_max = float(np.clip(np.max([y.max() for y in ys_all]), 0.0, 1.0))
-    # Ensure some padding
     pad = 0.02
     x_min, x_max = max(0.0, x_min - pad), min(1.0, x_max + pad)
     y_min, y_max = max(0.0, y_min - pad), min(1.0, y_max + pad)
+
+    if save_separate and save_path is not None:
+        os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+        base, ext = os.path.splitext(save_path)
+        for k in range(T):
+            U = u_traj_list[k]
+            if sample_limit is not None and U.shape[0] > sample_limit:
+                idx = np.random.choice(U.shape[0], size=sample_limit, replace=False)
+                Uplot = U[idx]
+            else:
+                Uplot = U
+            fig, ax = plt.subplots(1, 1, figsize=(3.0, 3.0))
+            ax.scatter(Uplot[:, keep_pair[0]], Uplot[:, keep_pair[1]], s=particle_size, alpha=0.5)
+            ax.set_xlim([x_min, x_max])
+            ax.set_ylim([y_min, y_max])
+            if show_titles:
+                ax.set_title(f"t={k}")
+            if show_axes_labels:
+                ax.set_xlabel("u[{}]".format(keep_pair[0]))
+                ax.set_ylabel("u[{}]".format(keep_pair[1]))
+            else:
+                ax.tick_params(labelbottom=False, labelleft=False)
+            fig.tight_layout()
+            path_k = base + "_t{:d}".format(k) + ext
+            fig.savefig(path_k, dpi=150)
+            plt.close(fig)
+        if show_plot:
+            plt.show()
+        return
 
     n_cols = min(5, T)
     n_rows = (T + n_cols - 1) // n_cols
@@ -595,18 +659,23 @@ def plot_2d_particle_scatter_over_time(u_traj_list, keep_pair, pair_name,
         r = k // n_cols
         c = k % n_cols
         ax = axes[r][c]
-        ax.scatter(Uplot[:, keep_pair[0]], Uplot[:, keep_pair[1]], s=3, alpha=0.5)
+        ax.scatter(Uplot[:, keep_pair[0]], Uplot[:, keep_pair[1]], s=particle_size, alpha=0.5)
         ax.set_xlim([x_min, x_max])
         ax.set_ylim([y_min, y_max])
-        ax.set_title(f"t={k}")
-        ax.set_xlabel("u[{}]".format(keep_pair[0]))
-        ax.set_ylabel("u[{}]".format(keep_pair[1]))
+        if show_titles:
+            ax.set_title(f"t={k}")
+        if show_axes_labels:
+            ax.set_xlabel("u[{}]".format(keep_pair[0]))
+            ax.set_ylabel("u[{}]".format(keep_pair[1]))
+        else:
+            ax.tick_params(labelbottom=False, labelleft=False)
     for k in range(T, n_rows*n_cols):
         r = k // n_cols
         c = k % n_cols
         axes[r][c].axis('off')
-    fig.suptitle(f"2D particle scatter over time: {pair_name}")
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    if show_titles:
+        fig.suptitle(f"2D particle scatter over time: {pair_name}")
+    fig.tight_layout(rect=[0, 0, 1, 0.96] if show_titles else None)
     if save_path is not None:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         fig.savefig(save_path, dpi=150)

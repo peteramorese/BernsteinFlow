@@ -5,13 +5,14 @@ from sos_form.SumBetaModel import SumBetaSOSModel
 
 from bernstein_flow.Tools import create_transition_data_matrix, mc_auc, avg_log_likelihood
 
-from .Systems import PlanarQuadrotor, SecondOrderDubinsTrailer, sample_trajectories, sample_io_pairs
+from .Systems import Quadcopter, sample_trajectories, sample_io_pairs
 from .Visualization import plot_2d_marginals_over_time, plot_2d_particle_scatter_over_time
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from scipy.stats import multivariate_normal
+from scipy.linalg import block_diag
 import os
 import time
 import traceback
@@ -248,38 +249,38 @@ def run_trials_sos(train_data, test_data, save_directory, num_trials, gdt, n,
             #                            resolution=60,
             #                            save_path=os.path.join(save_directory, "marginals_theta_omega.png"),
             #                            show_plot=False)
-            plot_2d_marginals_over_time(beliefs, (0, 1), "px_pz",
+            plot_2d_marginals_over_time(beliefs, (0, 1), "px_py",
                                         resolution=60,
-                                        save_path=os.path.join(save_directory, "marginals_px_pz.png"),
+                                        save_path=os.path.join(save_directory, "marginals_px_py.png"),
                                         show_plot=False)
-            plot_2d_marginals_over_time(beliefs, (2, 3), "thetac_thetat",
+            plot_2d_marginals_over_time(beliefs, (3, 4), "vx_vy",
                                         resolution=60,
-                                        save_path=os.path.join(save_directory, "marginals_thetac_thetat.png"),
+                                        save_path=os.path.join(save_directory, "marginals_vx_vy.png"),
                                         show_plot=False)
-            plot_2d_marginals_over_time(beliefs, (4, 5), "v_omega",
+            plot_2d_marginals_over_time(beliefs, (10, 11), "q_r",
                                         resolution=60,
-                                        save_path=os.path.join(save_directory, "marginals_v_omega.png"),
+                                        save_path=os.path.join(save_directory, "marginals_q_r.png"),
                                         show_plot=False)
             # Separate figs
             sep_figs_save_directory = os.path.join(save_directory, "separate_marginals")
             os.makedirs(sep_figs_save_directory, exist_ok=True)
-            plot_2d_marginals_over_time(beliefs, (0, 1), "px_pz",
+            plot_2d_marginals_over_time(beliefs, (0, 1), "px_py",
                                         resolution=60,
-                                        save_path=os.path.join(sep_figs_save_directory, "marginals_px_pz.png"),
+                                        save_path=os.path.join(sep_figs_save_directory, "marginals_px_py.png"),
                                         save_separate=True,
                                         show_titles=False,
                                         show_axes_labels=False,
                                         show_plot=False)
-            plot_2d_marginals_over_time(beliefs, (2, 3), "thetac_thetat",
+            plot_2d_marginals_over_time(beliefs, (3, 4), "vx_vy",
                                         resolution=60,
-                                        save_path=os.path.join(sep_figs_save_directory, "marginals_thetac_thetat.png"),
+                                        save_path=os.path.join(sep_figs_save_directory, "marginals_vx_vy.png"),
                                         save_separate=True,
                                         show_titles=False,
                                         show_axes_labels=False,
                                         show_plot=False)
-            plot_2d_marginals_over_time(beliefs, (4, 5), "v_omega",
+            plot_2d_marginals_over_time(beliefs, (10, 11), "q_r",
                                         resolution=60,
-                                        save_path=os.path.join(sep_figs_save_directory, "marginals_v_omega.png"),
+                                        save_path=os.path.join(sep_figs_save_directory, "marginals_q_r.png"),
                                         save_separate=True,
                                         show_titles=False,
                                         show_axes_labels=False,
@@ -300,32 +301,30 @@ if __name__ == "__main__":
 
     # System model
 
-    system = PlanarQuadrotor(
-        dt=0.03, 
-        covariance=0.05 * np.eye(6), 
-        waypoint=np.array([5.0, 5.0]),
-        m=1.0,
-        I=0.03,
-        ell=0.2,
-        g=9.81,
-        c_v=0.05,
-        c_w=0.12,
-    )
-    system.kp_pos = np.array([1.0, 1.0])
-    system.kd_pos = np.array([0.5, 0.5])
-    system.kp_theta = 3.0
-    system.kd_theta = 2.0
+    cov_posvel = 0.03 * np.ones((6, 6))
+    np.fill_diagonal(cov_posvel, 0.06)
+    cov_angles = 0.0005 * np.eye(3)  # further reduce angle noise
+    cov_rates = 0.01 * np.eye(3)     # much lower rate noise to reduce oscillations
+    quad_covariance = block_diag(cov_posvel, cov_angles, cov_rates)
 
-    #system = SecondOrderDubinsTrailer(
-    #    dt=0.2,
-    #    L_t=1.0,
-    #    v_ref=1.0,
-    #    k_v=1.0,
-    #    k_theta=2.0,
-    #    sigma_v=0.1,
-    #    sigma_omega=0.5,
-    #    cov_scale=0.5
-    #)
+    system = Quadcopter(
+        dt=0.05,
+        waypoint=np.array([15.0, 15.0, 5.0]),
+        thrust_max=30.0,
+        torque_limits=np.array([1.5, 1.5, 0.8]),  
+        covariance=quad_covariance,
+    )
+    # Tuning to keep Euler angles moderate and reduce rate oscillations
+    system.c_w = 0.15  # increase angular damping further
+    system.kp_pos = np.array([1.2, 1.2, 2.5])
+    system.kd_pos = np.array([0.8, 0.8, 1.5])
+    system.kp_ang = np.array([2.0, 2.0, 1.5])
+    system.kd_ang = np.array([2.0, 2.0, 1.0])
+    system.rate_filter_alpha = 0.2  # stronger rate smoothing
+
+    # Dimension
+    dim = system.dim()
+
 
     # Dimension
     dim = system.dim()
@@ -334,55 +333,59 @@ if __name__ == "__main__":
     n_traj_train = 4000 
     n_traj_test = 10000
 
-    n = 17
+    n = 20
 
     # Number of training epochs
-    n_epochs_init = 200
-    n_epochs_tran = 100
-    n_epochs_refine = 50
+    n_epochs_init = 400
+    n_epochs_tran = 150
+    n_epochs_refine = 300
 
     batch_size = 1024
     batch_size_refine = 2048
 
-    lr_tran = 1e-1
+    lr_tran = 1e-2
     lr_tran_fine = 1e-3
     lr_init = 1e-1
     lr_init_fine = 1e-3
     tran_params={
-        "min_alpha_beta": 1.0,
+        "min_alpha_beta": 0.4,
         "max_alpha_beta": 400.0,
-        "mu": 0.05,
-        "min_Q_eigval": 1e-8,
-        "regularization_weight": 3e-4,
-        "initialization_scale": -6.0
+        "mu": 0.1,
+        "min_Q_eigval": 1e-5,
+        "regularization_weight": 1e-4,
+        "initialization_scale": -4.0
     }
     init_params={
-        "min_alpha_beta": 1.0,
+        "min_alpha_beta": 0.3,
         "max_alpha_beta": 400.0,
-        "mu": 0.05,
-        "min_Q_eigval": 1e-8,
-        "regularization_weight": 3e-4,
-        "initialization_scale": -6.0
+        "mu": 0.1,
+        "min_Q_eigval": 1e-5,
+        "regularization_weight": 1e-4,
+        "initialization_scale": -4.0
     }
 
     # Variance pads
-    #variance_pads = [7.2, 7.2, 4.1, 5.2, 5.2, 4.1]
-    variance_pads = [5.2, 5.2, 3.1, 5.2, 5.2, 3.1]
+    variance_pads = [10.0, 10.0, 7.0, 10.0, 10.0, 7.0, 1.0, 1.0, 1.0, 2.5, 2.5, 2.5]
 
     # Time horizon
     training_timesteps = 10
     timesteps = 10
 
-    #def init_state_sampler():
-    #    # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
-    #    mean = np.array([0.0, 0.0, 1.0, 0.0, 10.0, -0.5])
-    #    cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
-    #    return multivariate_normal.rvs(mean=mean, cov=cov)
-
     def init_state_sampler():
-        # 6D state: [px, pz, theta, vx, vz, omega] near hover at origin
-        mean = np.array([0.0, 0.0, 0.4, 10.0, 0.0, 0.0])
-        cov = np.diag([0.1, 0.1, 0.05, 0.1, 0.1, 0.05])
+        # 12D state: [px, py, pz, vx, vy, vz, phi, theta, psi, p, q, r]
+        # Preset C initial distribution
+        mean = np.array([
+            -8.0, -8.0, 0.8,
+            10.0, 5.0, 0.0,
+            0.00, 0.00, 0.00,
+            0.0, -0.1, 0.1,
+        ])
+        cov = np.diag([
+            1.5, 1.5, 0.5,
+            6.0, 6.0, 2.5,
+            0.01, 0.01, 0.01,
+            0.35, 0.35, 0.35,
+        ])
         return multivariate_normal.rvs(mean=mean, cov=cov)
 
     #io_data = sample_io_pairs(system, n_pairs=n_traj * training_timesteps, region_lowers=[-5.0, -5.0], region_uppers=[5.0, 5.0])
@@ -395,43 +398,43 @@ if __name__ == "__main__":
     u_traj_data_test = [gdt.X_to_U(X_data) for X_data in traj_data_test]
 
 
-    os.makedirs("figures/final_figs_6D", exist_ok=True)
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (0, 1), "px_pz_particles",
+    os.makedirs("figures/final_figs_12D", exist_ok=True)
+    plot_2d_particle_scatter_over_time(u_traj_data_test, (0, 1), "px_py_particles",
                                        sample_limit=10000,
-                                       save_path="figures/final_figs_6D/mc_particles_px_pz.png",
+                                       save_path="figures/final_figs_12D/mc_particles_px_pz.png",
                                        show_plot=False)
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (2, 3), "thetac_thetat_particles",
+    plot_2d_particle_scatter_over_time(u_traj_data_test, (3, 4), "vx_vy_particles",
                                        sample_limit=10000,
-                                       save_path="figures/final_figs_6D/mc_particles_thetac_thetat.png",
+                                       save_path="figures/final_figs_12D/mc_particles_vx_vy.png",
                                        show_plot=False)
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (4, 5), "v_omega_particles",
+    plot_2d_particle_scatter_over_time(u_traj_data_test, (10, 11), "q_r_particles",
                                        sample_limit=10000,
-                                       save_path="figures/final_figs_6D/mc_particles_v_omega.png",
-                                       show_plot=False)
-
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (0, 1), "px_pz_particles",
-                                       sample_limit=10000,
-                                       save_path="figures/final_figs_6D/separate_particles/mc_particles_px_pz.png",
-                                       save_separate=True,
-                                       show_titles=False,
-                                       show_axes_labels=False,
-                                       show_plot=False)
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (2, 3), "thetac_thetat_particles",
-                                       sample_limit=10000,
-                                       save_path="figures/final_figs_6D/separate_particles/mc_particles_thetac_thetat.png",
-                                       save_separate=True,
-                                       show_titles=False,
-                                       show_axes_labels=False,
-                                       show_plot=False)
-    plot_2d_particle_scatter_over_time(u_traj_data_test, (4, 5), "v_omega_particles",
-                                       sample_limit=10000,
-                                       save_path="figures/final_figs_6D/separate_particles/mc_particles_v_omega.png",
-                                       save_separate=True,
-                                       show_titles=False,
-                                       show_axes_labels=False,
+                                       save_path="figures/final_figs_12D/mc_particles_q_r.png",
                                        show_plot=False)
 
-    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/final_figs_6D", num_trials=1, gdt=gdt, n=n, n_epochs_init=n_epochs_init, n_epochs_tran=n_epochs_tran, n_epochs_refine=n_epochs_refine, save_figures=True, tran_params=tran_params, init_params=init_params)
+    plot_2d_particle_scatter_over_time(u_traj_data_test, (0, 1), "px_py_particles",
+                                       sample_limit=10000,
+                                       save_path="figures/final_figs_12D/separate_particles/mc_particles_px_py.png",
+                                       save_separate=True,
+                                       show_titles=False,
+                                       show_axes_labels=False,
+                                       show_plot=False)
+    plot_2d_particle_scatter_over_time(u_traj_data_test, (3, 4), "vx_vy_particles",
+                                       sample_limit=10000,
+                                       save_path="figures/final_figs_12D/separate_particles/mc_particles_vx_vy.png",
+                                       save_separate=True,
+                                       show_titles=False,
+                                       show_axes_labels=False,
+                                       show_plot=False)
+    plot_2d_particle_scatter_over_time(u_traj_data_test, (10, 11), "q_r_particles",
+                                       sample_limit=10000,
+                                       save_path="figures/final_figs_12D/separate_particles/mc_particles_q_r.png",
+                                       save_separate=True,
+                                       show_titles=False,
+                                       show_axes_labels=False,
+                                       show_plot=False)
+
+    negative_log_likelihoods, prop_times = run_trials_sos(traj_data_train, traj_data_test, "figures/final_figs_12D", num_trials=1, gdt=gdt, n=n, n_epochs_init=n_epochs_init, n_epochs_tran=n_epochs_tran, n_epochs_refine=n_epochs_refine, save_figures=True, tran_params=tran_params, init_params=init_params)
     print(f"Negative log likelihoods: {negative_log_likelihoods}, prop times: {prop_times}")
     print(f"Average log likelihood: {np.mean(negative_log_likelihoods)}")
     print(f"Average prop time: {np.mean(prop_times)}")

@@ -3,8 +3,6 @@ from bernstein_flow.DistributionTransform import GaussianDistTransform
 from sos_form.SOSModel import optimize
 from sos_form.BetaModel import BetaSOSModel
 from sos_form.SumBetaModel import SumBetaSOSModel
-from sos_form.PowerFunctionModel import PowerFunctionSOSModel
-from sos_form.SignomialModel import SignomialSOSModel
 
 from bernstein_flow.Tools import create_transition_data_matrix, grid_eval, model_u_eval_fcn, model_x_eval_fcn, mc_auc
 
@@ -141,6 +139,7 @@ if __name__ == "__main__":
 
     # System model - Modified for more interesting trajectories
     # Create structured covariance: more position noise, less angular noise
+
     cov_pos = 0.1 * np.eye(2)  # Position noise (px, pz)
     cov_vel = 0.08 * np.eye(2)  # Velocity noise (vx, vz) 
     cov_ang = 0.005 * np.eye(2)  # Angular noise (theta, omega) - much smaller
@@ -162,19 +161,22 @@ if __name__ == "__main__":
     system.c_v = 0.03  # Reduce linear damping for more interesting motion
     system.c_w = 0.05  # Increase angular damping for stability
 
+
+    #system = PlanarQuadrotor(dt=0.01, covariance=0.05 * np.eye(6), waypoint=np.array([5.0, 0.0]))
+
     # Dimension
     dim = system.dim()
 
     # Number of trajectories
-    n_traj = 1000
+    n_traj = 4000
 
     # Number of training epochs
-    n_epochs_init = 10
-    n_epochs_tran = 1000
+    n_epochs_init = 100
+    n_epochs_tran = 150
 
     # Time horizon
-    training_timesteps = 20
-    timesteps = training_timesteps
+    training_timesteps = 10
+    timesteps = 10
 
     def init_state_sampler():
         # 6D state: [px, pz, theta, vx, vz, omega] - More diverse initial conditions
@@ -188,7 +190,7 @@ if __name__ == "__main__":
 
     # Moment match the GDT to all of the data over the whole horizon
     # Updated variance_pads for more interesting trajectories: [px, pz, theta, vx, vz, omega]
-    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[8.0, 6.0, 1.0, 8.0, 3.0, 1.0])
+    gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[5.2, 5.2, 3.1, 5.2, 5.2, 3.1])
     #gdt = GaussianDistTransform.moment_match_data(np.vstack(traj_data), variance_pads=[0.2, 0.2])
 
     u_traj_data = [gdt.X_to_U(X_data) for X_data in traj_data]
@@ -237,43 +239,43 @@ if __name__ == "__main__":
     # Create data loader
     U0_data_torch = torch.tensor(U0_data, dtype=DTYPE)
     U0_dataset = TensorDataset(U0_data_torch)
-    U0_dataloader = DataLoader(U0_dataset, batch_size=256, shuffle=True, pin_memory=use_gpu)
+    U0_dataloader = DataLoader(U0_dataset, batch_size=1024, shuffle=True, pin_memory=use_gpu)
     U0_dataloader_refine = DataLoader(U0_dataset, batch_size=2048, shuffle=True, pin_memory=use_gpu)
 
     Up_data_torch = torch.tensor(Up_data, dtype=DTYPE)
     Up_dataset = TensorDataset(Up_data_torch)
-    Up_dataloader = DataLoader(Up_dataset, batch_size=256, shuffle=True, pin_memory=use_gpu)
+    Up_dataloader = DataLoader(Up_dataset, batch_size=1024, shuffle=True, pin_memory=use_gpu)
     Up_dataloader_refine = DataLoader(Up_dataset, batch_size=2048, shuffle=True, pin_memory=use_gpu)
 
     ## Create initial state and transition models
 
 
-    n = 15
+    n = 17
     #n_terms = 10
-    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.1, max_alpha_beta=80.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-4)
+    transition_model = BetaSOSModel(dy=dim, dx=dim, n=n, min_alpha_beta=0.05, max_alpha_beta=100.0, mu=0.05, min_Q_eigval=1e-8, regularization_weight=1e-4, initialization_scale=-1.0)
     print("Transition model parameters: ", transition_model.n_parameters())
     #transition_model = SumBetaSOSModel(dy=dim, dx=dim, n=n, n_terms=n_terms, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
 
     print("Training transition model...")
     transition_model.to(device=device, dtype=DTYPE)
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-2)
-    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=100)
-    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-4)
-    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=50)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-1)
+    optimize(transition_model, Up_dataloader, trans_optimizer, epochs=n_epochs_tran)
+    trans_optimizer = torch.optim.Adam(transition_model.parameters(), lr=1e-3)
+    optimize(transition_model, Up_dataloader_refine, trans_optimizer, epochs=300)
 
     transition_model.to(device=torch.device("cpu"))
     print("Done training transition model \n")
 
-    init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=1e-4)
+    init_state_model = BetaSOSModel(dy=dim, dx=0, n=n, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.1, max_alpha_beta=100.0, mu=0.05, min_Q_eigval=1e-8, regularization_weight=1e-4, initialization_scale=-1.0)
     print("Init state model parameters: ", init_state_model.n_parameters())
     #init_state_model = SumBetaSOSModel(dy=dim, dx=0, n=n, n_terms=n_terms, conditional=False, reference_factor_model=transition_model, min_alpha_beta=0.4, max_alpha_beta=100.0, mu=0.1, min_Q_eigval=1e-8, regularization_weight=4e-4)
 
     print("Training init state model...")
     init_state_model.to(device=device, dtype=DTYPE)
     trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-2)
-    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=100)
-    trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-4)
-    optimize(init_state_model, U0_dataloader_refine, trans_optimizer, epochs=50)
+    optimize(init_state_model, U0_dataloader, trans_optimizer, epochs=n_epochs_init)
+    trans_optimizer = torch.optim.Adam(init_state_model.parameters(), lr=1e-3)
+    optimize(init_state_model, U0_dataloader_refine, trans_optimizer, epochs=300)
 
     init_state_model.to(device=torch.device("cpu"))
     print("Done training init state model \n")
