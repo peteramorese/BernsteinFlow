@@ -83,15 +83,15 @@ if __name__ == "__main__":
     ###########################################################################################
 
     # Number of trajectories
-    n_traj_train_sos = 1000 #4000 
+    n_traj_train_sos = 4000 #4000 
     n_traj_train_gpgmm = 400
     n_traj_train_nf = 4000  # NF uses same amount as SOS
     n_traj_test = 10000
 
     # Number of training epochs
     n_epochs_init = 400
-    n_epochs_tran = 200
-    n_epochs_refine = 100
+    n_epochs_tran = 100
+    n_epochs_refine = 70
 
     sos_batch_size = 1024
     sos_batch_size_refine = 2048
@@ -110,7 +110,7 @@ if __name__ == "__main__":
     # Number of trials
     num_trials = 10
     
-    n_sos = 24
+    n_sos = 30
     
     # Grid method parameters (for 6D: [px, pz, theta, vx, vz, omega])
     # Bounds: [px_min, px_max, pz_min, pz_max, theta_min, theta_max, 
